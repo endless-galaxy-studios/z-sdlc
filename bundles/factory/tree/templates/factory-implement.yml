@@ -491,6 +491,8 @@ jobs:
       contents: read
     outputs:
       url: ${{ steps.pr.outputs.url }}
+      # The commit pushed to the PR's branch: a gate stop asks for the gate on it.
+      head: ${{ steps.pr.outputs.head }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -545,6 +547,7 @@ jobs:
           set -euo pipefail
           branch="$BRANCH"
           remote="https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git"
+          echo "head=$(cat "$RUNNER_TEMP/out/head")" >> "$GITHUB_OUTPUT"
           if [ -n "$CONTINUE_PR" ]; then
             # A continued execution: fast-forward only, from where the agent started. The PR's description
             # is rewritten only when the deliverable is done (the brief covers every segment).
@@ -607,6 +610,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
           RESULT: ${{ needs.implement.outputs.result }}
           PR_URL: ${{ needs.publish.outputs.url }}
+          PUBLISHED_HEAD: ${{ needs.publish.outputs.head }}
           PLAN: ${{ inputs.plan }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
@@ -668,7 +672,9 @@ jobs:
           # A comparison run reports but doesn't move the issue's state; its siblings are still running.
           if [ -n "$COMPARE" ]; then echo "Comparison run ($COMPARE): $status" >> "$GITHUB_STEP_SUMMARY"; exit 0; fi
           if [ "$status" = awaiting-approval ]; then
-            GH_TOKEN="$READ_TOKEN" gh workflow run factory-gate-request.yml --ref "$DEFAULT_BRANCH" -f pr="$pr_number"
+            # For the commit publish pushed: factory-gate-request.yml refuses it if the branch has moved since.
+            GH_TOKEN="$READ_TOKEN" gh workflow run factory-gate-request.yml --ref "$DEFAULT_BRANCH" -f pr="$pr_number" \
+              -f head="$PUBLISHED_HEAD"
           fi
           case "$status" in
             done) new="" ;;

@@ -3,7 +3,11 @@
 # collects nothing it can't trust; an agent on the strict tier runs /sdlc-revise on the PR's branch and
 # commits locally; publish checks the commits (implement_guard.py, stage revise) and adds them to the
 # branch, fast-forward only; report posts the revision comment with its factory-revise marker. At the
-# limit the issue gets factory:escalated and nothing runs. Stage contract: .github/factory/README.md.
+# limit the issue gets factory:escalated and nothing runs. A revision of an execution PR that leaves nothing
+# open for CD stops before its plan's next production gate (awaiting-approval, design rule D4), as execute
+# does: stop-at-gate (gate_stop.sh) posts the gate tracker and asks factory-gate-request.yml for the gate run
+# CD approves, on the commit the revision pushed.
+# Stage contract: .github/factory/README.md.
 name: factory-revise
 run-name: "factory-revise: PR #${{ inputs.pr }}"
 
@@ -48,6 +52,9 @@ jobs:
       branch: ${{ steps.gate.outputs.branch }}
       base: ${{ steps.gate.outputs.base }}
       revision: ${{ steps.gate.outputs.revision }}
+      # The plan an execution PR executes, and its next gate this PR hasn't passed; empty for a direct fix.
+      plan: ${{ steps.gate.outputs.plan }}
+      next_gate: ${{ steps.gate.outputs.next_gate }}
     steps:
       # The gate check comes from the default branch.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -181,6 +188,8 @@ jobs:
       BRANCH: ${{ needs.gate.outputs.branch }}
       BASE: ${{ needs.gate.outputs.base }}
       REVISION: ${{ needs.gate.outputs.revision }}
+      PLAN: ${{ needs.gate.outputs.plan }}
+      NEXT_GATE: ${{ needs.gate.outputs.next_gate }}
     steps:
       - name: Clean workspace
         shell: bash
@@ -288,12 +297,16 @@ jobs:
           set -euo pipefail
           # Nothing the agent started may outlive its step, and git runs only on a repository that checks out.
           "$CHECKS/agent_job.sh" quiesce
-          printf '%s' "$RESULT" | jq -e '(.status | IN("done", "escalated", "failed")) and (.responses | type == "array")' > /dev/null \
-            || { echo "::error::the agent's result breaks the output rules"; exit 1; }
+          # Only a revision of an execution PR stops at a gate, and only before the plan's next one.
+          printf '%s' "$RESULT" | jq -e '
+            (.status | IN("done", "escalated", "awaiting-approval", "failed")) and (.responses | type == "array")
+            and (.gate | type == "string") and ((.status == "awaiting-approval") == (.gate | test("^G[1-9][0-9]?$")))
+            and (.status != "awaiting-approval" or (env.PLAN != "" and .gate == env.NEXT_GATE))
+          ' > /dev/null || { echo "::error::the agent's result breaks the output rules"; exit 1; }
           status=$(printf '%s' "$RESULT" | jq -r .status)
           echo "status=$status" >> "$GITHUB_OUTPUT"
           # A revision that changed something needs commits on the PR's head, and nothing uncommitted.
-          "$CHECKS/agent_job.sh" bundle "$BASE" "$RUNNER_TEMP/revise/revise.bundle" "$status" done escalated
+          "$CHECKS/agent_job.sh" bundle "$BASE" "$RUNNER_TEMP/revise/revise.bundle" "$status" done escalated awaiting-approval
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always() && steps.package.outputs.bundle == 'yes'
@@ -386,6 +399,8 @@ jobs:
       contents: read
     outputs:
       comment: ${{ steps.check.outputs.comment }}
+      # The commit pushed to the PR's branch: a gate stop asks for the gate on it.
+      head: ${{ steps.check.outputs.head }}
     env:
       BRANCH: ${{ needs.gate.outputs.branch }}
       BASE: ${{ needs.gate.outputs.base }}
@@ -409,6 +424,8 @@ jobs:
           STATS: ${{ needs.revise.outputs.stats }}
           ISSUE: ${{ needs.gate.outputs.issue }}
           REVISION: ${{ needs.gate.outputs.revision }}
+          PLAN: ${{ needs.gate.outputs.plan }}
+          NEXT_GATE: ${{ needs.gate.outputs.next_gate }}
           READ_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -418,6 +435,7 @@ jobs:
           python3 -I .github/factory/implement_guard.py "$RUNNER_TEMP/in/revise.bundle" "$BASE" \
             "$RUNNER_TEMP/result.json" "$ISSUE" "$RUN_URL" "$RUNNER_TEMP/out" revise "$RUNNER_TEMP/stats.json"
           echo "comment=$(base64 -w0 "$RUNNER_TEMP/out/comment.md")" >> "$GITHUB_OUTPUT"
+          echo "head=$(cat "$RUNNER_TEMP/out/head")" >> "$GITHUB_OUTPUT"
 
       - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         id: app
@@ -472,8 +490,52 @@ jobs:
           fi
           gh api -X DELETE "repos/$GH_REPO/issues/$PR/labels/factory:revise" > /dev/null 2>&1 || true
 
+  # What execute's report job does at a gate stop, for a revision that stopped before a gate. Its own job,
+  # after the revision comment: re-running it never posts that comment (and its revision marker) twice, and
+  # every step here can run again.
+  stop-at-gate:
+    needs: [gate, revise, publish, report]
+    if: needs.report.result == 'success' && needs.revise.outputs.status == 'awaiting-approval'
+    runs-on: ubuntu-latest
+    environment: %{environments.writer}
+    timeout-minutes: 5
+    # actions: write only to ask factory-gate-request.yml for a gate run (dispatch advances, D1 rule 2).
+    permissions:
+      actions: write
+      contents: read
+      issues: read
+      pull-requests: read
+    steps:
+      # The gate tracker's renderer (gates.py) comes from the default branch.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: app
+        with:
+          client-id: ${{ vars.FACTORY_APP_CLIENT_ID }}
+          private-key: ${{ secrets.FACTORY_APP_PRIVATE_KEY }}
+          permission-issues: write
+          # Comments and labels on a PR need the pull-requests permission too.
+          permission-pull-requests: write
+
+      - name: Update the gate tracker, label the issue and ask for the gate run
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          READ_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ needs.gate.outputs.issue }}
+          PLAN: ${{ needs.gate.outputs.plan }}
+          NEXT_GATE: ${{ needs.gate.outputs.next_gate }}
+          PUBLISHED_HEAD: ${{ needs.publish.outputs.head }}
+          RESULT: ${{ needs.revise.outputs.result }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: .github/factory/gate_stop.sh
+
   report-failure:
-    needs: [gate, fixtures, revise, publish, report]
+    needs: [gate, fixtures, revise, publish, report, stop-at-gate]
     if: failure()
     runs-on: ubuntu-latest
     environment: %{environments.writer}
@@ -501,7 +563,12 @@ jobs:
           LOST: ${{ needs.revise.outputs.lost }}
           LOST_LOG: ${{ needs.revise.outputs.lost-log }}
           PUBLISH: ${{ needs.publish.result }}
+          STOP: ${{ needs.stop-at-gate.result }}
         run: |
+          if [ "$STOP" = failure ]; then
+            gh api "repos/$GH_REPO/issues/$PR/comments" -f body="Factory revise: the revision is posted, but stopping at the production gate failed ([run]($RUN_URL)): the gate tracker, the issue's label or the gate request; the run says which. Fix the cause, then re-run the run's failed jobs." > /dev/null
+            exit 0
+          fi
           if [ "$GATE" = failure ]; then why="This PR can't be revised by the factory."
           elif [ "$FIXTURES" = failure ]; then why="The fixtures job failed (factory.json's fixtures: restoring or making the test fixtures, or they held the secret)."
           elif [ "$PREPARED" != success ]; then why="Preparing failed: no review comments since the last revision, the branch changes agent configuration, or the test services."

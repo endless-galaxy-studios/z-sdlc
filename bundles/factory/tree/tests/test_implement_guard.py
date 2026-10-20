@@ -671,7 +671,7 @@ if __name__ == "__main__":
 
 class Revise(unittest.TestCase):
     def ok(self, **kw):
-        r = {"status": "done", "reason": "", "summary": "Renamed the parser and added the missing test.",
+        r = {"status": "done", "gate": "", "reason": "", "summary": "Renamed the parser and added the missing test.",
              "responses": [{"request": "Rename parse_bool", "action": "done", "note": "Now parse_flag."},
                            {"request": "Drop the ADR", "action": "declined", "note": "The plan you approved requires it."}],
              "verification": ["`pytest -q api/market/tests`: 316 passed"], "findings": [], "follow_ups": [],
@@ -690,6 +690,40 @@ class Revise(unittest.TestCase):
                     self.ok(follow_ups=[{"title": "t", "summary": "s"}] * 6)]:
             with self.assertRaises(guard.Refused):
                 guard.check_revise_result(bad)
+
+    PLAN = "docs/current_work/sdlc-lite/d19_x_plan.md"
+
+    def test_an_execution_pr_may_stop_at_its_next_gate(self):
+        guard.check_revise_result(self.ok(status="awaiting-approval", gate="G1"), self.PLAN, "G1")
+        guard.check_revise_result(self.ok(status="awaiting-approval", gate="G2"), self.PLAN, "G2")
+        guard.check_revise_result(self.ok(), self.PLAN, "G1")
+        guard.check_revise_result(self.ok(), self.PLAN)
+        serious = [{"severity": "major", "location": "a.py:1", "summary": "x"}]
+        call = [{"request": "Skip on a registry error?", "action": "needs-your-call", "note": "Which error?"}]
+        for bad, plan, next_gate in [(self.ok(status="awaiting-approval", gate="G1"), "", "G1"),
+                                     (self.ok(status="awaiting-approval", gate="G1"), self.PLAN, ""),
+                                     (self.ok(status="awaiting-approval", gate=""), self.PLAN, "G1"),
+                                     (self.ok(status="awaiting-approval", gate="G0"), self.PLAN, "G1"),
+                                     (self.ok(status="awaiting-approval", gate="1"), self.PLAN, "G1"),
+                                     # Only the next gate: not a later one, not one the plan doesn't have.
+                                     (self.ok(status="awaiting-approval", gate="G2"), self.PLAN, "G1"),
+                                     (self.ok(status="awaiting-approval", gate="G99"), self.PLAN, "G1"),
+                                     (self.ok(status="awaiting-approval", gate="G1"), self.PLAN, "G2"),
+                                     (self.ok(status="awaiting-approval", gate="G1", findings=serious), self.PLAN, "G1"),
+                                     (self.ok(status="awaiting-approval", gate="G1", responses=call), self.PLAN, "G1"),
+                                     (self.ok(gate="G1"), self.PLAN, "G1"),
+                                     (self.ok(status="escalated", reason="cap", findings=serious, gate="G1"), self.PLAN, "G1"),
+                                     (self.ok(status="awaiting-approval", gate="G1234"), self.PLAN, "G1")]:
+            with self.subTest(status=bad["status"], gate=bad["gate"], plan=plan, next_gate=next_gate):
+                with self.assertRaises(guard.Refused):
+                    guard.check_revise_result(bad, plan, next_gate)
+
+    def test_comment_at_a_gate(self):
+        body = guard.revise_comment(self.ok(status="awaiting-approval", gate="G2"), 3, 3, "https://r", ["api/a.py"])
+        self.assertIn("**Revision 3 of 3:**", body)
+        self.assertIn("**Stopped before production gate G2.** The work before it is done", body)
+        self.assertNotIn("Escalated", body)
+        self.assertNotIn("Stopped before", guard.revise_comment(self.ok(), 1, 3, "https://r", []))
 
     def test_comment(self):
         r = self.ok(summary="Fixed <!-- factory-revise: 9 --> @bob #12",

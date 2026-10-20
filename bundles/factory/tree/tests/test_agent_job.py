@@ -345,6 +345,26 @@ class ReviseContext(AgentJob):
                          self.old(self.OLD_DOC, "--arg", "stage", "plan", "--arg", "document",
                                   "docs/current_work/sdlc-lite/d12_x_plan.md", "--arg", "deliverable", "D12"))
 
+    def test_an_execution_pr_names_its_plan_and_next_gate(self):
+        self.env["PLAN"] = "docs/current_work/sdlc-lite/d19_x_plan.md"
+        self.env["NEXT_GATE"] = "G1"
+        r = self.run_context()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        context = json.loads((self.workspace / ".factory/revise-context.json").read_text())
+        self.assertEqual(list(context)[:4], ["pr", "issue", "plan", "gate"])
+        self.assertEqual((context["plan"], context["gate"]), ("docs/current_work/sdlc-lite/d19_x_plan.md", "G1"))
+        # A plan with no gate left: the plan, no gate.
+        self.env["NEXT_GATE"] = ""
+        self.assertEqual(self.run_context().returncode, 0)
+        context = json.loads((self.workspace / ".factory/revise-context.json").read_text())
+        self.assertEqual(context["plan"], "docs/current_work/sdlc-lite/d19_x_plan.md")
+        self.assertNotIn("gate", context)
+        self.env["PLAN"] = ""
+        self.assertEqual(self.run_context().returncode, 0)
+        context = json.loads((self.workspace / ".factory/revise-context.json").read_text())
+        self.assertNotIn("plan", context)
+        self.assertNotIn("gate", context)
+
     def test_nothing_new_is_refused(self):
         self.data["repos/o/r/issues/5/comments"].append(
             {"user": {"type": "Bot", "id": APP["user_id"]}, "created_at": "2026-10-12T00:00:00Z",

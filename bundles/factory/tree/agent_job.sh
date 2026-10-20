@@ -23,7 +23,9 @@
 #                       set FACTORY_ADVISOR for --advisor; none switches the advisor tool off
 #   revise-context <merge base> [<stage> <document> <deliverable>]
 #                       (revise stages) CD's review since the last revision, as .factory/revise-context.json
-#                       for the agent; fails when there is none. The document stage names its document.
+#                       for the agent; fails when there is none. The document stage names its document;
+#                       a code PR that executes a plan names the plan and its next gate (PLAN and
+#                       NEXT_GATE, from the gate job).
 # After the agent (D2 rule 4: run only from $CHECKS):
 #   quiesce             no sandbox process may outlive the agent step, and git_guard.sh must pass
 #                       before the job runs git in the agent's repository again
@@ -173,9 +175,10 @@ case "$cmd" in
     gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" --jq .body > "$RUNNER_TEMP/body.md"
     jq -n --arg pr "$PR" --arg issue "$ISSUE_NUMBER" --arg branch "$BRANCH" --arg base "$BASE" \
           --arg merge_base "$merge_base" --arg revision "$REVISION" --arg limit "$REVISION_LIMIT" \
-          --arg stage "$stage" --arg document "$document" --arg deliverable "$deliverable" \
-          --rawfile body "$RUNNER_TEMP/body.md" --slurpfile requests "$RUNNER_TEMP/requests.json" \
+          --arg stage "$stage" --arg document "$document" --arg deliverable "$deliverable" --arg plan "${PLAN:-}" \
+          --arg gate "${NEXT_GATE:-}" --rawfile body "$RUNNER_TEMP/body.md" --slurpfile requests "$RUNNER_TEMP/requests.json" \
       '{pr: ($pr | tonumber), issue: ($issue | tonumber)}
+       + (if $plan == "" then {} else {plan: $plan} end) + (if $gate == "" then {} else {gate: $gate} end)
        + (if $stage == "" then {} else {stage: $stage, document: $document, deliverable: $deliverable} end)
        + {branch: $branch, base: $base, merge_base: $merge_base,
           revision: ($revision | tonumber), limit: ($limit | tonumber), body: $body, requests: $requests[0]}' \

@@ -5,8 +5,9 @@
 # Usage: revise_gate.sh <code|doc>
 # Environment: PR, REQUESTER, REVISION_LIMIT, RUN_URL, GH_REPO; GH_TOKEN (the job's read-only token)
 # and APP_TOKEN (the App's issues token: the requester notice, the limit comment and the labels).
-# Writes proceed=true and the PR's facts to $GITHUB_OUTPUT when the revision may run; proceed=false
-# otherwise. Exits 1 when the PR isn't one this stage revises.
+# Writes proceed=true and the PR's facts to $GITHUB_OUTPUT when the revision may run (for a code PR, the
+# plan it executes and that plan's next gate, if any); proceed=false otherwise. Exits 1 when the PR isn't
+# one this stage revises.
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -48,6 +49,53 @@ if [ "$kind" = doc ]; then
     *) skill=sdlc-plan ;;
   esac
   deliverable=$(basename "$docs" | sed -E 's/^d([0-9]+[a-z]?)_.*/D\1/')
+else
+  # An execution PR's plan, which a revision may stop at a production gate of: the one its gate tracker
+  # names, or else the sibling of the one result doc the PR adds, if that plan is on the default branch and
+  # is for the issue's own deliverable (the ID the plan stage reserved on the issue, as the App). Empty for
+  # a direct fix.
+  gh api "repos/$GH_REPO/issues/$PR/comments" --paginate --jq '.[]' > "$RUNNER_TEMP/comments.ndjson"
+  plan=$(python3 -I "$here/gates.py" plan-path --comments "$RUNNER_TEMP/comments.ndjson" --app-id "$app_id") || plan=""
+  if [ -z "$plan" ]; then
+    results=$(gh api "repos/$GH_REPO/pulls/$PR/files" --paginate \
+              --jq '.[] | select(.status == "added") | .filename | select(test("^docs/current_work/(sdlc-lite|results)/d[0-9]+[a-z]?_[a-z0-9_]+_result\\.md$"))')
+    if [ "$(grep -c . <<< "$results")" = 1 ]; then
+      plan=$(sed -E -e 's#^docs/current_work/results/#docs/current_work/planning/#' -e 's/_result\.md$/_plan.md/' <<< "$results")
+      # The reservation as the plan stage reads it: the latest by the App or, before 2026-10-09, github-actions.
+      reserved=$(gh api "repos/$GH_REPO/issues/$issue/comments" --paginate \
+                 --jq '.[] | select(.user.type == "Bot" and (.user.id == '"$app_id"' or .user.login == "github-actions[bot]")) | .body | capture("\\A<!-- factory-id: (?<id>D[0-9]+[a-z]?) -->")? | .id' | tail -1)
+      ours=$(basename "$plan" | sed -E 's/^d([0-9]+[a-z]?)_.*/D\1/')
+      if [ "$ours" != "$reserved" ]; then
+        echo "::warning::$results is for $ours, but issue #$issue reserved ${reserved:-no ID}: no production gate for this revision"
+        plan=""
+      fi
+    fi
+  fi
+  # The plan as it is on the default branch, and its next gate this PR hasn't passed (by the broker's signed
+  # results): the one gate a revision may stop before. Empty when the plan has none left, and in a project
+  # with no production runner (no receipt key), where no gate can run.
+  next_gate=""
+  if [ -n "$plan" ]; then
+    if ! gh api "repos/$GH_REPO/contents/$plan" -H "Accept: application/vnd.github.raw" > "$RUNNER_TEMP/plan.md" 2> /dev/null; then
+      plan=""
+    elif [ -f "$here/production/receipt.pub" ]; then
+      next_gate=$(python3 -I - "$here" "$RUNNER_TEMP/plan.md" "$RUNNER_TEMP/comments.ndjson" "$app_id" "$PR" <<'PY'
+import json, pathlib, sys
+sys.path.insert(0, sys.argv[1])
+import gates  # noqa: E402
+factory, plan, comments, app_id, pr = sys.argv[1:]
+public = (pathlib.Path(factory) / "production" / "receipt.pub").read_text().strip()
+state = gates.pr_state([json.loads(line) for line in pathlib.Path(comments).read_text().splitlines() if line.strip()],
+                       int(app_id), public, int(pr))
+try:
+    print(next((g["id"] for g in gates.parse_gates(pathlib.Path(plan).read_text())
+                if gates.gate_status(state, g["id"])[0] != "done"), ""))
+except gates.Invalid:
+    print("")
+PY
+) || { echo "::warning::couldn't read the gates of $plan: no production gate for this revision"; next_gate=""; }
+    fi
+  fi
 fi
 
 # Earlier revisions: the App's factory-revise markers on the PR (matched by the App's user ID).
@@ -69,11 +117,13 @@ fi
   echo "issue=$issue"; echo "branch=$head"; echo "base=$(jq -r .head.sha "$pr")"; echo "revision=$revision"
   if [ "$kind" = doc ]; then
     echo "stage=$stage"; echo "document=$docs"; echo "deliverable=$deliverable"; echo "skill=$skill"
+  else
+    echo "plan=$plan"; echo "next_gate=$next_gate"
   fi
   echo "proceed=true"
 } >> "$GITHUB_OUTPUT"
 if [ "$kind" = code ]; then
-  echo "Revision $revision of $REVISION_LIMIT for PR #$PR (issue #$issue)" >> "$GITHUB_STEP_SUMMARY"
+  echo "Revision $revision of $REVISION_LIMIT for PR #$PR (issue #$issue${plan:+, executing $plan}${next_gate:+, next gate $next_gate})" >> "$GITHUB_STEP_SUMMARY"
 else
   echo "Revision $revision of $REVISION_LIMIT for $stage PR #$PR (issue #$issue, $docs, /$skill)" >> "$GITHUB_STEP_SUMMARY"
 fi

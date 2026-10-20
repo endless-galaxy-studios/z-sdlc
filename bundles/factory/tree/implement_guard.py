@@ -3,7 +3,8 @@
 Usage: python3 -I implement_guard.py <bundle> <base-sha> <result.json> <issue-number> <run-url> <out-dir> [<stage> [<stats.json>]]
 
 <stage> is implement (the default) or execute, which publish code; revise, which adds commits to an open
-factory code PR (the base is the PR's head) and renders the revision comment instead of a PR body; or
+factory code PR (the base is the PR's head; REVISION, REVISION_LIMIT and, for an execution PR, PLAN and
+NEXT_GATE in the environment) and renders the revision comment instead of a PR body; or
 plan or spec, which publish a
 document for CD to approve by merging: those may touch only docs/ and the discipline parking lots, return `awaiting-approval` with
 the deliverable ID and document path, and reference the issue (`Refs #n`) rather than close it; or split, the same
@@ -300,12 +301,15 @@ def check_brief(brief, stage):
         raise Refused(f"the PR brief is {words} words (target {WORD_TARGET[stage]}, limit {limit})")
 
 
-def check_revise_result(result):
-    """A revision's result: the schema's shape and caps, something to report, and no tokens or embeds."""
-    if not isinstance(result, dict) or result.get("status") not in ("done", "escalated"):
+def check_revise_result(result, plan="", next_gate=""):
+    """A revision's result: the schema's shape and caps, something to report, and no tokens or embeds. A
+    revision of an execution PR (<plan>, the plan it executes) that leaves nothing open for CD may stop before
+    the plan's next gate this PR hasn't passed (<next_gate>), as the execute stage does: awaiting-approval,
+    naming that gate."""
+    if not isinstance(result, dict) or result.get("status") not in ("done", "escalated", "awaiting-approval"):
         raise Refused(f"nothing to publish for revise status {result.get('status') if isinstance(result, dict) else None!r}")
     props = result_schema("revise")["properties"]
-    for key in ("reason", "summary", "responses", "verification", "findings", "follow_ups"):
+    for key in ("gate", "reason", "summary", "responses", "verification", "findings", "follow_ups"):
         conforms(result.get(key), props[key], key)
     if not result["summary"].strip() or not result["responses"]:
         raise Refused("a revision needs a summary and a response to each request")
@@ -321,6 +325,16 @@ def check_revise_result(result):
     serious = any(f["severity"] in ("critical", "major") for f in result["findings"])
     if (result["status"] == "escalated") != serious:
         raise Refused("escalated if and only if a critical or major finding is open")
+    if result["status"] == "awaiting-approval":
+        if not plan:
+            raise Refused("only a revision of an execution PR stops at a production gate")
+        if not next_gate or result["gate"] != next_gate:
+            raise Refused(f"a revision stops only before the plan's next gate ({next_gate or 'none left'}), "
+                          f"not {result['gate']!r}")
+        if any(r["action"] == "needs-your-call" for r in result["responses"]):
+            raise Refused("a revision that leaves a request for CD's call doesn't stop at a gate (that is done)")
+    elif result["gate"]:
+        raise Refused("only a revision stopped at a production gate names a gate")
 
 
 def revise_comment(result, revision, limit, run_url, paths, stats=None):
@@ -329,6 +343,10 @@ def revise_comment(result, revision, limit, run_url, paths, stats=None):
              f"**Revision {revision} of {limit}:** {literal(result['summary'])}", ""]
     if result["status"] == "escalated":
         lines += [f"**Escalated:** {literal(result['reason'])} The open findings are below.", ""]
+    if result["status"] == "awaiting-approval":
+        lines += [f"**Stopped before production gate {escape(result['gate'])}.** The work before it is done and nothing "
+                  "is open for you, so the factory asks for the gate: the gate tracker on this PR shows the request. "
+                  "Approve its gate run when you want it to run; to change the code first, request changes again.", ""]
     lines += ["### What you asked for", ""]
     for i, r in enumerate(result["responses"], 1):
         lines.append(f"{i}. **{literal(r['request'])}**: {REVISE_ACTIONS[r['action']]}. {literal(r['note'])}")
@@ -715,7 +733,7 @@ def main():
             raise Refused(f"unknown stage {stage!r}")
         result = json.loads(pathlib.Path(result_path).read_text())
         if stage == "revise":
-            check_revise_result(result)
+            check_revise_result(result, os.environ.get("PLAN", ""), os.environ.get("NEXT_GATE", ""))
         else:
             check_result(result, stage)
         patterns = codeowners_patterns(pathlib.Path(".github/CODEOWNERS").read_text())

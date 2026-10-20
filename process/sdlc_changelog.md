@@ -37,6 +37,21 @@ Each entry contains:
 
 ---
 
+## 2026-10-20: The factory imported from the incubator (946ddda..9e56842): a revision's gate stop
+
+**Origin:** The incubator merged the factory code for the entry below.
+
+**What happened:** The import brought in 11 bundle files, one of them new (`gate_stop.sh`). The skill and process doc were already in sync, since `--to-incubator` had copied them in. The incubator's own `README.md` seed changed, in its § Production gates and § Revise. The bundle's generic seed has neither section, so it needs nothing. Both proofs pass: the incubator takes the bundle unchanged, and so does an empty project. The empty-project proof had caught a bug before the merge: without a production runner (no receipt key), the gate job would have failed for every revision of a PR that executes a plan. The incubator fixed it before merging.
+
+**Changes made:**
+1. **`bundles/factory/tree/`:** `revise_gate.sh` (the plan, bound to the issue's reserved ID, and its next gate), `gate_stop.sh` (new: the stop-at-gate job), `agent_job.sh`, `implement_guard.py`, `revise.schema.json`, the `factory-revise`, `factory-gate-request` and `factory-implement` templates, and their tests.
+2. **`.claude/skills/zsdlc-import-factory/import.json`:** `last_import` is `9e56842`.
+3. **`bundles/factory/tree/tests/test_revise_gate.py`:** z-sdlc's own fix. The imported test hard-coded the incubator App's login in its fake comments, which the bundle never names (its seeds and tests use placeholders). The import's patterns didn't catch it. The test now reads the login from `factory.json`, as it reads the App's user ID. The incubator has the same change in review, so the next import should show the two in sync.
+
+**Rationale:** The factory's code comes only from its incubator. This brings in the code the skill change below relies on: without `gate` in the revise context, a revision never stops at a gate.
+
+---
+
 ## 2026-10-20: A revision reaches a production gate the way execution does
 
 **Origin:** An execution PR in the incubator. Execution built the phase before the plan's first gate, then stopped with two major findings that were CD's decisions. Its result was `escalated`. CD answered with Request-changes reviews, and two revisions ran. Even after a clean revision, nothing could take the PR to its gate:

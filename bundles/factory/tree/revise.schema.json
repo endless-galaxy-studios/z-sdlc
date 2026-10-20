@@ -3,6 +3,7 @@
   "additionalProperties": false,
   "required": [
     "status",
+    "gate",
     "reason",
     "summary",
     "responses",
@@ -17,9 +18,15 @@
       "enum": [
         "done",
         "escalated",
+        "awaiting-approval",
         "failed"
       ],
-      "description": "done: every request answered and committed; escalated: committed with open critical or major findings; failed: nothing usable"
+      "description": "done: every request answered and committed; escalated: committed with open critical or major findings; awaiting-approval: committed on an execution PR, nothing open for CD, and the work before the production gate in gate is complete; failed: nothing usable"
+    },
+    "gate": {
+      "description": "The production gate (G1, G2, ...) the execution is stopped before, for awaiting-approval; empty otherwise",
+      "type": "string",
+      "maxLength": 3
     },
     "reason": {
       "type": "string",
