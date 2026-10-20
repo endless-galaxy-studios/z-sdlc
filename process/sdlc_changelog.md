@@ -37,6 +37,19 @@ Each entry contains:
 
 ---
 
+## 2026-10-20: A revision's gate stop that didn't run
+
+**Origin:** The first revision to stop at a gate, in the incubator. It stopped before its plan's first gate, and its comment said so. But the writer job that posts the gate tracker and asks for the gate run was skipped. It was the PR's last revision, and a re-run would have run the agent again.
+
+**What happened:** The job's condition had no status function, so GitHub added `success()`. That reads every earlier job, and the fixtures job before the agent's is skipped in every project with no fixtures. The incubator fixed the condition and added a workflow policy rule that would have caught it. It also added a workflow CD dispatches to do that job's work for a PR whose last revision stopped before a gate. The code comes in with the next import.
+
+**Changes made:**
+1. **`process/factory.md`:** D4 rule 17 says what that workflow checks: the App's last revision comment stopped before the plan's next gate, and the branch's last push is the App's push of the PR's head, from before that comment. Both are GitHub's own records, and it runs no agent and counts no revision.
+
+**Rationale:** A gate stop that didn't run would otherwise leave a PR stuck once its revisions are used up. The recovery takes nothing a dispatch passes in on trust.
+
+---
+
 ## 2026-10-20: The factory imported from the incubator (946ddda..9e56842): a revision's gate stop
 
 **Origin:** The incubator merged the factory code for the entry below.
