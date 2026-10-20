@@ -14,7 +14,7 @@ description: >
 
 CD reviewed a factory PR and asked for changes. Turn that review into reviewed local commits on the PR's branch, or a clear answer for each request you don't do. The factory pushes the commits to the same branch (fast-forward only) and posts your answers as a revision comment. Each PR gets a limited number of revisions (3 for code), so make this one count: answer every request.
 
-**Argument:** `$ARGUMENTS` — a path to the revise-context JSON written by `.github/workflows/factory-revise.yml`. It holds `pr`, `issue`, `plan` (only on a PR that executes a plan: the plan's path), `branch`, `base` (the PR head you start from), `merge_base` (where the PR left the default branch), `revision` and `limit`, the PR's `body`, and `requests`: CD's review and inline comments since the last revision, oldest first, each with `kind`, `author`, `body`, and for inline comments `path` and `line`. The issue context is beside it (`issue-context.json`).
+**Argument:** `$ARGUMENTS` — a path to the revise-context JSON written by `.github/workflows/factory-revise.yml`. It holds `pr`, `issue`, `plan` (only on a PR that executes a plan: the plan's path), `gate` (only with `plan`, while the plan has a gate this PR hasn't passed: the next one), `branch`, `base` (the PR head you start from), `merge_base` (where the PR left the default branch), `revision` and `limit`, the PR's `body`, and `requests`: CD's review and inline comments since the last revision, oldest first, each with `kind`, `author`, `body`, and for inline comments `path` and `line`. The issue context is beside it (`issue-context.json`).
 
 <!-- MIRROR-START: headless-mode.md#headless-stop-rule -->
 **Headless runs (no person present).** This run is headless if the caller's prompt or appended system prompt has a line starting `SDLC headless mode:`, or if no ask-the-user tool (`AskUserQuestion`, or the harness's equivalent such as OpenCode's `question`) can be used — none is available or loadable, or a call to it is denied without an answer. A dispatched subagent is never headless itself; in a headless run the orchestrator tells each subagent so, and the limits below bind it too. In a headless run, every point in this skill that asks CD something the next step depends on, waits for CD's approval, or escalates to CD **stops the run there**: save the work so far, return the questions, the document or action plan awaiting approval, or the open-findings table as the run's result (in the caller's output schema if it passed one), and end the turn normally — a stop is a result, not an error. A missing precondition the caller must fix ends the run with status `failed` and the reason. Never guess an answer, take a default for a decision CD owns, approve your own work, or skip the gate. List questions the next step does not depend on in the result instead of stopping. Take the no path on optional offers. Cause no side effect outside the working tree — no push, post, comment, label, publish, external send, or live-system change — unless the caller's prompt names it; list those actions in the result. Reads are fine. A question the prompt or thread already answers is not a gate. Full rule and result format: `[sdlc-root]/process/headless-mode.md`.
@@ -100,7 +100,7 @@ Return JSON matching `.github/factory/revise.schema.json`:
 | Field | Rule |
 |---|---|
 | `status` | `done` (committed, every request answered), `escalated` (committed with a critical or major finding open, or a test that wouldn't pass), `awaiting-approval` (an execution PR stopped before its next production gate, below), or `failed` (nothing usable; say why) |
-| `gate` | For `awaiting-approval`, the gate's ID (`G1`, `G2`, ...); empty otherwise |
+| `gate` | For `awaiting-approval`, the context's `gate`; empty otherwise |
 | `reason` | Why, for `escalated` and `failed` |
 | `summary` | What this revision changed, in two or three plain sentences for CD |
 | `responses` | One per request, in order: `request` (briefly), `action` (`done`, `declined`, `needs-your-call`) and `note` (what was done, why not, or the question) |
@@ -109,12 +109,12 @@ Return JSON matching `.github/factory/revise.schema.json`:
 | `follow_ups` | New work the review surfaced that doesn't belong here: `title`, `summary`. Listed for CD to file by hand |
 | `orchestrator` | `self_edits` (must be 0), `review_rounds`, `agents` |
 
-**An execution PR at a production gate.** When the context has `plan`, this PR executes that plan, and the plan may have production gates (`[sdlc-root]/process/production-gates.md`). The result doc (its Gates section and where it says execution stopped) and the plan's order give the next gate: the first one not yet done. Return `awaiting-approval` with that gate's ID in `gate` only when all three hold:
+**An execution PR at a production gate.** When the context has `plan`, this PR executes that plan, and the plan may have production gates (`[sdlc-root]/process/production-gates.md`). The context's `gate` is the next one: the plan's first gate this PR hasn't passed, by the gate results the factory has verified. It's the only gate a revision may stop before, and the publish job refuses any other. Return `awaiting-approval` with it in `gate` only when all three hold:
 - the work the plan puts before that gate is done (execution reached the gate and stopped there);
 - no critical or major finding is open;
 - no response is `needs-your-call`.
 
-The factory then asks CD for the gate, as it does when execution stops there. This is how an execution that stopped with a decision open for CD reaches its gate once CD has answered. Otherwise `gate` stays empty: `escalated` with findings open, and `done` when a request waits on CD's call, when the plan has no gate left, or when work before the gate is unfinished. A revision doesn't continue execution, so say in `summary` what's left. Never do a gate's steps.
+The factory then asks CD for the gate, as it does when execution stops there. This is how an execution that stopped with a decision open for CD reaches its gate once CD has answered. Otherwise `gate` stays empty: `escalated` with findings open, and `done` when a request waits on CD's call, when the context has no `gate`, or when work before the gate is unfinished. A revision doesn't continue execution, so say in `summary` what's left. Never do a gate's steps.
 
 ## Edge Cases
 
@@ -144,6 +144,7 @@ The factory then asks CD for the gate, as it does when execution stops there. Th
 | "The PR could also use X" | Out of scope for this revision: a `follow_ups` entry for CD. |
 | "CD answered the decision, so the gate can go ahead even with my question open" | A `needs-your-call` response means CD still decides something: `done`, with `gate` empty. The publish job refuses a gate stop with one open. |
 | "The phase before the gate is half built; I'll finish it so the gate can run" | Change what the review asks for. A revision doesn't continue execution: `done` or `escalated`, saying what's left. |
+| "The result doc says execution stopped before G2, so that's the gate" | The context's `gate` is the next gate by the verified results. Stop only before it; with no `gate` in the context, don't stop at all. |
 
 ## Integration
 

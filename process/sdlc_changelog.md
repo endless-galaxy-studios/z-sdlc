@@ -48,20 +48,23 @@ Each entry contains:
 
 **Changes made:**
 1. **`skills/sdlc-revise/SKILL.md`:**
-   - The context gives the plan an execution PR executes (`plan`). § 7 adds the result's `gate` field and status `awaiting-approval`.
-   - New: § "An execution PR at a production gate". A revision may stop before the next gate when the work before it is done, no critical or major finding is open, and no response is `needs-your-call`. Otherwise `gate` stays empty. A revision never continues execution.
+   - The context gives the plan an execution PR executes (`plan`) and its next gate (`gate`). § 7 adds the result's `gate` field and status `awaiting-approval`.
+   - New: § "An execution PR at a production gate". A revision may stop before the context's `gate`, and no other, when the work before it is done, no critical or major finding is open, and no response is `needs-your-call`. Otherwise `gate` stays empty. A revision never continues execution.
    - Edge cases and red flags for both.
-2. **`process/factory.md`:** D4 rule 17 says how a revision reaches a gate: the plan it finds, what the stop requires, and what the writer job does. `factory:gate` is now set by execute or revise.
+2. **`process/factory.md`:** D4 rule 17 says how a revision reaches a gate: the plan it finds and how that plan is bound to the issue, which gate is next, what the stop requires, and what the writer job does. Execution and a revision ask for the gate on the commit they pushed. `factory:gate` is now set by execute or revise.
 3. **`process/headless-mode.md`:** the gate-site list includes the revise skill's gate stop.
 
 **The factory code** changes in the incubator first, and comes into `bundles/factory/tree/` with the next import:
-- `revise_gate.sh` finds the plan: the one the PR's gate tracker names, or else the sibling of the one result doc the PR adds, if that plan is on the default branch.
-- `agent_job.sh` puts that plan in the revise context.
-- `revise.schema.json` gets `gate` and `awaiting-approval`; `implement_guard.py` checks them.
-- `factory-revise.yml` gets a `stop-at-gate` job. It does what execute's report job does at a gate stop: posts the tracker, sets `factory:gate` and asks for the gate run. It's a separate job so that re-running it never posts the revision comment (and its revision marker) twice.
+- `revise_gate.sh` finds the plan: the one the PR's gate tracker names, or else the sibling of the one result doc the PR adds, if that plan is on the default branch and its deliverable ID is the one the plan stage reserved on the issue. It also finds that plan's next gate the PR hasn't passed, by the broker's signed results.
+- `agent_job.sh` puts the plan and the gate in the revise context.
+- `revise.schema.json` gets `gate` and `awaiting-approval`; `implement_guard.py` checks them, and refuses any gate but the next one.
+- `factory-revise.yml` gets a `stop-at-gate` job, which runs the new `gate_stop.sh`. It does what execute's report job does at a gate stop: posts the tracker, sets `factory:gate` and asks for the gate run. It's a separate job so that re-running it never posts the revision comment (and its revision marker) twice.
+- `factory-gate-request.yml` takes the commit the factory pushed (`head`) and builds no request if the branch has moved since. Implement and revise both pass it.
 - `gates.py` is unchanged. It's part of the operations package the broker hashes, so changing it would make every gate refuse until the host's setup re-runs.
 
-The skill is safe to deliver before the code: without `plan` in the context, a revision never stops at a gate.
+A review of the incubator's PR found the first version steerable: with no tracker, a result doc named after another deliverable's plan on `main` would have chosen that plan's gates. It also found that a push after the revision's could have gone under the gate request, and that only the gate ID's shape was checked. The ID binding, the next-gate rule and the head binding fix those.
+
+The skill is safe to deliver before the code: without `gate` in the context, a revision never stops at a gate.
 
 **Left open:**
 - Execute's result can't be `escalated` and name the gate it stopped before, so an escalated stop gets no tracker. (An `awaiting-approval` result with a major open is refused too, which lost one run's publish.)
