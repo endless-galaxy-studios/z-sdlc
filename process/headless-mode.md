@@ -150,7 +150,7 @@ Every skill carries a verbatim copy of the block below, so the stop rule is read
   - `sdlc-lite-execute`: step 0 (headless restart; no plan → `failed`; an unfinished prerequisite gating the next phase → `needs-input`; a production gate → `awaiting-approval` after the review and commit before it), phase triage, and step 5's Completion Report
   - `sdlc-handoff`: step 7 (local commit) and its red flag
   - `sdlc-audit`: improvement mode's factory-digest input and § Applying Improvements (proposals returned with `awaiting-approval`; nothing applied)
-  - `sdlc-implement` and `sdlc-revise` (the `factory` bundle; always headless): a failure that survives two fix attempts (§ 4 Verify) and the review cap (§ 5), each returning `escalated` after a commit
+  - `sdlc-implement` and `sdlc-revise` (the `factory` bundle; always headless): a failure that survives two fix attempts (§ 4 Verify) and the review cap (§ 5), each returning `escalated` after a commit; and `sdlc-revise`'s execution PR at a production gate (§ 7, `awaiting-approval` naming the gate)
   - `[sdlc-root]/process/production-gates.md` § At a Gate (`awaiting-approval` before a gate; the restart after it)
   - `[sdlc-root]/process/review-fix-loop.md` § Round Cap
   - `[sdlc-root]/process/html-rendering.md` § Post-Skill Offer

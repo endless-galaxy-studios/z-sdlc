@@ -37,6 +37,38 @@ Each entry contains:
 
 ---
 
+## 2026-10-20: A revision reaches a production gate the way execution does
+
+**Origin:** An execution PR in the incubator. Execution built the phase before the plan's first gate, then stopped with two major findings that were CD's decisions. Its result was `escalated`. CD answered with Request-changes reviews, and two revisions ran. Even after a clean revision, nothing could take the PR to its gate:
+- only execute's report job posts the gate tracker and asks for the gate run, and only for `awaiting-approval`;
+- the revise workflow had no gate handling at all;
+- the gate request reads its plan from the tracker;
+- a continued execution needs a done gate at the PR's head;
+- and the gate code trusts only the App's comments, so CD can't post a tracker by hand.
+
+**Changes made:**
+1. **`skills/sdlc-revise/SKILL.md`:**
+   - The context gives the plan an execution PR executes (`plan`). § 7 adds the result's `gate` field and status `awaiting-approval`.
+   - New: § "An execution PR at a production gate". A revision may stop before the next gate when the work before it is done, no critical or major finding is open, and no response is `needs-your-call`. Otherwise `gate` stays empty. A revision never continues execution.
+   - Edge cases and red flags for both.
+2. **`process/factory.md`:** D4 rule 17 says how a revision reaches a gate: the plan it finds, what the stop requires, and what the writer job does. `factory:gate` is now set by execute or revise.
+3. **`process/headless-mode.md`:** the gate-site list includes the revise skill's gate stop.
+
+**The factory code** changes in the incubator first, and comes into `bundles/factory/tree/` with the next import:
+- `revise_gate.sh` finds the plan: the one the PR's gate tracker names, or else the sibling of the one result doc the PR adds, if that plan is on the default branch.
+- `agent_job.sh` puts that plan in the revise context.
+- `revise.schema.json` gets `gate` and `awaiting-approval`; `implement_guard.py` checks them.
+- `factory-revise.yml` gets a `stop-at-gate` job. It does what execute's report job does at a gate stop: posts the tracker, sets `factory:gate` and asks for the gate run. It's a separate job so that re-running it never posts the revision comment (and its revision marker) twice.
+- `gates.py` is unchanged. It's part of the operations package the broker hashes, so changing it would make every gate refuse until the host's setup re-runs.
+
+The skill is safe to deliver before the code: without `plan` in the context, a revision never stops at a gate.
+
+**Left open:**
+- Execute's result can't be `escalated` and name the gate it stopped before, so an escalated stop gets no tracker. (An `awaiting-approval` result with a major open is refused too, which lost one run's publish.)
+- An execution that escalated part-way through a phase has no route but CD's own push.
+
+---
+
 ## 2026-10-16: The `open` guard's limits are on record
 
 **Origin:** The pilot project's review of v2.1.5. The workflow policy's guard against `open` in a sandbox verdict outside the planning probe is a match on the word. A quoted, split, variable or line-continued `open`, or the checker run through a variable, gets past it. A bare ` open` is refused.
