@@ -32,6 +32,22 @@ Append-only record of where knowledge entered the SDLC knowledge layer. Enables 
 
 ## Log
 
+## [2026-10-23] pstack fix order and plain-writing cues (cursor/plugins) — process-improvement
+
+- **id:** prov-2026-10-23-006
+- **status:** ingested
+- **source-type:** url
+- **source:** pstack plugin, cursor/plugins at commit 8b3326d (2026-10-22), MIT license: `pstack/skills/correct/SKILL.md`, `pstack/skills/principle-encode-lessons-in-structure/SKILL.md`, `pstack/skills/unslop/SKILL.md`
+- **source-url:** https://github.com/cursor/plugins/tree/main/pstack
+- **discipline:** process-improvement
+- **files-created:** none
+- **files-updated:** process/guardrail-lifecycle.md, process/writing-for-cd.md, CLAUDE-SDLC.md, templates/pr_description_template.md, process/review-fix-loop.md, skills/sdlc-review-code/SKILL.md, skills/sdlc-reflect/SKILL.md, skills/sdlc-audit/references/compliance-methodology.md
+- **rule-count:** 2
+- **ingested-by:** manual (Claude session, after a Codex consult)
+- **notes:** Rewritten in z-sdlc's own words, not copied. Taken from pstack: fixing a mistake class at the highest level that works (structure, types, a lint naming the fix, a test, written rules last), failing only on new instances of a common pattern, proving a check against a real past mistake, and a selection of its machine-written phrasing patterns. Left out: unslop's punctuation and formatting rules (em dashes, colons, sentence-case headings), which conflict with z-sdlc's conventions, and correct's rule table in the agent instruction file (z-sdlc records guards in `recurring-patterns.yaml`).
+
+---
+
 ## [2026-10-23] pstack history-first explanations and check-before-asking (cursor/plugins) — architecture
 
 - **id:** prov-2026-10-23-005

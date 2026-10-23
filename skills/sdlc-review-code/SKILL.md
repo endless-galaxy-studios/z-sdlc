@@ -214,7 +214,7 @@ If the user declines, stop here. If the user accepts, classify first, then proce
 
 **If an agent returns without applying its fix, re-dispatch with a revised prompt.** Only a remaining gap that itself passes the economics test may be closed directly (with review).
 
-**Guard modification is in-scope.** If a finding matches a cluster in `docs/reviews/recurring-patterns.yaml` that has (or plainly warrants) a mechanized guard, the fix is two-part: fix the instance AND update or create the guard (lint rule, drift test, CI check) so the next instance is caught mechanically. See `[sdlc-root]/process/guardrail-lifecycle.md` § "Guard Modification Is In-Scope in Review Loops". Guard edits go through the same review loop as any other fix.
+**Guard modification is in-scope.** If a finding matches a cluster in `docs/reviews/recurring-patterns.yaml` that has (or plainly warrants) a mechanized guard, the fix is two-part: fix the instance AND update or create the guard (lint rule, drift test, CI check, or a design or type change confined to the finding's diff) so the next instance is caught mechanically, and show it failing on a pre-fix occurrence. A wider design or type change is a PLAN or DECIDE finding, not a fix. See `[sdlc-root]/process/guardrail-lifecycle.md` § "Guard Modification Is In-Scope in Review Loops". Guard edits go through the same review loop as any other fix.
 
 **Self-check before proceeding:** Count findings you self-fixed under the economics test. Count findings dispatched to agents. The two numbers must equal the number of findings being fixed this round (every critical and major, or the whole minor batch). If any such finding is neither self-fixed nor dispatched, stop — you missed one.
 
@@ -302,7 +302,7 @@ patterns:
     promoted: false
 ```
 
-Optional fields appear on clusters after audit-triage decisions — do not remove them when appending occurrences: `knowledge_entry` (path to the promoted knowledge file, set with `promoted: true`), `mechanized_guard` (the lint rule / drift test / CI check that now catches the pattern), and `mechanization_assessed: excluded` + `mechanization_reason` (CD assessed guard promotion and declined — do not re-propose). Schema and lifecycle in `[sdlc-root]/process/guardrail-lifecycle.md`.
+Optional fields appear on clusters after audit-triage decisions — do not remove them when appending occurrences: `knowledge_entry` (path to the promoted knowledge file, set with `promoted: true`), `mechanized_guard` (the lint rule, drift test, CI check, or design or type change that now catches or prevents the pattern), and `mechanization_assessed: excluded` + `mechanization_reason` (CD assessed guard promotion and declined — do not re-propose). Schema and lifecycle in `[sdlc-root]/process/guardrail-lifecycle.md`.
 
 **Step 6d. Surface in the report.** After logging, add a section to the report output:
 

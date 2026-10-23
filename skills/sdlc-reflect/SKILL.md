@@ -184,7 +184,7 @@ The canonical GAP format includes `Source: {agent} finding` — omitted here bec
 
 If `docs/reviews/recurring-patterns.yaml` exists, run a session-scoped version of `sdlc-audit` Dimension 6l's threshold scan — same thresholds, same criteria, no redefinition (canonical logic in the compliance methodology; guard contract in `[sdlc-root]/process/guardrail-lifecycle.md`). Skip silently if the file doesn't exist.
 
-1. For each cluster with 3+ occurrences in the 30-day window and no `mechanized_guard`: if the pattern is mechanizable (textual, structural, or behavioral signature), flag it as a **guard-promotion proposal** with the signature named. Skip clusters marked `mechanization_assessed: excluded` — CD already assessed those and chose not to mechanize; never re-propose them.
+1. For each cluster with 3+ occurrences in the 30-day window and no `mechanized_guard`: if the pattern is mechanizable (textual, structural, or behavioral signature), flag it as a **guard-promotion proposal** with the signature and its fix level named (`[sdlc-root]/process/guardrail-lifecycle.md` § Choosing the Fix for a Repeated Mistake). Skip clusters marked `mechanization_assessed: excluded` — CD already assessed those and chose not to mechanize; never re-propose them.
 2. For each cluster that gained an occurrence this session *despite* having a `mechanized_guard`: flag it as **guard ineffective**.
 
 Present flags in the Step 6 report. Do NOT write `mechanized_guard` fields or implement guards here — proposals route to the next `sdlc-audit` triage (or CD can invoke it now). This step exists so a threshold crossed mid-cycle surfaces within the session instead of waiting for the next audit.

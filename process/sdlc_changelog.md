@@ -37,6 +37,22 @@ Each entry contains:
 
 ---
 
+## 2026-10-23: Fixing a repeated mistake structure-first, and no stock phrasing
+
+**Origin:** The last of the pstack (cursor/plugins) items CD agreed to bring in, checked first against z-sdlc with Codex (`gpt-6-luna`, max effort). `guardrail-lifecycle.md` defined when a recurring pattern becomes a guard and how guards are kept fresh, but not which kind of fix to reach for first. `writing-for-cd.md` asked for plain language but named none of the phrasing that reads as machine-written.
+
+**What happened:** pstack's `correct` skill, `principle-encode-lessons-in-structure` and `unslop` were the sources. Its punctuation rules (no em dashes, few colons) were left out: z-sdlc's own files use both.
+
+**Changes made:**
+1. **`process/guardrail-lifecycle.md`**: new § Choosing the Fix for a Repeated Mistake: design, then types, then a lint or CI check whose error names the fix (failing only on new instances of a common pattern, with the allowed count in `notes`), then a test, then a knowledge entry for what needs judgment. It is an order of preference, not a demand to mechanize everything. A new Preventable row in § What Qualifies lets a design or type fix be proposed at all; it is recorded with `type: other` or `type-constraint` and the edit that must now fail, which Dimension 6n tries instead of reporting it as never fired, and a recurrence counts only beyond the allowed count. Inside a review-fix loop the guard edit stays a lint, test, or change confined to the finding's diff; anything wider is a PLAN or DECIDE finding. Every new guard is shown failing on a real past occurrence. A red flag for reaching for a lint rule first.
+2. **`skills/sdlc-audit/references/compliance-methodology.md`** (6l and 6n), **`skills/sdlc-reflect/SKILL.md`**, **`process/review-fix-loop.md`** and **`skills/sdlc-review-code/SKILL.md`**: guard proposals name their fix level, the worked example proposes a tenant-scoped query type instead of a lint, and the review loops' guard edits follow the in-loop limit and the failing-occurrence proof.
+3. **`process/writing-for-cd.md`** § The Rules: rule 8, no stock phrasing: inflated words, "serves as" for "is", "not just X, but Y", empty "-ing" tails, unnamed authorities, chat openers and closers, filler and stacked hedges, as prompts to rewrite rather than banned words. **`CLAUDE-SDLC.md`** § Writing for CD and **`templates/pr_description_template.md`** carry it in one line.
+4. **`knowledge/provenance_log.md`**: pstack at 8b3326d, MIT, rewritten rather than copied.
+
+**Rationale:** A rule an agent can skip is the weakest fix for a mistake agents keep making, so the order puts the ones that can't be skipped first. Stock phrasing costs CD reading time and hides whether a sentence says anything. A `sdlc-reviewer` pass caught the fix order meeting the existing guard machinery at four points (review loops, the audit's signature test, 6n's checks, and proposals that couldn't name a level); all are fixed. Both strengthen existing conventions: the fix order is a preference inside the guard contract, using `type` values the schema already has, and rule 8 names what plain language already excluded. A patch, unlike "Check before asking", which added a new action every session takes.
+
+---
+
 ## 2026-10-23: Explaining why code is shaped as it is, and checking before asking
 
 **Origin:** The fourth of the pstack (cursor/plugins) items CD agreed to bring in, checked first against z-sdlc with Codex (`gpt-6-luna`, max effort), plus one from the first list that CD chose to include. `sdlc-explain` already answered "why" questions from specs, plans and ADRs, and the investigation report format asked for confidence levels on hypotheses. Nothing said to start from the code's history, or to keep what a source states apart from what the agent infers. And nothing said to try a quick experiment before asking CD about a fact that could be observed.

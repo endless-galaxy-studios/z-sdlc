@@ -9,7 +9,7 @@ The description of a pull request that asks CD to approve agent-written work. Wr
 
 ## Rules
 
-The rules for anything CD reads come first: `[sdlc-root]/process/writing-for-cd.md`. Lead with what CD needs, use plain language, say each thing once, show evidence over claims, say where you're unsure, and don't invent. On top of those, a PR:
+The rules for anything CD reads come first: `[sdlc-root]/process/writing-for-cd.md`. Lead with what CD needs, use plain language, say each thing once, show evidence over claims, say where you're unsure, don't invent, and avoid stock phrasing. On top of those, a PR:
 
 - **Tells CD, for sure:** the original problem, what changes for users, what CD is approving, what's tackled and what's left out, the risk, and how it will be (or was) verified.
 - **Uses code names only where they help CD find or check something:** How it works, Learn the change, verification evidence and findings.

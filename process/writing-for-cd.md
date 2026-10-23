@@ -26,6 +26,15 @@ A personal output style can sit on top, for example to set how deeply terms get 
 5. **Say where you're unsure:** the part you're least confident in, and what CD may not have thought of.
 6. **Don't invent.** A section with nothing true to say is left out.
 7. **Keep to the budget.** If it won't fit, cut what CD needs neither to decide nor to learn, and point to the document that has the rest.
+8. **No stock phrasing.** Rewrite words and patterns that read as machine-written, because they say less than they sound like they do:
+   - inflated words: crucial, pivotal, delve, robust, seamless, leverage, utilize, showcase, underscore, landscape, testament;
+   - "serves as" or "stands as" where "is" will do, and "not just X, but Y";
+   - a trailing "-ing" clause that adds nothing ("…, ensuring reliability");
+   - unnamed authorities ("experts say", "industry reports suggest");
+   - chat openers and closers ("Great question", "I hope this helps");
+   - filler ("in order to", "it's important to note that") and stacked hedges ("could potentially").
+
+   These are prompts to rewrite, not banned words: the test is whether the sentence names a mechanism, a fact or a number.
 
 ## Length Budgets
 

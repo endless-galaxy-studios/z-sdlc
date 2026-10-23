@@ -290,7 +290,7 @@ For each cluster where `promoted: false`:
 2. If count >= 3: flag as a **promotion candidate**.
 3. If count >= 2: flag as **watch** (approaching threshold — Info severity).
 
-For each promotion candidate (and for already-promoted clusters that keep accumulating occurrences), additionally assess **guard promotion**: is the pattern mechanizable — detectable by a textual, structural, or behavioral signature per `[sdlc-root]/process/guardrail-lifecycle.md` § "What Qualifies for Guard Promotion"? If yes and the cluster has no `mechanized_guard`, flag it as a **guard-promotion candidate** and name the signature and proposed guard type. A cluster recurring *after* knowledge promotion is the strongest guard-promotion signal.
+For each promotion candidate (and for already-promoted clusters that keep accumulating occurrences), additionally assess **guard promotion**: is the pattern mechanizable — detectable by a textual, structural, or behavioral signature per `[sdlc-root]/process/guardrail-lifecycle.md` § "What Qualifies for Guard Promotion"? If yes and the cluster has no `mechanized_guard`, flag it as a **guard-promotion candidate** and name the signature, the proposed guard type, and its fix level per `[sdlc-root]/process/guardrail-lifecycle.md` § "Choosing the Fix for a Repeated Mistake", with why a higher level doesn't apply. A cluster recurring *after* knowledge promotion is the strongest guard-promotion signal.
 
 **Skip clusters marked `mechanization_assessed: excluded`** from guard-candidate output — CD already assessed them and chose not to mechanize (`[sdlc-root]/process/guardrail-lifecycle.md` § "Assessed and Excluded"). List them info-tier with occurrence counts and recorded reasons instead; CD may clear the exclusion at triage if the pattern's signature has changed, but the audit never re-proposes on its own. Exclusion does not affect knowledge-promotion candidacy.
 
@@ -314,8 +314,8 @@ REVIEW PATTERN RECURRENCE
       Suggested knowledge area: [sdlc-root]/knowledge/architecture/ or coding/
 
   Guard-promotion candidates (mechanizable, no guard recorded):
-    - missing-tenant-filter — structural signature (AST: query builder without tenant clause)
-      Proposed guard type: lint-rule
+    - missing-tenant-filter — preventable (a query type that can't be built without its tenant)
+      Proposed guard type: type-constraint (fix level 2; a lint on the query builder is the fallback if the type change is too wide)
     - manually-synced-parallel-copies-drift — textual signature (KEEP IN SYNC comments) + behavioral (drift test)
       Proposed guard type: ci-check floor now, drift-test as full coverage
 
@@ -344,9 +344,9 @@ DEMOTE verdicts feed step 11 as a third candidate source — see step 11a. Deep 
 For each cluster in `docs/reviews/recurring-patterns.yaml` with a `mechanized_guard` field, verify the guard is alive and effective. Full check definitions in `[sdlc-root]/process/guardrail-lifecycle.md` § "Guard Freshness"; summary:
 
 1. **Guard exists and enforces** — resolve `mechanized_guard.location`: the lint rule is present in the named config, the test file exists, the CI job/step is defined. Then verify **effective enforcement**, not just presence of the rule-name string: parse the rule's effective severity (`off` → CRITICAL, same as missing; `warn`/advisory → WARNING unless `notes` documents advisory as intended); evaluate conditional registration wrappers (e.g., `plugin.rules["x"] ? {...} : {}`) for runtime collapse rather than text-grepping; a skipped test or a disabled/continue-on-error CI step counts as not enforcing. When static reading is inconclusive, run the guard against a known-bad sample (shares mechanics with check 4). Missing → CRITICAL (guard recorded but not wired — the pattern log claims protection that isn't there).
-2. **Recurred despite guard** — any occurrence dated after `mechanized_guard.created` → WARNING (guard ineffective: blind spot, wrong scope, or suppressed). Propose modify at triage.
+2. **Recurred despite guard** — any occurrence dated after `mechanized_guard.created`, beyond any allowed count recorded in `notes`, → WARNING (guard ineffective: blind spot, wrong scope, or suppressed). Propose modify at triage.
 3. **Suppression growth** — count in-code suppressions naming the guard (disable comments, skipped tests); compare against the count recorded at the last audit (note current counts in the audit artifact for next time). Growing → WARNING (the guard is being routed around).
-4. **Never fired** (best-effort, only where history is observable) — zero hits since creation → INFO: either the pattern is extinct (retirement candidate) or the guard is miswired (verify against a known-bad sample).
+4. **Never fired** (best-effort, only where history is observable; not for `type-constraint` or `other` guards, which work by never firing — try the edit their `notes` says must fail instead) — zero hits since creation → INFO: either the pattern is extinct (retirement candidate) or the guard is miswired (verify against a known-bad sample).
 
 **If no cluster has a `mechanized_guard` field:** report in one line ("No mechanized guards recorded — 6n has nothing to check") and move on. This is normal for projects that haven't promoted a guard yet, not a finding.
 
