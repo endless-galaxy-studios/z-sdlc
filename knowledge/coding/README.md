@@ -9,6 +9,7 @@ knowledge/coding/
 ├── README.md                              ← This file
 ├── code-quality-principles.yaml           ← Structural rules: testability, mocking stance, code smells
 ├── typescript-patterns.yaml               ← Branded types, Result types, exhaustiveness, type predicates
+├── comment-discipline.yaml                ← What a comment is for: what to keep, cut and write; trimming rules for sdlc-cleanup-comments
 └── context-engineering-patterns.yaml      ← Activation framing, prompt caching, model-to-skill alignment, context-window management
 ```
 
@@ -18,6 +19,7 @@ knowledge/coding/
 2. **Architects** reference the structural rules during plan review (checking for I/O-logic entanglement)
 3. **Backend/frontend developers** apply the mocking stance and testability rules during implementation
 4. **Planning agents** use the testability lens when reviewing proposed designs
+5. **Code-writing agents and the code reviewer** follow `comment-discipline.yaml` when writing and reviewing comments (the roles mapped in `agent-context-map.yaml`; the Comment Rule in `CLAUDE-SDLC.md` carries the short form to every agent); `sdlc-cleanup-comments` applies it to existing code
 
 ## Relationship to Other Knowledge Stores
 

@@ -69,6 +69,7 @@ The standard deliverable lifecycle: **ideation → plan → execute**. Most work
 | Command | Action |
 |---------|--------|
 | `/sdlc-review-code` | Review code with domain agents. No argument reviews uncommitted changes; a commit ref or range reviews that target. |
+| `/sdlc-cleanup-comments` | Trim code comments down to the ones that say what the code can't: why, how it connects, outside constraints, public contracts. No argument covers the whole repo; paths or a commit range narrow it. Edits comments only, writes no new comments, and lists unclear comments, contradictions and unexplained code for your call. |
 
 ## Design (optional bundle)
 

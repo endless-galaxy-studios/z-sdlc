@@ -32,6 +32,22 @@ Append-only record of where knowledge entered the SDLC knowledge layer. Enables 
 
 ## Log
 
+## [2026-10-23] pstack comment rules (cursor/plugins) — coding
+
+- **id:** prov-2026-10-23-001
+- **status:** ingested
+- **source-type:** url
+- **source:** pstack plugin, cursor/plugins at commit 8b3326d (2026-10-22), MIT license: `pstack/skills/no-comments/SKILL.md`, `pstack/agents/comment-sicko.md`, and the Comments section of `pstack/skills/poteto-mode/SKILL.md`
+- **source-url:** https://github.com/cursor/plugins/tree/main/pstack
+- **discipline:** coding
+- **files-created:** knowledge/coding/comment-discipline.yaml, skills/sdlc-cleanup-comments/SKILL.md, skills/sdlc-cleanup-comments/references/dispatch-prompts.md, skills/sdlc-cleanup-comments/references/machine-read-comments.md, skills/sdlc-cleanup-comments/references/report-template.md
+- **files-updated:** knowledge/agent-context-map.yaml, knowledge/coding/README.md, CLAUDE-SDLC.md, process/review-lenses.md, process/commands.md, process/headless-mode.md, skeleton/manifest.json
+- **rule-count:** 1
+- **ingested-by:** zsdlc-create-skill
+- **notes:** Rewritten in z-sdlc's own words, not copied. Taken from pstack: the keep list (outside constraints, public contracts, issue links, legal headers), checking "do not remove" comments against the code and its history before trusting them, treating a comment that explains our own surprise as a reshape candidate, offering an enforcement for comments that state a constraint, and test steps named by their assertion messages. Changed by CD's decision: unclear comments are kept and listed instead of cut, gaps are listed and never filled, and our-code surprise comments stay until the code is reshaped. Left out: the comment-sicko persona, and automatic code reshaping and lint-suppression removal (both report-only here).
+
+---
+
 ## [2026-07-08] Community tiered-orchestration sources — architecture
 
 - **id:** prov-2026-07-08-001

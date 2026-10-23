@@ -260,6 +260,20 @@ See `[sdlc-root]/plugins/playwright-mcp-setup.md` for setup.
 
 ---
 
+## Comment Rule
+
+**A code comment says what the code can't show at a glance:** why a decision was made, how a piece connects to code elsewhere, a constraint from outside the code, or a public API's contract. It doesn't repeat what the code, a name or a type already says, narrate the steps, or record the change. The change's story belongs in the commit message and the pull request, and comments that repeat the code add bulk to every PR.
+
+Two readers depend on comments: an agent that opens one file mid-task, and a developer new to the codebase. Both lose when a reason is missing, and both lose when it's buried among comments that repeat the code. Aim for that balance, not for a density.
+
+- Write the why when the reason isn't obvious. Before explaining a surprise in our own code, try to remove it with a rename, an extraction or a type.
+- When you change code, update or delete the comments about it in the same change.
+- Never edit a comment a tool reads (a lint suppression, a build tag, a directive) as if it were prose.
+
+Read `[sdlc-root]/knowledge/coding/comment-discipline.yaml` for the full rule and examples. To trim an existing codebase, run `/sdlc-cleanup-comments`.
+
+---
+
 ## Debugging Escalation Rule
 
 If you have spent 3 or more rounds of read/search/grep investigating a bug without identifying the root cause, stop self-investigating and dispatch `debug-specialist` with your findings so far. Pass what you've ruled out, the open hypotheses, and the relevant file paths. Do not continue accumulating context yourself — that context belongs in the agent's dispatch prompt.

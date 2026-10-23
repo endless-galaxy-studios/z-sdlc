@@ -22,7 +22,7 @@ Analytical perspectives that agents apply when reviewing code. Each consuming sk
 - Error handling for scenarios that can't happen in context
 - Feature flags, backward-compatibility shims, or future-proofing for hypothetical requirements
 - Added types, interfaces, or enums that aren't needed yet
-- Comments explaining obvious code
+- Comments that repeat the code, a name or the types, narrate the change, or keep commented-out code (the rule: `[sdlc-root]/knowledge/coding/comment-discipline.yaml`)
 - Defensive checks that duplicate what the framework already guarantees
 - Replacement of a working component with a new, larger implementation when extending the existing component would suffice — a 15-line component that works correctly replaced by a 170-line component that introduces bugs is not an improvement. Every replacement must justify what the existing code cannot do that requires starting over rather than adding to it
 

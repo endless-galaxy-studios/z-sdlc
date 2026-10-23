@@ -242,6 +242,7 @@ Group the changed z-sdlc files by migration strategy:
 |-----------|----------|----------|
 | **Skills** | `skills/*/SKILL.md` | Content-merge: update framework sections, preserve project customizations |
 | **Skill scripts** | `skills/*/scripts/*` (manifest-listed) | Direct copy to `.claude/skills/*/scripts/`; never content-merged |
+| **Skill references** | `skills/*/references/*` (manifest-listed) | Direct copy to `.claude/skills/*/references/`, except a dual-audience skill's (§2.2 Step 0), which merge additively; `sdlc-audit`'s follow §2.4 |
 | **Agent template** | `templates/agent-template.md` | Direct copy to `[sdlc-root]/templates/` (no project customizations) |
 | **Audit skill** | `skills/sdlc-audit/SKILL.md` + `references/` | Content-merge: update audit methodology, preserve project-specific additions |
 | **Knowledge YAMLs** | `knowledge/**/*.yaml` | Key-level merge: add new upstream keys, preserve project additions (§2.1b). Check for moved/deleted files (§2.1a) |
@@ -346,6 +347,7 @@ For files with no project customizations, copy directly from z-sdlc to the proje
 
 - `process/*.md`, top level only (excluding `agent-selection.yaml` and `sdlc_changelog.md` — project-specific, protected by Step 0). Never copy `process/changelog-archive/`: it's z-sdlc's history
 - `skills/*/scripts/*` (manifest-listed) → `.claude/skills/*/scripts/`
+- `skills/*/references/*` (manifest-listed) → `.claude/skills/*/references/`, except a dual-audience skill's (§2.2 Step 0), which merge additively; `sdlc-audit`'s follow §2.4
 - `knowledge/**/*.yaml` (but NOT `agent-context-map.yaml`)
 - `knowledge/README.md` (to `[sdlc-root]/knowledge/`) — NOT `knowledge/provenance_log.md`; that's project-specific (see "Project-Specific Files")
 - `README.md` (to `[sdlc-root]/`)

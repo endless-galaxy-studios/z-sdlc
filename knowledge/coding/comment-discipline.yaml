@@ -1,0 +1,194 @@
+# Comment Discipline
+# What a code comment is for, and when to write, keep, shorten or cut one.
+# Read when writing code, reviewing it, or trimming comments (sdlc-cleanup-comments).
+# Source: CD directive 2026-10-23, adapted from pstack (cursor/plugins, MIT).
+# Last updated: 2026-10-23
+
+id: comment-discipline
+name: "Comment Discipline"
+description: >
+  What a code comment is for and when to write, keep, shorten or cut one. A comment
+  says what the code can't show at a glance: why a decision was made, how a piece
+  connects to code elsewhere, a constraint from outside the code, or a public
+  contract. Comments that repeat the code cost a read every time and add bulk to
+  every pull request.
+pattern: entries
+category: coding
+spec_relevant: false
+project_applicability:
+  relevant_when: "Always relevant — applies to every codebase"
+  action_if_irrelevant: keep
+last_updated: 2026-10-23
+
+# ─────────────────────────────────────────────
+# What a Comment Is For
+# ─────────────────────────────────────────────
+
+purpose:
+  principle: >
+    The code already shows what it does. A comment earns its place by saying what
+    the code can't show at a glance: why it does it this way, how it connects to
+    code the reader can't see from here, or what outside constraint forces its
+    shape.
+  two_readers: >
+    Two readers depend on comments. One is an agent that opens a single file
+    mid-task and needs the reason in plain words. The other is a developer new to
+    the codebase, finding their way through it. Both lose when a reason is missing,
+    and both lose when the reason is buried among comments that repeat the code.
+  balance: >
+    There is no target density. A file of tricky concurrency with no comments is as
+    wrong as a file where every line has one. Judge each comment on its own: does
+    it tell the reader something the code can't?
+
+# ─────────────────────────────────────────────
+# Comments to Keep (and to Write)
+# ─────────────────────────────────────────────
+
+keep:
+  description: "Comments that carry what the code can't. Keep them, and write them when the code needs one."
+  kinds:
+    - kind: "Why"
+      what: "The reason for a decision, the alternative that was rejected and why, or the failure the shape prevents."
+      example: "// Sort before dedupe: the upstream feed repeats rows out of order, so one pass misses them."
+    - kind: "How it connects"
+      what: "Coupling the reader can't see from this file: an order another module relies on, an invariant shared across files, a caller that depends on a side effect."
+      example: "# The billing worker reads this column before the nightly rollup, so write it in the same transaction."
+    - kind: "Outside constraint"
+      what: "Behavior forced by a vendor, platform, protocol, library bug or regulation we can't change."
+      example: "// Safari fires resize before layout settles, so read the size on the next frame."
+    - kind: "Public contract"
+      what: "Doc comments on a public API that say what the signature can't: units, ranges, errors, side effects, thread safety, ownership."
+    - kind: "Pointer"
+      what: "A link to the issue, ADR, RFC or incident that explains a constraint in full. Link it rather than retelling it."
+    - kind: "Map"
+      what: "A short header that says how the parts of a large file fit together, when its structure doesn't make that obvious."
+    - kind: "Worked example"
+      what: "A small input and output for a non-obvious algorithm, regex or format."
+    - kind: "Tracked work"
+      what: "A TODO or FIXME that names a concrete action, ideally with an issue link."
+    - kind: "Legal"
+      what: "License, copyright and SPDX headers."
+    - kind: "Machine-read"
+      what: >
+        Any comment a tool reads: lint and type suppressions, build tags, bundler
+        hints, formatter switches, coverage pragmas, migration directives, doc tags
+        a type checker or doc generator reads. These are code, not prose. Never cut
+        or reword them as if they were. A project lists its own in a top-level
+        project_machine_read key it adds to this file, as a list of entries
+        with comment (the text or pattern) and tool (what reads it). sdlc-migrate
+        keeps top-level keys a project adds.
+
+# ─────────────────────────────────────────────
+# Comments to Cut
+# ─────────────────────────────────────────────
+
+cut:
+  description: "Comments that repeat or narrate the code. Don't write them, and cut them when you find them."
+  kinds:
+    - kind: "Repeats the code"
+      example: "// increment the counter   (above count += 1)"
+    - kind: "Repeats the name or the types"
+      example: "/** Gets the user. @param id the user id */   (on getUser(id: UserId))"
+      note: >
+        In a typed language, types repeated in doc comments go too. In JavaScript
+        that is type-checked through JSDoc, those types are machine-read and stay.
+    - kind: "Narrates steps"
+      example: "// Step 1: load the config"
+      note: >
+        In a test or script, the assertion or log message names the step, as in
+        assert(saved, 'persisted across restart').
+    - kind: "Records the change"
+      example: "// added retry for ticket 412   // fixed per review   // new: handles empty input"
+      note: "History belongs in the commit message and the PR description. Git keeps it."
+    - kind: "Commented-out code"
+      note: "Git has it. Cut it."
+    - kind: "Label-only banners"
+      example: "// ===== Helpers ====="
+      note: "A banner that only names what follows goes. A header that says how the parts connect is a map and stays."
+    - kind: "Filler"
+      example: "// This is important   // Note: this function handles the processing logic"
+    - kind: "Part of a comment"
+      note: >
+        A comment that carries a reason and also repeats the code gets shortened:
+        cut the repeating part, keep the reason in its own words.
+
+# ─────────────────────────────────────────────
+# Surprises in Our Own Code
+# ─────────────────────────────────────────────
+
+reshape_before_commenting:
+  principle: >
+    A comment that explains a surprise in our own code is a symptom: a misleading
+    name, a parameter that only works in one order, a flag that changes what a
+    function returns. The better fix is code that isn't surprising: rename it,
+    extract it, give it a type, or split it. When the reason is outside our code
+    (a vendor, a platform, a protocol), the comment is the right tool.
+  when_writing: "Reshape first. Write the comment only when the surprise can't be designed out."
+  when_trimming: >
+    Keep the comment until the code is reshaped, and list the spot as a reshape
+    candidate. Cutting it first loses the explanation while the surprise stays.
+
+# ─────────────────────────────────────────────
+# Trimming Existing Comments
+# ─────────────────────────────────────────────
+
+trimming:
+  when_unsure:
+    rule: >
+      If you can't tell whether a comment carries a reason or only repeats the
+      code, keep it and list it for CD's call. A wrong cut loses a reason nobody
+      wrote down anywhere else.
+    check_first: >
+      Read the code around it. For a comment that claims weight ("IMPORTANT", "do
+      not remove", "workaround"), read the commits that wrote it (git blame,
+      git log -L) and their pull request before deciding. Decide only once that
+      settles it.
+  contradicts_the_code:
+    rule: >
+      A comment that says something the code doesn't do is a finding, not fat.
+      Either the comment went stale or the code has a bug. Keep it, and list it
+      with what the code actually does. Never cut it to make the file consistent,
+      and never change the code to match it without CD.
+  states_a_constraint:
+    rule: >
+      A comment that states a rule the code relies on ("call init() first", "keep
+      in sync with schema.sql") stays, and is listed as a constraint a type, test
+      or lint could enforce. A "keep in sync" comment is itself a defect (Contract
+      Safety lens, [sdlc-root]/process/review-lenses.md). Mechanizing it follows
+      [sdlc-root]/process/guardrail-lifecycle.md.
+  vague_todos:
+    rule: >
+      A TODO with no concrete action ("clean this up") is listed for CD's call
+      rather than cut: someone may be tracking it.
+
+# ─────────────────────────────────────────────
+# Writing Comments
+# ─────────────────────────────────────────────
+
+writing_comments:
+  rules:
+    - "Write the why when you write code whose reason isn't obvious: a workaround, an order that matters, a magic number, a retry, a guard against a state you've seen happen."
+    - "Don't write a comment the code could say. Rename, extract or add a type first."
+    - "Put the comment next to what it explains."
+    - "When you change code, update or delete the comments about it in the same change. A stale comment misleads both readers."
+    - "Keep it to a sentence or two in plain words. Link the issue or ADR for the full story."
+    - "Don't narrate the change in a comment (\"added for X\", \"fixed per review\"). That belongs in the commit message and the PR description."
+    - "Don't address the reviewer in code. The comment is read for years; the review is read once."
+  pr_bulk: >
+    Every comment line in a diff is a line the reviewer reads. A diff padded with
+    comments that repeat the code hides the lines that matter and makes the change
+    look bigger than it is.
+
+review_checklist:
+  - "Does each new or changed comment say something the code can't show: a why, a connection, an outside constraint, or a public contract?"
+  - "Does any comment repeat the code, a name or the types?"
+  - "Does any comment narrate the change, address the reviewer, or keep commented-out code?"
+  - "Did the change leave a comment stale: the code changed and the comment didn't?"
+  - "Is there non-obvious code (a workaround, an order that matters, a magic number, a retry) with no why?"
+  - "Does a comment explain a surprise in our own code that a rename, extraction or type would remove?"
+
+source: >
+  CD directive 2026-10-23. Adapted, not copied, from pstack (github.com/cursor/plugins,
+  MIT): the no-comments skill, the comment-sicko agent, and poteto-mode's Comments rule.
+  Changed from pstack: unclear comments are kept and listed rather than cut, and
+  comments explaining our own surprises are kept until the code is reshaped.
