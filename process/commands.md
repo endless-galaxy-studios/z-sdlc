@@ -108,3 +108,4 @@ Installed only when CD opts into the `factory` bundle (`[sdlc-root]/process/fact
 |---------|--------|
 | `/sdlc-tests-create` | Generate test suites — domain experts identify gaps, SDET implements |
 | `/sdlc-tests-run` | Automated test-fix loop — run tests, classify failures, dispatch agents to fix, repeat until green |
+| `/sdlc-develop-verify-skill` | Create the project's verify skill (`.claude/skills/verify/`): how to launch, health-check, drive and clean up the running app, with a feature map, proven end to end before handover. `maintain` re-checks every mapped feature against the source and drives each one live; it never edits product code and reports app bugs instead. |

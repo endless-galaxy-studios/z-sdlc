@@ -17,6 +17,8 @@ Convention review checklist for SDLC skills and agents. Referenced by creation a
 - `## Integration` section (Feeds into, Uses, Complements, Does NOT replace)
 - Mirrored blocks, verbatim inside their `MIRROR` markers: the headless stop rule in every skill (`[sdlc-root]/process/headless-mode.md` § Mirrored Stop Rule), and the matching review-loop block in every skill that runs a review loop (`[sdlc-root]/process/review-fix-loop.md` § Mirrored Critical-Steps Blocks)
 
+A project's own verify skill (`.claude/skills/verify/`, written by `sdlc-develop-verify-skill`) is a lean recipe and is exempt from the frontmatter trigger phrases and the section requirements above; that skill's step 6 review checks it instead.
+
 ### Skill Type-Specific
 - **Orchestration** skills reference `[sdlc-root]/process/manager-rule.md` and include agent selection criteria
 - **Utility** skills define preconditions/inputs and output format

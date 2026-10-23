@@ -1159,7 +1159,9 @@ playwright_mcp_verification:
   auto_detect_heuristic:
     description: >
       UI verification triggers automatically when a phase modifies files matching
-      UI patterns AND a dev server command is known from the project's CLAUDE.md.
+      UI patterns AND a dev server command is known from the project's verify skill
+      (.claude/skills/verify/) or its CLAUDE.md. With a verify skill, the check launches,
+      health-checks and cleans up through it.
       Both conditions must be true — modifying a .tsx file in a library with no
       runnable app does not trigger verification.
     file_patterns:
@@ -1172,7 +1174,7 @@ playwright_mcp_verification:
       - "Phase modifies only backend files (controllers, models, migrations, services)"
       - "Phase modifies only test files (no production UI change)"
       - "Phase modifies only build config (webpack, esbuild, vite config)"
-      - "No dev server command is documented in the project's CLAUDE.md"
+      - "No dev server command is in the project's verify skill or documented in its CLAUDE.md"
 
   inline_vs_subagent:
     description: >
@@ -1193,9 +1195,13 @@ playwright_mcp_verification:
         If the smoke check fails, re-dispatch the phase agent with the screenshot
         and console errors before proceeding to the next phase. Do not proceed with
         a broken render — downstream phases will build on a broken foundation.
+        With a verify skill, a launch or health-check failure is a smoke failure too,
+        re-dispatched with the command and its output, unless the cause is one the phase
+        can't have made (another instance holds the port, the driving tool is missing):
+        then the check is skipped, with the reason.
       output_format: |
-        UI smoke: ✓ renders clean | ✗ [describe failure]
-        Console: ✓ no errors | ✗ [error count and summary]
+        UI smoke: ✓ renders clean | ✗ [describe failure] | skipped — [reason]
+        Console: ✓ no errors | ✗ [error count and summary] | skipped
 
     subagent_thorough_verification:
       who: "Review subagents (sdet, frontend-developer, accessibility-auditor)"

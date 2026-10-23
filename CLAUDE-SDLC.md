@@ -254,7 +254,7 @@ If you haven't read the relevant file, say so: *"Let me check"* — then check.
 See `[sdlc-root]/plugins/lsp-setup.md` for setup.
 
 ### UI Verification via Playwright MCP
-When executing phases that modify user-facing code, the execution skills run inline UI smoke checks — navigate to the affected page, screenshot, check console errors. This requires Playwright MCP (`@playwright/mcp`). Without it, UI verification falls back to manual browser inspection. For projects with UI, install Playwright MCP to enable automated visual verification during execution.
+When executing phases that modify user-facing code, the execution skills run inline UI smoke checks — navigate to the affected page, screenshot, check console errors. This requires Playwright MCP (`@playwright/mcp`). Without it, UI verification falls back to manual browser inspection. For projects with UI, install Playwright MCP to enable automated visual verification during execution. When the project has a verify skill (`.claude/skills/verify/`, written by `/sdlc-develop-verify-skill`), the smoke check launches, health-checks and drives the app through it.
 
 See `[sdlc-root]/plugins/playwright-mcp-setup.md` for setup.
 

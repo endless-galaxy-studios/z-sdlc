@@ -32,6 +32,22 @@ Append-only record of where knowledge entered the SDLC knowledge layer. Enables 
 
 ## Log
 
+## [2026-10-23] pstack verification skills (cursor/plugins) — testing
+
+- **id:** prov-2026-10-23-002
+- **status:** ingested
+- **source-type:** url
+- **source:** pstack plugin, cursor/plugins at commit 8b3326d (2026-10-22), MIT license: `pstack/skills/create-verification-skill/SKILL.md` (and its `references/feature-map-example/`), `pstack/skills/maintain-verification-skill/SKILL.md`
+- **source-url:** https://github.com/cursor/plugins/tree/main/pstack
+- **discipline:** testing
+- **files-created:** skills/sdlc-develop-verify-skill/SKILL.md, skills/sdlc-develop-verify-skill/references/safety-rules.md, skills/sdlc-develop-verify-skill/references/generated-skill-template.md, skills/sdlc-develop-verify-skill/references/feature-map-format.md, skills/sdlc-develop-verify-skill/references/dispatch-prompts.md
+- **files-updated:** process/verify-command.md, process/path-mappings.md, process/commands.md, process/headless-mode.md, skills/sdlc-execute/SKILL.md, skills/sdlc-lite-execute/SKILL.md, skills/sdlc-migrate/SKILL.md, skills/sdlc-initialize/SKILL.md, skills/sdlc-develop-skill/SKILL.md, process/skill-agent-review.md, agents/sdlc-reviewer.md, CLAUDE-SDLC.md, knowledge/testing/advanced-test-patterns.yaml, skeleton/manifest.json
+- **rule-count:** 1
+- **ingested-by:** zsdlc-create-skill
+- **notes:** Rewritten in z-sdlc's own words, not copied; the example app (Tally) is our own. Taken from pstack: reading the repo before asking (surface, launch, drive, evidence, isolation), the six sections of the generated skill, "ready means usable", the proof standards, the feature map's fixed four-section shape, proving the generated skill before handover with evidence that survives cleanup (z-sdlc drives every seeded feature, where pstack drives one), the unproven-on-a-stand-in list, and the maintain pass (read-only source readers per feature, a live drive of every feature with health checks after anything surprising, and triage into drift, harness gap and product bug). Changed by CD's decisions: one skill with a maintain mode instead of two, and the execute skills' smoke check uses the result. Left out: `.cursor/` paths and Cursor control skills, "fix the app first" (a broken app goes to the bug route), scaffolding a missing asset to get the app to start, and the pull request (z-sdlc commits locally after CD's yes).
+
+---
+
 ## [2026-10-23] pstack comment rules (cursor/plugins) — coding
 
 - **id:** prov-2026-10-23-001

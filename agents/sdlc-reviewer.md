@@ -61,7 +61,7 @@ Determine the file type from location and content before running any checklist.
 
 **Skills — required sections:**
 - [ ] Steps section with numbered `### N. Step Name` headers
-- [ ] Red Flags table with `| Thought | Reality |` format, 5+ entries
+- [ ] Red Flags table with `| Thought | Reality |` format, 5+ entries (not required, with the Integration section and the trigger phrases, in a project's own verify skill at `.claude/skills/verify/`: a lean recipe that `sdlc-develop-verify-skill` writes and reviews)
 - [ ] Integration section with: Feeds into, Uses, Complements, Does NOT replace
 - [ ] Trigger phrases (`Triggers on...`) and anti-triggers (`Do NOT use for... — use X`) in description
 

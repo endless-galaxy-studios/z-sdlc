@@ -17,6 +17,7 @@ description: >
   "I need a skill for", "make a skill", "modify a skill", "update a skill", "customize a skill",
   "/sdlc-develop-skill", "/sdlc-create-skill".
   Do NOT use for creating agents — use sdlc-develop-agent.
+  Do NOT use for the project's verify skill (.claude/skills/verify/) — use sdlc-develop-verify-skill.
 ---
 
 # Skill Development
@@ -211,7 +212,7 @@ Safely modify an existing skill with migration-aware wrapping. This mode reads t
 
 1. Read the existing skill's `SKILL.md`
 2. If the user names multiple skills (or "all the planning skills", "both X and Y"), read them all in parallel before proposing edits
-3. All skills in `.claude/skills/` are framework-installed from z-sdlc — direct edits to framework sections will be overwritten on next `sdlc-migrate`
+3. Skills in `.claude/skills/` are framework-installed from z-sdlc, so direct edits to framework sections will be overwritten on next `sdlc-migrate`. The exception is the project's own skills, such as `.claude/skills/verify/`, which `sdlc-develop-verify-skill` maintains and migration never touches
 4. Warn the user accordingly before making changes
 
 ### M1.5. DRY Audit (cross-skill drift detection)

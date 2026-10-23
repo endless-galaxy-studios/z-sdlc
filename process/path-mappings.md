@@ -35,6 +35,7 @@ Some files in the z-sdlc source are **templates** that become project-specific a
 | `process/sdlc_changelog.md` | Project's record of process changes — its own entries and the migrations it applied. Migration prepends an entry for itself (`sdlc-migrate` §4.5b) and never copies z-sdlc's file over it; framework history is read from the source repo (§1.2) |
 | `process/changelog-archive/` | The project's archived changelog entries, one file per quarter, moved unedited from its changelog by `changelog_archive.py` (`sdlc-archive`, and `sdlc-migrate` §4.5c). Never copied from z-sdlc, never transformed by an adapter |
 | A bundle's `seed` files (the factory: `.github/factory/factory.json`, `planning.json`, `services.json`, `triage-policy.md`, `README.md`, and the tests of the project's CODEOWNERS) | The project's settings, policy and notes. Written once at install where absent, never overwritten, hashed or removed (contract 0019) |
+| `.claude/skills/verify/` (written in the project by `sdlc-develop-verify-skill`, not copied from z-sdlc) | The project's verify skill: its launch recipe, feature map and helper scripts. It is not in the manifest, and migration never writes, overwrites or removes it. |
 
 Framework files may contain canonical agent names (e.g., `frontend-developer`) in examples. These are illustrative — they don't affect dispatch behavior. The project's actual agents in `.claude/agents/` and `agent-context-map.yaml` define what gets dispatched.
 

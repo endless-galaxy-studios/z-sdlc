@@ -849,6 +849,8 @@ ls scripts/verify.sh 2>/dev/null
 
 If CD accepts, scaffold per `ops/sdlc/process/verify-command.md` § Scaffolding Guidance: chain only what exists, fail fast, document the command in CLAUDE.md. Report (don't silently fix) packages lacking gate scripts — those are findings for CD, not setup work.
 
+**Companion skill:** if the project has an app a user runs and no `.claude/skills/verify/`, tell CD that `/sdlc-develop-verify-skill` can write one: how to launch, health-check, drive and clean up the app, proven end to end. Offer it; don't run it as part of setup.
+
 **Retrofit note:** for retrofit installations this check frequently finds partial coverage (some packages have scripts, some don't). Scaffold the root command over what exists and list the gaps — the codebase-health audit (`/sdlc-audit health`) tracks them afterward.
 
 ### Phase 10: Final Verification
