@@ -1,7 +1,7 @@
 # Performance Optimization Philosophy
 # Principles for reasoning about performance: when to optimize, what to
 # measure, and which techniques are worth reaching for.
-# Last updated: 2026-04-21
+# Last updated: 2026-10-23
 
 id: performance-optimization-philosophy
 name: "Performance Optimization Philosophy"
@@ -12,7 +12,7 @@ spec_relevant: false
 project_applicability:
   relevant_when: "Any system where latency, throughput, or resource cost matters in production"
   action_if_irrelevant: remove
-last_updated: 2026-04-21
+last_updated: 2026-10-23
 
 # ─────────────────────────────────────────────
 # Core Principle — Measure, Don't Guess
@@ -191,6 +191,61 @@ database_optimization:
     - "Partitioning / sharding — split the dataset across multiple databases by a partition key"
     - "Event sourcing — write events to a log, derive state asynchronously"
     - "Queue-backed writes — accept writes into a queue, process asynchronously with backpressure"
+
+# ─────────────────────────────────────────────
+# Checking a Number Before Trusting It
+# ─────────────────────────────────────────────
+
+checking_a_number:
+  applies_to: >
+    Any performance number a change, pull request or report states: a before and
+    after, a regression, a benchmark, or a choice between libraries or settings. Answer
+    each question with evidence from a run, not a reading of the code.
+  first:
+    - "Write the claim you expect to make in the words you'd publish (\"p50 export time drops 30% on the 60k-row set\"). The questions test that sentence."
+    - "Read the measurement script: what it times, what it counts, and what it leaves out."
+    - "Check the machine's load and core count. If it is busy and the load can't be stopped, alternate the sides so both see the same noise, and say so."
+  questions:
+    limiter: >
+      What bounds the result? Name the resource or code path (a core, a lock, the disk,
+      the network, the load generator itself) from a profile or system counters taken
+      in a run you don't report, since profilers slow the work, and trace it to source.
+      A number whose limiter you can't name is a number you don't understand yet.
+    tuned_alike: >
+      Did every side run the way production runs it: release builds, production flags
+      and environment, the same pools, caches, versions and data? One side on defaults
+      compares configurations, not code.
+    physical_limits: >
+      Does the arithmetic hold? Compare bytes per second with disk and network
+      bandwidth, and operations per second times cost per operation with the cores
+      available. Removing a piece can't save more time than the piece took.
+    errors: >
+      Were failures counted? Count errors and non-success responses, and check the
+      outputs are correct, not just present. Rejections tend to be fast and retries slow,
+      so errors distort the number in both directions.
+    repeats: >
+      Does it reproduce? Run each side at least 5 times, alternating them so warm-up,
+      caches and drift favor neither, and report the median and the range. A gap smaller
+      than the run-to-run spread is no measurable difference; when it's close, use a
+      rank-sum test or the harness's own statistics.
+    share_of_the_whole: >
+      Does it matter? Beside any micro result, measure the end-to-end path a user waits
+      on, with realistic data and concurrency, and give the micro result as a share of
+      it. A step that is 1% of a request can make the request at most 1% faster.
+    it_happened: >
+      Did the work run inside the timed region? Confirm the request arrived, the rows
+      were written, and the result was used. Code nobody awaits or iterates, and
+      timeouts, produce numbers for work that never happened.
+  ballpark: >
+    For a quick estimate someone asked for, one run is enough, as long as errors and
+    "did it happen" are still checked and the result says it is one run. A choice
+    between options is never a ballpark.
+  report: >
+    Lead with the verdict: faster, slower, no measurable difference, or inconclusive.
+    Then the number with its unit, the run count, the range and the limiter. The
+    verdict is inconclusive when the limiter is unnamed, a side ran untuned, or errors
+    and "did it happen" weren't checked; name the gap. Keep a pull request to one
+    headline number and put the runs in a linked file.
 
 # ─────────────────────────────────────────────
 # Anti-Patterns

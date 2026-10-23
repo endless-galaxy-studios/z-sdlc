@@ -32,6 +32,22 @@ Append-only record of where knowledge entered the SDLC knowledge layer. Enables 
 
 ## Log
 
+## [2026-10-23] pstack review-evidence rules (cursor/plugins) — architecture
+
+- **id:** prov-2026-10-23-004
+- **status:** ingested
+- **source-type:** url
+- **source:** pstack plugin, cursor/plugins at commit 8b3326d (2026-10-22), MIT license: `pstack/skills/blast-radius/SKILL.md`, `pstack/skills/principle-prove-it-works/SKILL.md`, `pstack/skills/benchmark-checklist/SKILL.md`, `pstack/skills/principle-explain-the-number/SKILL.md`, `pstack/agents/comment-sicko.md` (its suppression rule)
+- **source-url:** https://github.com/cursor/plugins/tree/main/pstack
+- **discipline:** architecture
+- **files-created:** none
+- **files-updated:** process/review-lenses.md, knowledge/architecture/performance-optimization-philosophy.yaml
+- **rule-count:** 4
+- **ingested-by:** manual (Claude session, after a Codex consult)
+- **notes:** Rewritten in z-sdlc's own words, not copied. Taken from pstack: the one fact a change is safe because of and the ladder of how far it is proven, consumers a symbol search misses, looking up the rule a suppression silences, and the benchmark questions with their report format and ballpark exception. Left out: pstack's multi-model "arena" for wide changes (z-sdlc has its own external review gate), its decision-log format, and its rule to delete a suppression and mark the code (z-sdlc reports it as a review finding; code changes go through the fix gate).
+
+---
+
 ## [2026-10-23] pstack bug-fix and test-quality rules (cursor/plugins) — testing
 
 - **id:** prov-2026-10-23-003

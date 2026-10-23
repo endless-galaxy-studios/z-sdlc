@@ -33,6 +33,14 @@ Analytical perspectives that agents apply when reviewing code. Each consuming sk
 - `!` non-null assertions that hide potential undefined values
 - Optional chaining (`?.`) that silently swallows undefined instead of failing at a clear boundary — particularly in data paths where undefined means a real bug, not an expected absence
 
+## Suppressions Lens (review only)
+
+- A lint, type or security suppression the diff adds, or one on a line the diff changes (such as `eslint-disable`, `@ts-ignore`, `# noqa`, `# type: ignore`, `# nosec`, `//nolint`): look up the rule it silences. If the rule catches bugs or guards security, the suppression is a finding unless the line says why the rule is wrong here. The fix is the code the rule objects to; where the rule really is wrong here, the fix is a reason written beside the suppression, which stays as it is. Category `suppression`; `major` when the rule guards security, otherwise `minor`.
+- A suppression of a style or formatting rule is fine.
+- A suppression that could name its rule and doesn't (a bare `# noqa`, `# type: ignore`, `//nolint` or `eslint-disable`), or one covering a whole file (`@ts-nocheck`, a top-of-file `eslint-disable`), hides every later instance too: a finding. `@ts-ignore` and `@ts-expect-error` take no rule: ask for a reason, and prefer `@ts-expect-error`, which fails once the error is gone.
+- Suppressions already in a touched file that the diff doesn't add or change are out of this change's scope: note them once, and fix none. `sdlc-audit` health mode counts them across the codebase.
+- A tool reads every suppression, so it is never reworded as prose (`[sdlc-root]/knowledge/coding/comment-discipline.yaml`, Machine-read). For shell scripts, read `[sdlc-root]/knowledge/coding/shell-patterns.yaml` § fixing_vs_suppressing.
+
 ## Security at Boundaries Lens
 
 - User-supplied strings rendered without sanitization
@@ -47,6 +55,8 @@ Analytical perspectives that agents apply when reviewing code. Each consuming sk
 - State store shape changes — are all selectors and subscribers still reading valid paths?
 - Enum additions or removals — are switch/case handlers and maps exhaustive?
 - Function signature changes in shared utilities — are all call sites passing the right arguments?
+- Consumers a symbol search won't find (review only) — the JSON an API returns, stored formats and database columns, wire formats, another service or language reading the same bytes, feature flags and config keys, code several calls downstream. Check those, not only the callers grep lists.
+- The fact the change is safe because of (review only) — most risky-looking changes are safe because of one fact ("this only drops cache entries that are already dead"). Name it, and how far it is proven: stated, pointed at a `file:line`, walked through the failure, run against the real code by a script or test, or reproduced in the running app. When a shared-contract change rests only on a statement or a cited line and a short script against the real code could settle it, raise an INVESTIGATE finding (category `contract`) asking for the script: `minor`, or `major` when the unproven fact guards data, auth or money. It closes with the script's command and output in the finding's rationale and the re-review prompt, or with a test added to the diff. Say what stays unproven; not every change needs a reproduction in the app.
 - Manually-synced parallel copies — a "KEEP IN SYNC" / "must match X" / "kept in sync manually" comment is itself a defect, not a mitigation. The duplication must be replaced by a single source of truth (one copy derives from the other, or both derive from shared code/config) or covered by a drift-detection test that fails when the copies diverge. Flag the comment even when the copies currently match — the observed failure mode is copies diverging in the very commit that adds the comment. A grep-based CI check on these comment markers is a legitimate enforcement floor (`[sdlc-root]/process/guardrail-lifecycle.md` § Enforcement Floors).
 
 ## Performance Lens
@@ -57,6 +67,7 @@ Analytical perspectives that agents apply when reviewing code. Each consuming sk
 - Database queries missing indexes on filtered/sorted columns, especially in hot paths
 - Unbounded loops or recursive calls without depth limits
 - Large payloads returned when only a subset of fields is needed
+- A performance number in the change or its description (review only) — a before and after, a benchmark, a regression — that doesn't answer the questions in `checking_a_number`. A labeled one-run ballpark passes, and the runs can sit in a linked file. Read `[sdlc-root]/knowledge/architecture/performance-optimization-philosophy.yaml` § checking_a_number for the questions, when the project has that file.
 
 ## Data Integrity Lens
 
