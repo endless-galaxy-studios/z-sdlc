@@ -274,6 +274,14 @@ Read `[sdlc-root]/knowledge/coding/comment-discipline.yaml` for the full rule an
 
 ---
 
+## Bug-Fix Rule
+
+**Prove the bug before fixing it.** Reproduce it with the report's steps and data, locally or in a test environment; a reproduction against production is a production gate, never part of a phase (`[sdlc-root]/process/production-gates.md`). Then write the smallest test that would have caught it, and watch it fail on the unfixed code for the reason the bug gives. When a test isn't practical (it would need a large new harness, state that exists only in production, or mocks that test nothing), use the closest check you can run instead, such as a script, a command, or a drive of the app through `.claude/skills/verify/`, and say why. Fix the first place the code does something wrong, not the place the symptom showed. The same test or check passes after the fix, and the test is committed with it. The fixer's report, and the commit message, quote the failing run: the test or check and its failure message.
+
+When you dispatch an agent to fix a bug, the prompt says it's a bug fix, carries this rule, and tells the agent to read `[sdlc-root]/knowledge/architecture/debugging-methodology.yaml` § `fix_discipline` and `[sdlc-root]/knowledge/testing/testing-paradigm.yaml` § `two_edit_check`. Read `[sdlc-root]/knowledge/architecture/debugging-methodology.yaml` for the full method, including what to do when fixes keep failing.
+
+---
+
 ## Debugging Escalation Rule
 
 If you have spent 3 or more rounds of read/search/grep investigating a bug without identifying the root cause, stop self-investigating and dispatch `debug-specialist` with your findings so far. Pass what you've ruled out, the open hypotheses, and the relevant file paths. Do not continue accumulating context yourself — that context belongs in the agent's dispatch prompt.

@@ -131,3 +131,4 @@ See `[sdlc-root]/process/adr-practice.md` for conventions and contradiction hand
 - Architecture adherence (domain adapter pattern, state management conventions, import rules, file conventions per CLAUDE.md)
 - Correctness (logic errors, off-by-one, missing edge cases)
 - Naming and consistency with codebase conventions
+- Test quality: each new or changed test passes the two-edit check (it fails when the behavior breaks and survives a change to the internals), and a bug-fix test has a recorded failing run on the unfixed code (`[sdlc-root]/knowledge/testing/testing-paradigm.yaml` § two_edit_check)

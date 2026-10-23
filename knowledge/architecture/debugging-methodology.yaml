@@ -1,7 +1,7 @@
 # Debugging Methodology — 6-Phase RCA Framework
 # Cross-project general methodology for structured root cause analysis.
 # Project-specific fault domains, package gotchas, and known bugs belong in the agent body.
-# Last updated: 2026-03-13
+# Last updated: 2026-10-23
 
 id: debugging-methodology
 name: "Debugging Methodology — 6-Phase RCA Framework"
@@ -12,7 +12,7 @@ spec_relevant: false
 project_applicability:
   relevant_when: "Always relevant — all projects debug"
   action_if_irrelevant: keep
-last_updated: 2026-03-13
+last_updated: 2026-10-23
 
 # ─────────────────────────────────────────────
 # Phase 1: Reproduce
@@ -110,6 +110,50 @@ phase_6_postmortem:
     fix_summary: "What was changed and where?"
     prevention: "What pattern, check, or test would prevent this class of bug recurrence?"
     added_to_knowledge: "Did this update gotchas.yaml or another knowledge file? (yes/no + path)"
+
+# ─────────────────────────────────────────────
+# Fix Discipline (cues for phases 4 and 5)
+# ─────────────────────────────────────────────
+
+fix_discipline:
+  test_or_runnable_check: >
+    The regression test must fail on the unfixed code for the reason the bug gives,
+    not for an unrelated one: run it before the fix and read the failure. When a test
+    isn't practical (a large new harness, production-only state, mocks that would test
+    nothing), use the closest check that runs instead (a script, a command, a drive of
+    the app) and record why: prefer that check to a bad test. Quote the failing run (the
+    test or check and its failure message) in the report and the commit message. This
+    is the one exception to testing-paradigm.yaml § regression_first.
+  symptom_guards: >
+    A check in code at the symptom (a guard, retry, swallowed error or clamped value;
+    not a mechanized lint or CI guard) is a fix only when the state it
+    handles is allowed to happen. If the system may legitimately be in that state, the
+    code that broke on it is the root cause and handling it there is the fix. If the
+    state should never exist, a check where it surfaced hides the bug: find what
+    produced the state.
+  after_a_restart: >
+    A failure that appears only after a restart points at saved state first: config
+    files, caches, lock files, serialized state.
+  the_whole_pattern: >
+    Once the root cause is known, look for the same fault elsewhere. Fix the instances
+    inside the task's scope (its files or its plan), and list the rest as follow-ups
+    for CD: a handoff, a question, or the factory's follow_ups. Fixing them all in one
+    change widens it past what was asked.
+  when_fixes_keep_failing:
+    rule: >
+      When two fixes built on the same assumption have both failed, stop fixing. Write
+      the assumption down as one sentence, then test it with an observation that would
+      come out differently if it were false. Look at how the failures are spread, not
+      just how large they are. If the evidence contradicts the assumption, the cause is
+      elsewhere; if it confirms it, ask the next "why": the earlier fixes may have
+      treated a consequence.
+    boundary: >
+      This is investigation, not a licence for a third fix. Inside a review loop, a FIX
+      that fails twice is reclassified ([sdlc-root]/process/finding-classification.md
+      § FIX Failure Escalation), and the assumption check feeds that investigation; a
+      headless run doesn't reclassify, but stops with escalated and puts the written
+      assumption in the finding. Outside a review loop, once the assumption is tested,
+      dispatch debug-specialist or ask CD (CLAUDE.md § Debugging Escalation Rule).
 
 # ─────────────────────────────────────────────
 # 3-Strike Rule (Summary)

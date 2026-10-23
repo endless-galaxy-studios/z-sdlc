@@ -1,7 +1,7 @@
 # Testing Paradigm — Code Structure & Test Type Selection
 # The "grug brain" approach: structure code so tests are obvious and mocks are unnecessary.
 # Source: https://grugbrain.dev/ + practical experience
-# Last updated: 2026-03-17
+# Last updated: 2026-10-23
 
 id: testing-paradigm
 name: "Testing Paradigm"
@@ -15,7 +15,7 @@ spec_relevant: false
 project_applicability:
   relevant_when: "Always relevant — all projects test"
   action_if_irrelevant: keep
-last_updated: 2026-03-17
+last_updated: 2026-10-23
 
 # ─────────────────────────────────────────────
 # Functional Core, Imperative Shell
@@ -203,6 +203,31 @@ regression_first:
     Fixing the bug first, then writing a test that passes. You can't prove the
     test would have caught the bug if it was written after the fix. The red-green
     sequence is the proof.
+  exception: "When a test isn't practical, debugging-methodology.yaml § fix_discipline.test_or_runnable_check applies."
+
+# ─────────────────────────────────────────────
+# Test Quality — the Two-Edit Check
+# ─────────────────────────────────────────────
+
+two_edit_check:
+  rule: >
+    Judge a test by two imagined edits. Break the behavior: make the code return a
+    wrong value, skip an effect, or do it twice. The test must fail. Change only the
+    internals, keeping every result a user of the code can observe. The test must still
+    pass.
+  why: >
+    A test that survives the first edit proves nothing; one that fails the second is
+    pinned to the implementation and needs a rewrite on every refactor without catching
+    a bug.
+  common_causes_of_proving_nothing:
+    - "An assertion looser than the contract"
+    - "An expected value computed by the code under test"
+    - "An assertion on data the test built itself"
+    - "A restated constant or string that never runs the code that reads it"
+  how_to_pass_both: >
+    Drive the code through the interface its users use, with a concrete input. Derive
+    the expected value from the requirement, not from a run of the code. Assert what
+    the contract promises, no less and no more.
 
 # ─────────────────────────────────────────────
 # When to Write Tests

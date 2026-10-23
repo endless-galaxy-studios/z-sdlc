@@ -93,9 +93,10 @@ Beyond "what is NOT tested" (absence analysis), agents must also assess the qual
 > **Test quality check:** For each new or modified test in this commit, verify:
 > - Tests assert observable behavior, not internal state or implementation details. A test that checks `component.state.counter == 1` instead of checking what the user sees is testing the implementation, not the contract — it will break on any internal refactor even when behavior is preserved.
 > - Test names describe the scenario and expected outcome, not the method under test. `test_item_not_returned_for_wrong_tenant` is a test document. `test_item_query` is a label.
+> - Tests pass the two-edit check: imagine breaking the behavior (a wrong value, a skipped effect, an effect done twice) and the test must fail; imagine changing only the internals, with every observable result the same, and it must still pass. An expected value computed by the code under test, or an assertion on data the test built itself, fails the first. A bug-fix test has a recorded failing run on the unfixed code, in the commit message or the fixer's report; don't re-create it by changing the working tree.
 > - Tests are deterministic and order-independent. Any test that relies on external state, prior test data, or wall-clock time without explicit setup/teardown is a latent flake.
 
-Flag behavior-testing violations as `minor` with category `test-quality`. Flag determinism issues as `major` — flaky tests erode the signal value of the entire suite.
+Flag behavior-testing violations as `minor` with category `test-quality`, except a test that can't fail when the behavior breaks, which is `major`: it reports a pass that proves nothing. A bug-fix test with no recorded failing run is `minor`. Flag determinism issues as `major` — flaky tests erode the signal value of the entire suite.
 
 **Pre-dispatch — CLAUDE.md Alignment Lens**
 

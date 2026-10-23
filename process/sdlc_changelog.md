@@ -37,6 +37,24 @@ Each entry contains:
 
 ---
 
+## 2026-10-23: The Bug-Fix Rule: bug fixes reach the method z-sdlc already has
+
+**Origin:** The second of the pstack (cursor/plugins) items CD agreed to bring in. A Codex consult (`gpt-6-luna`, max effort) showed the method already existed: `debugging-methodology.yaml` asks for a reproduction first and a regression test that fails on the unfixed code, and `testing-paradigm.yaml` § regression_first asks for red, then green, then one commit. The gap was the path. Those files reach `code-reviewer`, `debug-specialist`, `performance-engineer` and `build-engineer`, not the developers who fix most bugs, and nothing in `sdlc-lite-plan` or the main session's rules sent a bug fix to them.
+
+**What happened:** pstack's bug-fix playbook, `tdd`, `principle-fix-root-causes`, `principle-attack-the-premise` and `principle-test-behavior-not-implementation` were the sources. z-sdlc keeps its own rule to commit the test with the fix, rather than pstack's separate commit for the failing test.
+
+**Changes made:**
+1. **`CLAUDE-SDLC.md`**: new § Bug-Fix Rule. Reproduce the bug locally or in a test environment (against production it's a gate), watch the smallest test that would have caught it fail for the bug's reason, or use the closest runnable check with the reason a test isn't practical, fix the first wrong step rather than the symptom, commit the test with the fix, and quote the failing run in the report and the commit message. A dispatch to fix a bug says so, carries the rule, and points the agent at `fix_discipline` and `two_edit_check`, so the cues reach the developer who writes the fix without wiring two large files into every implementation dispatch.
+2. **`skills/sdlc-lite-plan/SKILL.md`**: a plan rule that the phase fixing a bug starts by proving it, with the failing-then-passing test or check in its acceptance criteria and the test in the same phase as the fix.
+3. **`skills/sdlc-review-code/SKILL.md`** and **`process/review-lenses.md`** § Standard Lens: the two-edit check (break the behavior and the test must fail; change only the internals and it must still pass), and a recorded failing run for a bug-fix test. The Standard Lens carries it to every review, including execution's review loop. In `sdlc-review-code` a test that can't fail when the behavior breaks is `major`, and a missing failing run is `minor`.
+4. **`knowledge/architecture/debugging-methodology.yaml`**: new `fix_discipline` key: the failing test must fail for the bug's reason, a guard is a fix only when the state it handles is allowed, a failure only after a restart points at saved state, the whole pattern gets fixed, and when two fixes on one assumption have failed, the assumption is written down and tested before a third. That check feeds investigation and never allows a fix past the review loop's FIX failure escalation; a headless run stops with `escalated`. Other instances of the fault outside the task's scope become follow-ups, not part of the fix. A `sdlc-reviewer` pass found those two bounds missing, the cues not reaching the developer, and a failing-run check no reviewer could verify; all are fixed.
+5. **`knowledge/testing/testing-paradigm.yaml`**: new `two_edit_check` key, and `regression_first` names its one exception. **`skills/sdlc-tests-run/SKILL.md`**: before a test's third round, the assumption its two failed fixes shared is written down and tested.
+6. **`knowledge/provenance_log.md`**: pstack at 8b3326d, MIT, rewritten rather than copied.
+
+**Rationale:** The method was right but reached the wrong agents, so the fix is routing rather than a new skill. The new knowledge content sits in new top-level keys because `sdlc-migrate`'s key-level merge keeps a project's existing keys as they are and adds new ones. A new `CLAUDE-SDLC.md` rule is a new cross-skill convention, so this is a minor version at the next tag.
+
+---
+
 ## 2026-10-23: `sdlc-develop-verify-skill`, the skill that builds the project's verify skill
 
 **Origin:** CD agreed to bring in seven items from pstack (cursor/plugins), cross-checked first with Codex (`gpt-6-luna`, max effort) against z-sdlc, and chose to build this one first. `process/verify-command.md` § Companion has described a project-local verify skill at `.claude/skills/verify/` since 2026-09-02, but nothing created or maintained one.

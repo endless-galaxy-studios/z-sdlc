@@ -32,6 +32,22 @@ Append-only record of where knowledge entered the SDLC knowledge layer. Enables 
 
 ## Log
 
+## [2026-10-23] pstack bug-fix and test-quality rules (cursor/plugins) — testing
+
+- **id:** prov-2026-10-23-003
+- **status:** ingested
+- **source-type:** url
+- **source:** pstack plugin, cursor/plugins at commit 8b3326d (2026-10-22), MIT license: `pstack/skills/poteto-mode/playbooks/bug-fix.md`, `pstack/skills/tdd/SKILL.md`, `pstack/skills/principle-fix-root-causes/SKILL.md`, `pstack/skills/principle-attack-the-premise/SKILL.md`, `pstack/skills/principle-test-behavior-not-implementation/SKILL.md`
+- **source-url:** https://github.com/cursor/plugins/tree/main/pstack
+- **discipline:** testing
+- **files-created:** none
+- **files-updated:** CLAUDE-SDLC.md, skills/sdlc-lite-plan/SKILL.md, skills/sdlc-review-code/SKILL.md, skills/sdlc-tests-run/SKILL.md, process/review-lenses.md, knowledge/architecture/debugging-methodology.yaml, knowledge/testing/testing-paradigm.yaml
+- **rule-count:** 8
+- **ingested-by:** manual (Claude session, after a Codex consult)
+- **notes:** Rewritten in z-sdlc's own words, not copied. Taken from pstack: watching the failing test fail for the bug's reason, the closest runnable check when a test is impractical, "prefer no new test to a bad one", the legitimacy test for guards, saved state after a restart, fixing the whole pattern, writing down and testing the shared assumption after two failed fixes, and the two-edit check for tests. Left out: pstack's separate commit for the failing test (z-sdlc commits the test with the fix), its model routing and Cursor commands, and binary-search and instrumentation guidance z-sdlc's debugging methodology already has.
+
+---
+
 ## [2026-10-23] pstack verification skills (cursor/plugins) — testing
 
 - **id:** prov-2026-10-23-002

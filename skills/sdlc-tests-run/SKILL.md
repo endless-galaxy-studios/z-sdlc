@@ -270,6 +270,8 @@ After POST-FIX passes, increment the round counter and return to Step 1.
 Round {N}/5 — re-running tests...
 ```
 
+**Before a test's third round:** if its fix has failed twice, write down the assumption both fixes shared and test it before dispatching again. Read `[sdlc-root]/knowledge/architecture/debugging-methodology.yaml` § fix_discipline.when_fixes_keep_failing for how.
+
 **3-strike rule per failure:** If the same test fails with the same error category 3 rounds in a row:
 1. Document the failure, what was tried, and what each agent returned
 2. Remove that test from the target list for remaining rounds
