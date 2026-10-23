@@ -31,6 +31,8 @@ The AI collaborator who:
 - Escalations (review-loop round cap, 3-strike rule, unresolvable findings)
 - Any moment where you need user input before proceeding
 
+Before asking about a fact you could observe, check whether a quick experiment that is local, and either read-only or on disposable data, answers it; never one against production or a shared environment. Report what it showed instead of asking, and ask when no safe experiment settles it (CLAUDE.md § Use AskUserQuestion for All Questions, "Check before asking"). Decisions in the Decision Authority table below are always asked.
+
 Status updates, completion reports, and informational output that do NOT require a response should be typed as normal text. The one approval asked without the tool is spec and plan approval: the Approval Brief message ends the turn, and CD's reply is the answer (`[sdlc-root]/process/writing-for-cd.md` § Approval Briefs).
 
 ### 1. Proposal-First

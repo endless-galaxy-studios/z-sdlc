@@ -43,7 +43,7 @@ spec → plan → implement
 | `agent-communication-protocol.yaml` | Cross-agent structured output format | All agents |
 | `knowledge-management-methodology.yaml` | Knowledge store organization patterns | [architect], compliance auditor |
 | `debugging-methodology.yaml` | Root cause analysis, investigation workflow | [debug-specialist], [code-reviewer] |
-| `investigation-report-format.yaml` | Structured investigation output format | [debug-specialist], [code-reviewer] |
+| `investigation-report-format.yaml` | Structured investigation output format, and how to explain why code is shaped as it is | [debug-specialist], [code-reviewer], [security-engineer], [performance-engineer], [accessibility-auditor], [architect], [refactor-engineer], compliance auditor |
 | `error-cascade-methodology.yaml` | Error propagation tracing, failure chains | [debug-specialist], [performance-engineer] |
 | `security-review-taxonomy.yaml` | Security assessment categories, OWASP mapping | [security-engineer], [code-reviewer] |
 | `payment-state-machine.yaml` | Payment flow states, gateway integration | [payment-engineer] |

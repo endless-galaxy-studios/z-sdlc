@@ -32,6 +32,22 @@ Append-only record of where knowledge entered the SDLC knowledge layer. Enables 
 
 ## Log
 
+## [2026-10-23] pstack history-first explanations and check-before-asking (cursor/plugins) — architecture
+
+- **id:** prov-2026-10-23-005
+- **status:** ingested
+- **source-type:** url
+- **source:** pstack plugin, cursor/plugins at commit 8b3326d (2026-10-22), MIT license: `pstack/skills/why/SKILL.md`, `pstack/skills/why/references/epistemics.md`, `pstack/skills/why/references/sources/code-archaeology.md`, and the facts-versus-decisions line in `pstack/skills/poteto-mode/SKILL.md`
+- **source-url:** https://github.com/cursor/plugins/tree/main/pstack
+- **discipline:** architecture
+- **files-created:** none
+- **files-updated:** knowledge/architecture/investigation-report-format.yaml, knowledge/agent-context-map.yaml, knowledge/coding/comment-discipline.yaml, disciplines/architecture.md, skills/sdlc-explain/SKILL.md, CLAUDE-SDLC.md, process/collaboration_model.md
+- **rule-count:** 2
+- **ingested-by:** manual (Claude session, after a Codex consult)
+- **notes:** Rewritten in z-sdlc's own words, not copied. Taken from pstack: starting from the code's own history, the five confidence groups and their wording, sources consulted including the empty ones, a suggested answer treated as a hypothesis, the keep/change/avoid/risk ending before a change, and checking whether an experiment answers an observable fact before asking. Left out: the parallel investigators over chat, ticket, document, observability, error-tracking and analytics tools, its model routing, and the broader rule to proceed on reversible work without asking (CD decides product and scope questions).
+
+---
+
 ## [2026-10-23] pstack review-evidence rules (cursor/plugins) — architecture
 
 - **id:** prov-2026-10-23-004

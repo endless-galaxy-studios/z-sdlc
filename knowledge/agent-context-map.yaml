@@ -28,6 +28,7 @@ mappings:
     - "[sdlc-root]/knowledge/architecture/performance-optimization-philosophy.yaml"
     - "[sdlc-root]/knowledge/architecture/agent-orchestration-patterns.yaml"
     - "[sdlc-root]/knowledge/architecture/model-tier-strategy.yaml"
+    - "[sdlc-root]/knowledge/architecture/investigation-report-format.yaml"
 
   # ── Data / Database ────────────────────────────────────────────────
   data-architect:
@@ -206,6 +207,7 @@ mappings:
     - "[sdlc-root]/knowledge/architecture/technology-patterns.yaml"
     - "[sdlc-root]/knowledge/coding/typescript-patterns.yaml"
     - "[sdlc-root]/knowledge/architecture/agent-communication-protocol.yaml"
+    - "[sdlc-root]/knowledge/architecture/investigation-report-format.yaml"
 
   # ── ML / AI ────────────────────────────────────────────────────────
   ml-architect:

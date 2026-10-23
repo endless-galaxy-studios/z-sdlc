@@ -142,7 +142,8 @@ trimming:
       Read the code around it. For a comment that claims weight ("IMPORTANT", "do
       not remove", "workaround"), read the commits that wrote it (git blame,
       git log -L) and their pull request before deciding. Decide only once that
-      settles it.
+      settles it. Read [sdlc-root]/knowledge/architecture/investigation-report-format.yaml
+      § explaining_why for the method.
   contradicts_the_code:
     rule: >
       A comment that says something the code doesn't do is a finding, not fat.

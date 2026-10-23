@@ -37,6 +37,22 @@ Each entry contains:
 
 ---
 
+## 2026-10-23: Explaining why code is shaped as it is, and checking before asking
+
+**Origin:** The fourth of the pstack (cursor/plugins) items CD agreed to bring in, checked first against z-sdlc with Codex (`gpt-6-luna`, max effort), plus one from the first list that CD chose to include. `sdlc-explain` already answered "why" questions from specs, plans and ADRs, and the investigation report format asked for confidence levels on hypotheses. Nothing said to start from the code's history, or to keep what a source states apart from what the agent infers. And nothing said to try a quick experiment before asking CD about a fact that could be observed.
+
+**What happened:** pstack's `why` skill (with its epistemics and code-archaeology references) and the facts-versus-decisions line in its `poteto-mode` skill were the sources. Its investigators across chat, tickets, observability and analytics tools were left out, and so was its broader rule to proceed on reversible work without asking.
+
+**Changes made:**
+1. **`knowledge/architecture/investigation-report-format.yaml`**: new `explaining_why` key: the history commands to start from (blame, the line-range log past the last touch, log through renames, the pickaxe search, finding the pull request and its line comments, its issues, ADRs, tests), five groups for every claim (found, supported, inferred, competing, unknown), words that claim intent only beside a citation, one line per source consulted including the empty ones, a suggested answer treated as one hypothesis, and, before a change, what to keep, change and avoid, with the risks, feeding the plan rather than replacing its approval.
+2. **`skills/sdlc-explain/SKILL.md`**: the "why" row points at it for code whose reason the specs, plans and ADRs don't record, and the explainer draws only what a source states. **`knowledge/agent-context-map.yaml`**: `architect` and `refactor-engineer` now load the file, so the method reaches the agents that plan and reshape code; **`disciplines/architecture.md`** lists its readers. **`knowledge/coding/comment-discipline.yaml`** § trimming.when_unsure points at it for the method.
+3. **`CLAUDE-SDLC.md`** § Use AskUserQuestion for All Questions: new "Check before asking": a fact that could be observed gets a quick experiment first, one that is local and either read-only or on disposable data, within existing permissions, never against production or a shared environment (that is a gate). The result is reported instead of asked; when no safe experiment settles it, the question is asked. Decisions in the Decision Authority table stay CD's. **`process/collaboration_model.md`** § Tool Rule says the same.
+4. **`knowledge/provenance_log.md`**: pstack at 8b3326d, MIT, rewritten rather than copied.
+
+**Rationale:** An explanation that mixes what the record says with what the agent guessed reads as certain either way; separating them lets CD see which is which. Asking CD for a fact a thirty-second experiment would settle costs CD a turn and teaches nothing. A `sdlc-reviewer` pass caught a safety wording that would have let a read-only query run against production, the method not reaching planning agents, the two statements of the question rule disagreeing, and an explainer told to draw inferences; all are fixed. "Check before asking" changes when every session asks CD, a new process convention: a minor version at the next tag. The new knowledge content is a new top-level key, so migration adds it, and `sdlc-migrate` §3.3 adds the new map entries by role.
+
+---
+
 ## 2026-10-23: Review asks for evidence: what a change is safe because of, suppressions, performance numbers
 
 **Origin:** The third of the pstack (cursor/plugins) items CD agreed to bring in, checked first against z-sdlc with Codex (`gpt-6-luna`, max effort). Contract Safety asked whether consumers were updated but never for proof that the change is safe. Code review looked at suppressions only in shell scripts. The performance philosophy said to measure before and after but gave no way to check a reported number.

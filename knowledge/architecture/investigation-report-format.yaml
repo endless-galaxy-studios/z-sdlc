@@ -2,7 +2,7 @@
 # Extracted from investigation and review agent definitions.
 # Defines the canonical structured output format for investigation and review agents:
 # summary header → tiered findings → verification → prevention/recommendations.
-# Last updated: 2026-03-13
+# Last updated: 2026-10-23
 
 id: investigation-report-format
 name: "Investigation Report Format"
@@ -13,7 +13,7 @@ spec_relevant: false
 project_applicability:
   relevant_when: "Always relevant — governs the z-sdlc agent system itself"
   action_if_irrelevant: keep
-last_updated: 2026-03-13
+last_updated: 2026-10-23
 
 # ─────────────────────────────────────────────
 # Abstract Structure
@@ -195,6 +195,48 @@ agent_instantiations:
       Always establish a baseline before recommending changes. Request browser profiler
       traces, Lighthouse reports, or Web Vitals data. Identify the bottleneck category
       first: rendering, data fetching, bundle size, network, or database.
+
+# ─────────────────────────────────────────────
+# Explaining Why Code Is Shaped the Way It Is
+# ─────────────────────────────────────────────
+
+explaining_why:
+  applies_to: >
+    Any investigation into why code is built the way it is: before changing it, while
+    reviewing it, while debugging a defensive check, or when CD asks. The code shows
+    what it does; the reason lives in its history, which is incomplete and sometimes
+    contradicts itself.
+  history_first:
+    - "git blame -L <start>,<end> <file> for who last touched each line, and when"
+    - "git log -L <start>,<end>:<file> for every commit that changed those lines, past the last one"
+    - "git log --follow -- <file> for the history through renames"
+    - "git log -S '<exact text>' -- <file> for the commit that added or removed a value, string or call"
+    - "gh pr list --state merged --search <sha> to find the pull request behind a commit; gh pr view <number> --comments for its discussion; gh api repos/{owner}/{repo}/pulls/<number>/comments for the review comments on specific lines; then the issues it links"
+    - "ADRs, the project's changelog, and the tests added with the change, whose names often record the case that forced it"
+  latest_commit_is_not_the_story: >
+    The current shape is often several earlier decisions stacked up. Trace back past
+    the last commit that touched the lines.
+  confidence: >
+    Put every claim in one of five groups, each in its own section of the report.
+    Found: an author wrote the reason down (a PR description, an issue, a comment, an
+    ADR), cited. Supported: several indirect sources agree, each cited. Inferred: your
+    reading, with the chain of reasoning shown. Competing: more than one explanation
+    fits, so list them. Unknown: you looked and found nothing, with what you searched.
+  wording: >
+    Words that claim intent or effect ("because", "was designed to", "fixes", "the
+    team decided") appear only beside a citation. Inferences say "likely", "suggests"
+    or "is consistent with". Never turn "nobody mentioned it" into "it doesn't
+    matter", and never fit a tidy reason onto history that doesn't show one.
+  a_suggested_answer_is_a_hypothesis: >
+    A question that carries its own answer ("I assume it's for performance?") gets
+    that answer tested as one candidate among others, not confirmed.
+  before_a_change: >
+    When the question comes before changing the code, close the findings with what to
+    keep, what to change, what to avoid, and the risks. These feed the plan; they don't
+    replace its review and approval.
+  sources_consulted: >
+    The report's last section lists one line per source searched, including each that
+    turned up nothing and the terms used, and says why any likely source was skipped.
 
 # ─────────────────────────────────────────────
 # Shared Rules Across All Investigation Agents
