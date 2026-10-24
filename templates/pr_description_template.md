@@ -31,7 +31,7 @@ The highest tier that fits wins.
 | **Medium** | Changes what valid use gets (results, defaults, screens, API responses) or what the system stores, and a revert fully undoes it |
 | **Low** | Valid use works exactly as before, nothing stored changes, and a revert fully undoes it: tests, docs, internal changes covered by tests, rejecting input that was never valid |
 
-A project lists its always-high areas under this heading, inside its own `PROJECT-SECTION` block (`[sdlc-root]/process/project-section-markers.md`), so migrations keep them.
+A project lists its always-high areas under this heading, inside its own `PROJECT-SECTION` block (`[sdlc-root]/process/project-section-markers.md`), so migrations keep them. A project on the software factory checks them as `high` rules in `factory.json`'s `review.focus`, whose flagged files the factory lists on every code PR, and says so in the block.
 
 ## Plan and Spec PR
 
@@ -91,6 +91,7 @@ The same skeleton, with these changes:
 - **Scope integrity** [≤20] follows Scope: "No tests or CI checks weakened; touched only the planned files", or each exception with its reason.
 - **How it was verified** [≤50] replaces How it will be verified. Results, not intent: the commands and their outcome, test counts, CI status, screenshots or video for a UI change, and any check that couldn't run.
 - **Files, in reading order** name files in the diff.
+- **In a software factory PR,** the factory adds Where to look above the author's Review focus: the changed files the project's review rules flag. The Risk line leads with the rules' tier when it's above the author's rating (`[sdlc-root]/process/factory.md` § Where to look). The author's own Review focus and rating don't change: the author doesn't see the rules' results.
 
 ## Example: Plan PR
 

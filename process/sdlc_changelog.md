@@ -37,6 +37,25 @@ Each entry contains:
 
 ---
 
+## 2026-11-05: Where to look: factory PRs list the files CD always looks at
+
+**Origin:** CD chose it from an "AI That Works" episode on software factories (2026-10-23). The episode treated code review as risk management: rules over the diff, not the author, decide what a person must look at.
+
+**What happened:** A factory PR's Risk line and Review focus were the agent's own judgment, and the publish guard checked only that they were filled in. The factory already refused agent changes to code-owned paths, but a migration, a money file or a dropped permission check could reach CD rated Low with nothing pointing at it. Built in the incubator first, as the factory's changes are, and reviewed by code, architecture and security reviewers over two rounds. Round 1 found lines hidden past a length cap or behind a NUL byte, decoy files pushing the real one out of a capped list, flags lost at a continued execution's gate stop, files changed and changed back vanishing, moves counted as new code, seed rules raising PRs to High over docs and tests, and a broken rule costing the agent's run. Round 2 found that rewriting a continued execution's description after every segment (round 1's fix for its gate stops) re-checked follow-ups CD had unchecked; that the move handling could read another file's lines or hide code moved across a rule's scope; and that nothing capped the description's length.
+
+**Changes made:**
+
+1. **`bundles/factory/tree/`** (imported): `implement_guard.py` reads `factory.json`'s `review.focus` from the default branch. It lists every changed file the rules flag at the top of a code PR's Review focus (over the whole PR) and in a revision's comment, and a continued execution that stops short of done lists its segment's own. When a rule flagging the final diff has a tier above the agent's rating, the Risk line leads with it. Changed paths that aren't plain render as escaped text everywhere the guard names them. A file name that isn't UTF-8, a description or comment over 60,000 bytes, and a segment's list over 30,000, are refused before any push. `render.py` treats the `review` block as read at run time. The implement workflow carries the segment's list to the gate stop's comment, and the revise workflow's publish checkout names the default branch. Tests cover each case.
+2. **`process/factory.md`** — new § Where to look (rule shape, what CD sees, what it holds against, not a gate, deterministic only, the always-high areas, the seed), and Enablement step 2.
+3. **`bundles/factory/seed/factory.json`** — a `review` block with four rules: migrations (`migrations/`, `Migrations/`, `alembic/`), bulk writes and raw SQL, access checks and configuration reads. They're scoped to source files and leave out test directories. The bulk-write and access-check rules know Django's and ASP.NET Core's names; a project on another framework, such as one on `python-uv-node`, adds its own.
+4. **`templates/pr_description_template.md`** — Code PR: the factory adds Where to look above the author's Review focus, and the author's own focus and rating don't change. Risk Tiers: a factory project checks its always-high areas as `high` rules, and its block says so.
+
+**Installed projects:** migrations never touch seeds. To turn it on, copy the seed's `review` block into `.github/factory/factory.json`, add the project's own always-high areas as rules with paths, and let CI (the factory's tests load the rules) pass. Without the block, PRs are unchanged.
+
+**Rationale:** CD approves every merge, and what to look at first shouldn't depend on the agent that wrote the change. Rules from the default branch, applied by the writer job, can't be changed by the agent. A file can't hide from a path rule by its name, though logic copied elsewhere isn't followed; line rules catch mistakes, not a hostile agent. It points CD at files and blocks nothing. Release type: minor (a new setting projects write in their own `factory.json`).
+
+---
+
 ## 2026-11-05: With a production tier, the default branch merges with merge commits only
 
 **Origin:** Designing a third project's production tier (2026-11-05). Its repository allows squash and rebase merges.

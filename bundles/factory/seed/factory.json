@@ -96,5 +96,14 @@
     "dockerfile": "",
     "context": "",
     "build_args": {}
+  },
+  "review": {
+    "_doc": "Where to look (process/factory.md, Where to look): rules naming the files CD always looks at in a factory PR. A start for every stack profile; the line rules know Django's and ASP.NET Core's names, so a project on another framework adds its own. Add the project's always-high areas as rules with paths, such as the code that computes money.",
+    "focus": [
+      {"name": "Migration", "why": "it changes the database, and a revert doesn't undo what it ran", "tier": "high", "paths": ["**/migrations/**", "**/Migrations/**", "**/alembic/**"]},
+      {"name": "Bulk write or raw SQL", "why": "many rows at once, or SQL the ORM doesn't check", "tier": "high", "paths": ["*.py", "*.cs", "*.sql"], "except": ["**/tests/**", "**/test/**", "**/__tests__/**", "**/*Tests/**", "**/*Test/**", "tests.py"], "added": "\\.delete\\s*\\(|\\.bulk_(create|update)\\s*\\(|\\.raw\\s*\\(|RawSQL\\s*\\(|\\.extra\\s*\\(|\\bcursor\\s*\\(|ExecuteDelete|ExecuteUpdate|RemoveRange\\s*\\(|FromSql|ExecuteSql|SqlQuery|(?i:\\b(delete\\s+from|truncate)\\b)"},
+      {"name": "Access check", "why": "who may call what", "tier": "high", "paths": ["*.py", "*.cs"], "except": ["**/tests/**", "**/test/**", "**/__tests__/**", "**/*Tests/**", "**/*Test/**", "tests.py"], "changed": "permission_classes|authentication_classes|permission_required|RequiredMixin|get_permissions\\s*\\(|login_required|IsAuthenticated|IsAdminUser|AllowAny|csrf_exempt|has_(object_)?permission|\\bAuthorize\\b|AllowAnonymous|RequireAuthorization|UseAuthorization|UseAuthentication|Antiforgery|has_perm\\s*\\(|user_passes_test|staff_member_required|AddAuthorization|AddPolicy"},
+      {"name": "Configuration read", "why": "a setting production has to have", "tier": "medium", "paths": ["*.py", "*.cs", "*.ts", "*.tsx", "*.js", "*.mjs"], "except": ["**/tests/**", "**/test/**", "**/__tests__/**", "**/*Tests/**", "**/*Test/**", "tests.py"], "added": "os\\.environ|getenv\\s*\\(|import\\.meta\\.env|process\\.env|Environment\\.GetEnvironmentVariable|Configuration\\s*\\[|GetConnectionString\\s*\\(|GetValue\\s*<|GetSection\\s*\\("}
+    ]
   }
 }

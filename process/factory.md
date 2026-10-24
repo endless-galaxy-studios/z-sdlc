@@ -344,6 +344,58 @@ changes, which an unattended run can't negotiate with CD:
 
 A project's `CLAUDE.md` can be stricter; it can't move either kind to direct.
 
+## Where to look
+
+CD approves every merge, and a PR's Risk line and Review focus are the agent's own judgment. So a project
+names the files CD should always look at, and the factory finds them in each code PR itself (CD,
+2026-10-24):
+
+- **The rules** are `factory.json`'s `review.focus`, which the publish guard (`implement_guard.py`)
+  reads from the default branch, never from the factory branch. Each has a `name` and a `why` (both
+  shown) and an optional `tier` (`medium` or `high`). It picks files with `paths` and leaves some out
+  with `except` (CODEOWNERS patterns; a directory covers everything beneath it). It can also require a
+  line the file's diff adds (`added`), removes (`removed`) or either (`changed`) to match a regex. A rule
+  with both paths and a line regex needs both to match, and it needs at least one of them. A rule with
+  no `paths` reads every changed file, docs and tests included, so leave those out with `except`.
+  `except` belongs on rules that read lines: on a rule with only paths it reopens what the paths close.
+  An `except` pattern covers what's beneath it only when it ends in `/` or `/**`. Leave tests out by
+  their directories, not by name: a production file can be named like a test.
+- **What CD sees.** A code PR's Review focus opens with Where to look: each flagging rule, its tier, why
+  it matters and every file it flags. The description lists them over the whole PR, from where it leaves
+  the default branch, when it's written: when the PR opens and when a continued execution finishes.
+  Each later stop short of done (before a gate, or escalated) lists that segment's own in its comment on
+  the issue, or says nothing matched, so CD sees them before approving the gate or deciding the findings. A revision's comment lists the flagged files that revision changes. A file one
+  commit changed and a later one changed back is still listed by the rules that need no line, marked as
+  such. A move counts as one only for a rule whose scope holds both names, which then reads only what the
+  move changed; a file moved into or out of a rule's scope is read in full. When a rule flagging the
+  final diff has a tier above the agent's rating, the Risk line leads with it and still names the
+  agent's: "**High** by the project's review rules (Migration); the agent rated it **Low**".
+- **What it holds against.** The agent can read the rules but not change them, and only the writer job
+  writes these lines. A path can't be hidden: a migration has to sit where the framework runs
+  migrations from. Paths protect places the framework enforces, though, not logic: code copied to a new
+  file outside a rule's `paths` isn't followed, so a path rule can be dodged by moving the logic. A line regex catches an honest mistake, but a hostile
+  agent that reads it can write around it, so put what matters most under `paths`. A name that isn't
+  plain renders as escaped text, with every character outside printable ASCII shown as its code point
+  (an invisible or lookalike one would make it read as another file), and a long one is cut in the middle.
+  A description or comment over 60,000 bytes, or a segment's list over 30,000, is refused before anything
+  is pushed (GitHub's cap is 65,536 characters), and so is a file name that isn't UTF-8.
+- **Not a gate.** It says where to look, and CD still approves every merge. Plan and spec PRs get none:
+  they change documents only.
+- **Deterministic only.** No model judges the diff: the writer job that renders the PR runs no agent.
+  Line regexes read whole lines and have no timeout, so keep them simple. Rules that don't load turn
+  Where to look off, and Review focus says so; the PR still publishes, so the agent's run isn't lost.
+  The bundle's tests load the project's rules, so CI catches a broken one on the PR that adds it.
+- **The project's always-high areas** (the PR template's Risk Tiers) are checked as `high` rules, and
+  the template's project block says so; a change to one changes the other.
+- **The seed** starts a project with rules for migrations (the `migrations/`, `Migrations/` and
+  `alembic/` directories), bulk writes and raw SQL, access checks and configuration reads, scoped to
+  source files and leaving out test directories (and Django's `tests.py`). The bulk-write and
+  access-check rules know Django's and ASP.NET Core's names, so a project on another framework (a
+  `python-uv-node` one, say) adds its own. `QuerySet.update(` isn't in it: no regex tells it from
+  `dict.update(`. A project adds its own always-high areas as rules with
+  paths, such as the code that computes money. Migrations never touch seeds: a project installed before
+  this has no `review` block, and its PRs list nothing until it copies the seed's in.
+
 ## The stages' sandbox
 
 What every code-writing stage's agent works inside (D2), stated once and mirrored into the skills
@@ -480,7 +532,8 @@ needs an organization owner's `gh` login (`admin:org`) for the runner groups and
    isn't published. It must also cover `.github/factory/host/reg-token`, the runner registration
    token step 8 puts there. Tests that need fixtures from a secret-holding source get them through the
    `fixtures` block (D2 rule 7); leave its `path` empty for none. Write `triage-policy.md` (its
-   direction, rules, containers, plan triggers and external sources). The planning tier (D3) is
+   direction, rules, containers, plan triggers and external sources). Set the files CD should always
+   look at in `factory.json`'s `review.focus` (§ Where to look), starting from the seed's rules. The planning tier (D3) is
    required; its database is optional. To give the plan and spec stages one, fill `planning.json` and
    create the read-only role it names (D3 rule 3); list services in `services.json` (D3 rule 4). Leave
    both empty for none.
