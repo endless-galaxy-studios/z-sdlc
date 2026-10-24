@@ -179,7 +179,7 @@ Everything addressed to CD follows `[sdlc-root]/process/writing-for-cd.md`: stat
 - **Plain language.** Define a term or leave it out. Internal labels (gate names, DECIDE, deliverable numbers) never carry a sentence on their own.
 - **Say each thing once.** Show evidence, not claims. Say where you're unsure. Don't invent.
 - **No stock phrasing:** inflated words, "serves as" for "is", filler. Name the mechanism, the fact or the number instead.
-- **Budgets:** a status update in 1–2 sentences, an end-of-turn summary in about 150 words, an improvement proposal in about 100, a discovery check-in in about 300, an approval brief in about 450, a completion report in about 500.
+- **Budgets:** a status update in 1–2 sentences, an end-of-turn summary in about 150 words, an improvement proposal in about 100, a discovery check-in in about 300, an approval brief in about 450 (a plan's in an interactive run, the post-planning report, in about 550), a completion report in about 500.
 - **Status blocks are one line on the happy path.** The full block appears only when a check fails or CD must act.
 - **CD approves a spec or plan from its Approval Brief,** shown verbatim with the document's path.
 

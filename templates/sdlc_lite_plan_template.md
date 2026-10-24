@@ -8,11 +8,15 @@
 
 ## Approval Brief
 
-> For CD, who approves the plan from this section. Written last, after review, by the plan's author: the plan variant of `[sdlc-root]/templates/pr_description_template.md`, in about 450 words (`[sdlc-root]/process/writing-for-cd.md` § Approval Briefs). Every decision this plan leaves to CD appears under What you're approving. Execution follows the sections below, not this one.
+**[deliverable ID] plan, for your approval:** [what it will build, in plain words]
 
+> For CD, who approves the plan from this section: the report CD reads when planning ends. Written last, after review, by the plan's author, as `[sdlc-root]/process/writing-for-cd.md` § Approval Briefs describes a plan's brief: about 550 words, or the plan variant of `[sdlc-root]/templates/pr_description_template.md` alone, in about 450, in a headless run. Every decision this plan leaves to CD appears under What you're approving. Execution follows the sections below, not this one. Delete this note when you fill the section.
+
+### What you need to do
 ### The problem
 ### What changes for users
 ### What you're approving
+### The phases
 ### Scope
 ### Risk
 ### Review focus
@@ -20,7 +24,7 @@
 ### How it works
 ### Learn the change
 
-**Review:** [N] rounds; [K] open minor findings, listed at the end of this plan.
+**Review:** [N] rounds; [what review changed in the plan, or: no changes]; [K] open minor findings, listed at the end of this plan.
 
 ## Phase Dependencies
 

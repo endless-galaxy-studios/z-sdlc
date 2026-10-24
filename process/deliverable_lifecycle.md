@@ -120,7 +120,7 @@ A deliverable that needs another one finished first records it where tools can r
 | Skill | Check |
 |---|---|
 | `sdlc-status` | Lists **blocked** deliverables (a prerequisite isn't Complete) and **forgotten prerequisites**: a prerequisite of active work that has no plan and isn't In Progress |
-| `sdlc-plan`, `sdlc-lite-plan` | At registration and in the Approval Brief, name any prerequisite that has no plan or isn't Complete, and offer to plan it next. Headless: the result's `notes` and the brief's review focus |
+| `sdlc-plan`, `sdlc-lite-plan` | At registration and in the Approval Brief (What you need to do), name any prerequisite that has no plan or isn't Complete, and offer to plan it next. Headless: the result's `notes` and the brief's review focus |
 | `sdlc-execute`, `sdlc-lite-execute` | At load, run only the phases no unfinished prerequisite gates, and stop before the first gated phase. Interactive: tell CD and ask whether to continue anyway. Headless: stop with `needs-input` |
 | `sdlc-compliance-auditor` | Flags a dependency on an ID that isn't in the catalog, a cycle, and a Draft prerequisite of a Ready or In Progress deliverable |
 

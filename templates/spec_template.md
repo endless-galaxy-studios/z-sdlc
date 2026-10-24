@@ -9,7 +9,7 @@
 
 ## Approval Brief
 
-> For CD, who approves the spec from this section. Written last, once the rest of the spec is done, by the spec's author: the plan variant of `[sdlc-root]/templates/pr_description_template.md`, in about 450 words (`[sdlc-root]/process/writing-for-cd.md` § Approval Briefs). Every decision this spec leaves to CD appears under What you're approving. How it works covers only the approach the spec settles. Planning follows the sections below.
+> For CD, who approves the spec from this section. Written last, once the rest of the spec is done, by the spec's author: the plan variant of `[sdlc-root]/templates/pr_description_template.md`, in about 450 words (`[sdlc-root]/process/writing-for-cd.md` § Approval Briefs). Every decision this spec leaves to CD appears under What you're approving. How it works covers only the approach the spec settles. Planning follows the sections below. Delete this note when you fill the section.
 
 ### The problem
 ### What changes for users

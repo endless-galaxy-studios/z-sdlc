@@ -45,7 +45,8 @@ A personal output style can sit on top, for example to set how deeply terms get 
 | The reason a headless run stopped | 1–2 sentences |
 | A discovery check-in (`sdlc-plan`, headless) | About 300 words: only what CD hasn't already decided, one line per assumption and per choice |
 | An end-of-turn summary | About 150 words |
-| An approval brief (spec or plan) | About 450 words |
+| An approval brief: a spec's, or a plan's in a headless run | About 450 words |
+| A plan's approval brief in an interactive run (the post-planning report) | About 550 words |
 | A completion report or code PR description | About 500 words (a report's What you need to do and Commits come on top) |
 | An improvement proposal | About 100 words: the change, why (with its evidence) and the expected effect, a line or two each |
 
@@ -65,12 +66,21 @@ CD approves a spec or a plan from its **Approval Brief**, a section at the top o
 
 When the approval happens through a pull request, the brief is the PR description. In a headless run, the caller's PR-description fields are filled from it.
 
+**A plan's brief in an interactive run is the post-planning report.** It is what CD reads when planning ends, shaped like the Completion Report CD reads when execution ends, and it adds these to the plan variant, in about 550 words:
+- **A title line** first, under the section heading: `**[deliverable ID] plan, for your approval:** [what it will build, in plain words]`.
+- **What you need to do** [≤50], before The problem, and only actions: what CD must supply before execution can start (an account, an API key, data, access, a prerequisite deliverable that has no plan or isn't Complete), and what execution will stop to ask CD for (each production gate, and any decision left until then). A decision CD makes by approving goes under What you're approving. Left out when empty.
+- **The phases** [≤70], after What you're approving: one line per phase, in order, with what it delivers, about how many files it touches, and the phase it waits on when that isn't the one before. A production gate gets its own line: what it does to production, and that it waits for CD.
+- **Review focus** also names the assumptions the plan rests on: each one, how execution will check it (or that nothing will), and what changes if it's wrong.
+- **Learn the change** keeps only its Concepts, and is left out when there are none. The files in reading order wait for the Completion Report, when they exist.
+
+A spec's brief, and a plan's in a headless run, are the plan variant alone, in about 450 words: a headless caller such as the software factory fills its PR-description fields from it.
+
 <!-- MIRROR-SOURCE-START: approval-brief -->
 **Approval Brief procedure.** The document's writing agent writes the brief once the document is final (after review, for a plan). The manager never writes it, except a WORDING fix CD asked for during spec approval.
 
-1. **Dispatch the writing agent** to fill the document's `## Approval Brief` section with `Edit`, changing nothing else in the file. It fills the template's `###` headings, keeping them at level 3 and adding no agent-record `<details>`, as the plan variant of `[sdlc-root]/templates/pr_description_template.md` describes each section: plain language, about 450 words, from the document as it now stands. Every decision the document leaves to CD goes under What you're approving: a table CD approves, a `USER DECISION NEEDED`, or scope beyond what was asked for or approved. For a plan, pass it the review round count and the number of open minor findings for the brief's Review line.
-2. **Dispatch a fresh reader** in the foreground: a new subagent given only the document's path, told to read the brief first and then the rest. It reports whether someone who didn't watch the work could explain the problem, the change, the choices, the risks and the evidence from the brief alone; any statement the document doesn't support; and any decision left to CD that the brief leaves out. Send its findings to the writing agent to fix. One pass, not a loop.
-3. **Count the words:** `awk '/^## Approval Brief/{f=1;next} /^## /{f=0} f' <document path> | wc -w`. If the brief runs well past 450 words (over about 600), send it back to the writing agent once to cut.
+1. **Dispatch the writing agent** to fill the document's `## Approval Brief` section with `Edit`, changing nothing else in the file. It fills the template's `###` headings, keeping them at level 3 and adding no agent-record `<details>`, as the plan variant of `[sdlc-root]/templates/pr_description_template.md` describes each section, plus a plan's additions in an interactive run (`[sdlc-root]/process/writing-for-cd.md` § Approval Briefs): plain language, from the document as it now stands, in about 450 words, or 550 for a plan's brief in an interactive run. A headless run writes a plan's brief as the plan variant alone: the agent deletes the title line and the What you need to do and The phases headings, leaves the assumptions out of Review focus, and gives Learn the change its Files line. Every decision the document leaves to CD goes under What you're approving: a table CD approves, a `USER DECISION NEEDED`, or scope beyond what was asked for or approved. For a plan, pass it the review round count, the number of open minor findings and the findings whose fixes changed the plan, for the brief's Review line.
+2. **Dispatch a fresh reader** in the foreground: a new subagent given only the document's path, told to read the brief first and then the rest. It reports whether someone who didn't watch the work could explain the problem, the change, the choices, the risks and the evidence from the brief alone, and, for a plan's brief in an interactive run, what CD must do and the order of the work; any statement the document doesn't support; and any decision left to CD that the brief leaves out. Send its findings to the writing agent to fix. One pass, not a loop.
+3. **Count the words:** `awk '/^## Approval Brief/{f=1;next} /^## /{f=0} f' <document path> | wc -w`. If the brief runs well past its budget (over about 600 words, or 700 for a plan's brief in an interactive run), send it back to the writing agent once to cut.
 <!-- MIRROR-SOURCE-END: approval-brief -->
 
 ## Completion Reports

@@ -37,6 +37,24 @@ Each entry contains:
 
 ---
 
+## 2026-10-24: The post-planning report
+
+**Origin:** CD, in a project still on a pre-2.0 install: "remove the last step/plan mode, standard execution prompt/clear context, etc. When a plan is done planning, just give a post planning report/breakdown/overview with major decision points, what's important to know, etc. Get a codex opinion on things that should be in this report, similar to how the post execution reports are."
+
+**What happened:** Plan mode had already left the framework in v2.0.0 (2026-10-09, "Writing for CD"). The step CD saw was an older install's, so migrating fixes that part. Since v2.0.0 planning has ended with the plan's Approval Brief, its path, and a line telling CD to start a new session and say "Execute the plan at …". Codex was asked, on the brief's spec and the Completion Report's, what a post-planning report should add. Its answers that CD took: a title line and a What you need to do section first, as the Completion Report has; the phases in order (the brief had only the approach); the assumptions the plan rests on; what review changed; the file reading order dropped, since the files don't exist yet; and about 550 words. CD turned down tying each check to a phase and bold labels in place of headings: the brief lives in the plan file, and its `###` headings carry the word count. CD kept the factory's plan PRs as they are, because the factory fills a fixed PR schema from the brief and needs its Files line, and dropped the execute line.
+
+**Changes made:**
+
+1. **`process/writing-for-cd.md`** — § Approval Briefs: a plan's brief in an interactive run is the post-planning report. It adds a title line (`**[ID] plan, for your approval:** …`), What you need to do (what CD supplies before execution starts and what execution will stop to ask for: production gates, deferred decisions; actions only, left out when empty), The phases (one line each, in order, with about how many files each touches, and gates on their own lines), the assumptions under Review focus, and keeps only Concepts under Learn the change. A spec's brief and a plan's in a headless run stay the plan variant alone. Length Budgets: 550 words for that report, 450 for the rest. The `approval-brief` block: the writing agent writes the additions in an interactive run and the plan variant alone in a headless one, and gets the findings whose fixes changed the plan for the Review line. The fresh reader also checks what CD must do and the order of the work. The word count's limit is about 700 words for that report.
+2. **`skills/sdlc-plan/SKILL.md`** (steps 2a, 5b, 6) and **`skills/sdlc-lite-plan/SKILL.md`** (steps 4a, 5) — the block re-copied. The presenting step ends with the brief and the path only: no execute line, no "tell me what to change". The Output sections, the lite Definition of Done (550 words, what CD must do) and the red flags match, and a new red flag covers plan mode and the execute line.
+3. **`templates/planning_template.md`**, **`templates/sdlc_lite_plan_template.md`** — the brief gains the title line and the What you need to do and The phases headings, and the Review line names what review changed. The guidance note points to § Approval Briefs. It now tells the author to delete it when filling the section, in `templates/spec_template.md` too: the note stayed in filled-in briefs, so every brief CD read opened with agent instructions, and the word count included them.
+4. **`templates/pr_description_template.md`** — an interactive plan's brief keeps its additions, and its 550-word budget, when it becomes a PR description.
+5. **`CLAUDE-SDLC.md`** § Writing for CD budgets, and **`process/deliverable_lifecycle.md`** (unplanned prerequisites go under What you need to do).
+
+**Rationale:** CD reads one report at each end of a deliverable, and the planning one now answers the same questions as the execution one: what CD has to do, what gets built and in what order, and what it rests on. The factory is left alone on purpose: its renderer requires `brief.files`, and its PR already shows production gates. Projects on pre-2.0 installs keep the plan-mode step until they migrate. Release type: minor (new sections in the plans projects write).
+
+---
+
 ## 2026-10-23: Review lenses reach the execution review loop
 
 **Origin:** A `sdlc-reviewer` pass on the review-evidence change found that `process/review-lenses.md` reached only `sdlc-review-code`, `sdlc-tests-create` and `sdlc-create-reference-doc`. The review-fix loop said every reviewer "gets every applicable lens" but never named the file, and neither execution skill mentioned it. So no lens reached execution's reviews: not the overengineering, type-safety and contract lenses, and not the two-edit check, the Suppressions lens or the evidence checks added today. CD chose to close the gap.
