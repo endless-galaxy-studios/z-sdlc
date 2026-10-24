@@ -37,6 +37,20 @@ Each entry contains:
 
 ---
 
+## 2026-10-24: z-sdlc runs the framework work it starts
+
+**Origin:** CD, when asked to choose an incubator SDLC tier for a factory change started here: "no, you (this repo) are the commanding SDLC expert".
+
+**What happened:** A factory change (flagging the files CD should look at in factory PRs) was scoped from z-sdlc. Its code lands in the incubator first, so the session followed the incubator's `CLAUDE.md`, whose tier rule says to ask CD which tier to use before touching files, and asked CD to approve an SDLC-Lite deliverable there.
+
+**Changes made:**
+
+1. **`CLAUDE.md`** (this repository's): framework work that starts in z-sdlc is scoped, planned and reviewed by z-sdlc's own judgment, even when its code lands in a project first. The project's process rules don't govern it, and CD is asked about the work, never which process to run it under. The project's `main` ruleset, CODEOWNERS review and CI still hold.
+
+**Rationale:** z-sdlc writes the process every project runs. Running its own work through a project's copy of that process puts the copy above its source, and asks CD a question the framework should answer itself. Release type: none (a convention of this repository; nothing installed changes).
+
+---
+
 ## 2026-10-24: The post-planning report
 
 **Origin:** CD, in a project still on a pre-2.0 install: "remove the last step/plan mode, standard execution prompt/clear context, etc. When a plan is done planning, just give a post planning report/breakdown/overview with major decision points, what's important to know, etc. Get a codex opinion on things that should be in this report, similar to how the post execution reports are."
