@@ -37,6 +37,19 @@ Each entry contains:
 
 ---
 
+## 2026-10-23: Review lenses reach the execution review loop
+
+**Origin:** A `sdlc-reviewer` pass on the review-evidence change found that `process/review-lenses.md` reached only `sdlc-review-code`, `sdlc-tests-create` and `sdlc-create-reference-doc`. The review-fix loop said every reviewer "gets every applicable lens" but never named the file, and neither execution skill mentioned it. So no lens reached execution's reviews: not the overengineering, type-safety and contract lenses, and not the two-edit check, the Suppressions lens or the evidence checks added today. CD chose to close the gap.
+
+**Changes made:**
+1. **`process/review-fix-loop.md`** Step A: every code review through the loop names `review-lenses.md` in each reviewer's prompt, with the lenses that apply; plan reviews don't use them. That covers direct dispatch and the factory's `sdlc-implement` and `sdlc-revise`, which run this loop, without changing the factory's skills.
+2. **`skills/sdlc-execute/SKILL.md`** and **`skills/sdlc-lite-execute/SKILL.md`**: a "Review lenses (mandatory)" paragraph beside the plan contract briefing, outside the mirrored loop block.
+3. **`process/review-lenses.md`** § Lens Applicability: a row for the execution review loop.
+
+**Rationale:** The lenses were written for every code review and reached only one of them. Reviewer prompts get longer and reviews may raise more findings, a cost CD accepted. Step A already promised every applicable lens; this makes the promise hold, strengthening an existing check: a patch.
+
+---
+
 ## 2026-10-23: Fixing a repeated mistake structure-first, and no stock phrasing
 
 **Origin:** The last of the pstack (cursor/plugins) items CD agreed to bring in, checked first against z-sdlc with Codex (`gpt-6-luna`, max effort). `guardrail-lifecycle.md` defined when a recurring pattern becomes a guard and how guards are kept fresh, but not which kind of fix to reach for first. `writing-for-cd.md` asked for plain language but named none of the phrasing that reads as machine-written.

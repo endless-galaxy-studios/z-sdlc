@@ -7,6 +7,7 @@ Analytical perspectives that agents apply when reviewing code. Each consuming sk
 | Skill Context | Applicable Lenses |
 |--------------|-------------------|
 | Code review (`sdlc-review-code`) | All lenses |
+| Execution review loop (`sdlc-execute`, `sdlc-lite-execute`, direct dispatch, the factory's `sdlc-implement` and `sdlc-revise`) | All lenses |
 | Test gap analysis (`sdlc-tests-create`) | Coverage, security at boundaries, contract safety, performance, data integrity, standard |
 | Agent/skill creation (`sdlc-develop-agent`, `sdlc-initialize`) | Standard only |
 

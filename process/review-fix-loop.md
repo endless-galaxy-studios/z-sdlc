@@ -97,6 +97,8 @@ Experiential verification:
 
 **Plan contract injection (when available):** When the review-fix loop is invoked from an execution skill (`sdlc-execute`, `sdlc-lite-execute`), the plan document is available. Each reviewer's dispatch prompt must include the plan's specification for the work they are reviewing — expected behavior, acceptance criteria, and implementation approach. This enables **plan compliance review**: reviewers check "does the implementation match what was specified?" alongside standard code quality checks. Without the plan contract, a well-structured stub that builds clean will pass review — the reviewer has no way to know the plan required a real implementation.
 
+**Review lenses (code review):** every code review through this loop, including the execution skills, direct dispatch, and the factory's `sdlc-implement` and `sdlc-revise`, names `[sdlc-root]/process/review-lenses.md` in each reviewer's dispatch prompt, with the lenses that apply per its § Lens Applicability. Plan reviews don't use them.
+
 Before dispatching, output the roster as one line (`[sdlc-root]/process/writing-for-cd.md` § Status Blocks):
 
 ```
