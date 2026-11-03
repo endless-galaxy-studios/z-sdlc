@@ -142,7 +142,7 @@ grep -rohE '`[a-z][a-z0-9-]+(engineer|developer|architect|designer|auditor|speci
 
 ### Step 4: File-by-file diff audit
 
-For every file in `<target-path>/.claude/` that corresponds to a z-sdlc source file (per `skeleton/manifest.json`), diff it against its upstream source:
+For every file in `<target-path>/.claude/` that corresponds to a z-sdlc source file (per `skeleton/manifest.json`), diff it against its upstream source. Adapter-owned files and lines (`references/exempt-file-list.md` § Adapter-owned) are expected to differ. Classify their hunks only for corrupted output or residue, never for the transformation itself:
 
 ```bash
 diff -u ~/Projects/z-sdlc/<source-path> <target-path>/<install-path>

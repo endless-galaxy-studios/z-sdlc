@@ -39,6 +39,8 @@ Check against `exempt-file-list.md`. If the file is exempt and the hunk shows an
 
 Exception: `agents/sdlc-compliance-auditor.md` has a documented adapter customization around the methodology path reference in line ~13. If the hunk is only that documented path correction, it's **neither**. Anything else in that file → **plugin**.
 
+Adapter-owned files and lines (`exempt-file-list.md` § Adapter-owned: `knowledge-routing.md`, the `sdlc-reviewer.md` checklist, Integration `**Uses:**` lines) aren't exempt. Skip this step for them and go on to step 4.
+
 ### 4. Is the hunk a known malformed transformer output?
 
 If the target side contains any of:
@@ -101,7 +103,7 @@ To calibrate your intuition, these are real findings from the 2026-04-22 audit:
 | `AGENT_TEMPLATE.md:68` shows `memory_search(query="[agent-name] domain-specific patterns anti-patterns guidance", tags=[...])` where source has `consult [sdlc-root]/knowledge/agent-context-map.yaml` | Step 10 — clean canonical transformation | **neither** |
 | `AGENT_TEMPLATE.md:133` shows `Read memory_store with tags [...]` | Step 4 — malformed API verb | **plugin** |
 | `AGENT_TEMPLATE.md:134` shows untransformed `knowledge stores (\`[sdlc-root]/knowledge/\`)` | Step 5 — Pattern Mapping rule exists but didn't fire mid-sentence | **plugin** |
-| `sdlc-reviewer.md:82-86` shows forbidden-phrases checklist transformed into Neuroloom forms | Step 3 — exempt-file violation | **plugin** |
+| `sdlc-reviewer.md:82-86` shows forbidden-phrases checklist transformed into Neuroloom forms | Step 3 — exempt-file violation at the time. Since 2026-10-29 the file is adapter-owned (`exempt-file-list.md` § Adapter-owned), so a clean transform is **neither** | **plugin** then, **neither** now |
 | `sdlc-compliance-auditor.md:13` shows `.claude/skills/sdlc-audit/references/compliance-methodology.md` where source has `[sdlc-root]/knowledge/compliance-methodology.md` | Step 7 — source path is broken, the target corrected it | **upstream** |
 | `sdlc-plan.md:240-254` shows 3-step stub where source has 5-step "Library verification (MANDATORY)" procedure | Step 6 — structural content loss | **plugin** |
 | `sdlc-execute.md:257` shows `Discipline parking lot entries ((discipline memories, tagged sdlc:discipline:*) *.md\`)` | Step 4 — double-paren corruption | **plugin** |

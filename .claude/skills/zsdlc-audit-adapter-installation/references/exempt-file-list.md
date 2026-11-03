@@ -8,13 +8,23 @@ This list mirrors the plugin's own "Transformation-Exempt Files" table in `neuro
 
 | File | Install path | Why exempt | Permitted deviations |
 |---|---|---|---|
-| `process/knowledge-routing.md` | `.claude/sdlc/process/knowledge-routing.md` | Phrasing contract itself — documents canonical AND forbidden phrases. Transforming destroys the documentation. | None. Any hunk = defect. |
 | `process/sdlc_changelog.md` | `.claude/sdlc/process/sdlc_changelog.md` | Historical record — entries quote canonical phrases as context. Transforming corrupts history. | None in the project's own entries. Since contract 0017 the file is project-only: z-sdlc's entries are expected to be absent (they live in z-sdlc), so compare only entries the project wrote; a changed or missing one of those = defect. |
 | `process/changelog-archive/*.md` | `.claude/sdlc/process/changelog-archive/*.md` | The project's archived changelog entries, moved unedited by `changelog_archive.py`. Same reason as the changelog. | None. Any hunk = defect. z-sdlc's own archive files are never installed; one in a project = defect. |
-| `agents/sdlc-reviewer.md` | `.claude/agents/sdlc-reviewer.md` | Reviewer's checklist lists canonical phrases as validation criteria. Transforming removes the phrases it exists to detect. | Adapter MAY add a supplementary Phrasing Contract Validation section listing adapter-specific forms; contents outside that section must be verbatim. |
 | `agents/sdlc-compliance-auditor.md` | `.claude/agents/sdlc-compliance-auditor.md` | Auditor's validation section lists canonical phrases as scan targets. | **Documented exception:** line ~116 section about PROJECT-SECTION scan may have `(resolve via .sdlc-manifest.json's sdlc_root field, or fall back to .claude/sdlc/)` in place of source's `(detected in methodology section above)` — this is a post-2026-04-22 adapter customization since the `**Path detection:**` block was dropped from the adapter version. Content outside that line must be verbatim. |
 | `CLAUDE-SDLC.md` | (merged into target's `CLAUDE.md`, not a standalone file) | Framework documentation inserted into project's CLAUDE.md; contains canonical phrases as examples. | The adapter merges this into the project's existing CLAUDE.md rather than overwriting, so the section's content should be verbatim within the merged file. |
 | `knowledge/provenance_log.md` | `.claude/sdlc/knowledge/provenance_log.md` | Project-specific append-only file; treated like changelog. The adapter should NEVER overwrite this. | None — should be completely absent from the diff (never touched by migration). |
+
+## Adapter-owned (not verbatim)
+
+In a Neuroloom-backed project, the adapter's versions of these are authoritative, not z-sdlc's (CD, 2026-10-29). A diff against z-sdlc source is expected and is never a defect by itself. Audit them like any transformed file: the Step 2 defect scans, the Step 3 residue scans and the classification framework. A defect is corrupted output (`defect-catalog.md` §1) or residue, not the transformation.
+
+| File or lines | Install path | What the adapter does |
+|---|---|---|
+| `process/knowledge-routing.md` | `.claude/sdlc/process/knowledge-routing.md` | Installs its own Neuroloom routing doc in place of z-sdlc's phrasing contract. So the project has no copy of z-sdlc's current contract: check a phrasing change against z-sdlc source, not the project's copy. |
+| `agents/sdlc-reviewer.md` | `.claude/agents/sdlc-reviewer.md` | Rewrites the reviewer's phrasing checklist in Neuroloom canonical forms, since the reviewer checks the project's own Neuroloom-form files. The frontmatter and everything else stays verbatim. |
+| Integration-section `**Uses:**` lines (any skill) | `.claude/skills/*/SKILL.md` | Transforms knowledge-layer references there like any other line (plugin 0.5.7+). |
+
+Earlier audits (`migrate-f01a70`, 2026-04-22) treated a transformed `knowledge-routing.md` or `sdlc-reviewer.md` checklist as an exempt-file violation. That verdict no longer applies to Neuroloom.
 
 ## How to verify exempt-ness during audit
 
@@ -26,7 +36,7 @@ For each file in the list:
 
 2. **Diff them:**
    ```bash
-   diff -u ~/Projects/z-sdlc/process/knowledge-routing.md <target>/.claude/sdlc/process/knowledge-routing.md
+   diff -u ~/Projects/z-sdlc/agents/sdlc-compliance-auditor.md <target>/.claude/agents/sdlc-compliance-auditor.md
    ```
 
 3. **Evaluate the diff:**
@@ -40,7 +50,7 @@ The plugin emits `file_merged` events during stage 4.2. For each file on this ex
 
 ```bash
 grep '"event":"file_merged"' <target>/.sdlc-transaction-log \
-  | grep -E 'knowledge-routing\.md|sdlc_changelog\.md|changelog-archive/|sdlc-reviewer\.md|sdlc-compliance-auditor\.md|CLAUDE-SDLC\.md|provenance_log\.md' \
+  | grep -E 'sdlc_changelog\.md|changelog-archive/|sdlc-compliance-auditor\.md|CLAUDE-SDLC\.md|provenance_log\.md' \
   | grep -v '"subtype":"exempt_verbatim"'
 ```
 

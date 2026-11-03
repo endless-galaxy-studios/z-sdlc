@@ -88,11 +88,13 @@ The `[X]` capture stopped at arbitrary position `(e` and leaked the rest as orph
 
 ### 1.6 Integration-section corruption
 
-**Grep:** `\*\*(Uses|Depends on|Updates|Feeds into|Complements|Downstream):\*\*.*memory_(search|store)`
+**Grep:** `\*\*(Uses|Depends on|Updates|Feeds into|Complements|Downstream):\*\*.*memory_(search|store)`, then read each hit.
 
-**Cause:** Transformer didn't honor Integration-section exemption. Transforms `**Uses:** [sdlc-root]/knowledge/agent-context-map.yaml (for wiring)` into nonsense with double-paren.
+**What counts:** in a Neuroloom-backed project, the adapter's transforms of Integration lines are authoritative (CD, 2026-10-29; see `exempt-file-list.md` § Adapter-owned). A clean `memory_search(...)` on a `**Uses:**` line is **neither**. Only corrupted output is a defect: double-paren, orphan debris, a malformed call, or a greedy swallow (§1.1–1.4) on an Integration line.
 
-**Fix location:** plugin. Integration-section hard exclusion prevents this.
+**Example of the defect:** `**Uses:** [sdlc-root]/knowledge/agent-context-map.yaml (for wiring)` turned into nonsense with a double paren.
+
+**Fix location:** plugin (the corrupting rule).
 
 ---
 
@@ -192,17 +194,15 @@ z-sdlc framework content names canonical agents in dispatch maps, message envelo
 These files must be copied verbatim from z-sdlc source — zero transformation. A transformation-shaped hunk in any of these files is a defect.
 
 **Exempt files (Neuroloom):**
-- `process/knowledge-routing.md` — the phrasing contract itself
 - `process/sdlc_changelog.md` — historical record
 - `process/changelog-archive/*.md` — historical record (the project's archived entries)
-- `agents/sdlc-reviewer.md` — reviewer's phrases-to-detect list
 - `agents/sdlc-compliance-auditor.md` — auditor's validation criteria
 - `CLAUDE-SDLC.md` — framework documentation
 - `knowledge/provenance_log.md` — project append-only file (treated like changelog)
 
 **Detection:** diff each exempt file against z-sdlc source. Any hunk = defect. Exception: `agents/sdlc-compliance-auditor.md` has a documented adapter customization around methodology path reference (see specific rules in `classification-framework.md`).
 
-**Example from `migrate-f01a70`:** `agents/sdlc-reviewer.md:82-86` had the forbidden-phrases checklist transformed into Neuroloom forms, destroying the validation criteria the reviewer exists to enforce.
+`process/knowledge-routing.md` and `agents/sdlc-reviewer.md` were on this list until 2026-10-29. In a Neuroloom-backed project they are now adapter-owned (`exempt-file-list.md` § Adapter-owned). The `migrate-f01a70` finding that the reviewer's checklist was transformed into Neuroloom forms would be **neither** today.
 
 **Fix location:** plugin. Hard-gate enforcement (post-0.3.6) prevents this by routing exempt files through a verbatim-copy path with zero rule evaluation.
 

@@ -37,6 +37,27 @@ Each entry contains:
 
 ---
 
+## 2026-10-29: The adapter audit defers to the adapter's own files
+
+**Origin:** CD, after an adapter-installation audit of a Neuroloom-backed project found that the audit's exempt list and the plugin's design disagreed.
+
+**What happened:** The audit skill's references required `process/knowledge-routing.md` and `agents/sdlc-reviewer.md` to be verbatim copies of z-sdlc, and treated Integration-section `**Uses:**` lines as exempt from transformation. The neuroloom-sdlc plugin does otherwise on purpose:
+- it installs its own Neuroloom routing doc;
+- it rewrites the reviewer's phrasing checklist in Neuroloom forms, which is what that project's reviewer has to check;
+- since 0.5.7 it transforms `Uses:` lines.
+So every audit reported correct output as a defect. CD decided the adapter's versions are authoritative in Neuroloom-backed projects.
+
+**Changes made:**
+
+1. **`.claude/skills/zsdlc-audit-adapter-installation/references/exempt-file-list.md`:** `knowledge-routing.md` and `sdlc-reviewer.md` leave the verbatim list for a new § Adapter-owned, with Integration `Uses:` lines. A diff against z-sdlc there is expected; only corrupted output or residue is a defect. The project then has no copy of z-sdlc's current phrasing contract, so a phrasing change is checked against z-sdlc source. The transaction-log check and the diff example no longer name the two files.
+2. **`references/defect-catalog.md`:** §1.6 flags only corrupted output on Integration lines, not a clean transform. §3's exempt list drops the two files, and the old `migrate-f01a70` reviewer finding is marked as no longer a defect.
+3. **`references/classification-framework.md`:** step 3 skips adapter-owned files and lines, and the calibration table's reviewer row shows the changed verdict.
+4. **`SKILL.md`:** Step 4 says adapter-owned files are expected to differ.
+
+**Rationale:** An audit that calls the adapter's intended output a defect teaches readers to ignore its findings. Release type: none (a framework-development skill of this repository; nothing installed changes).
+
+---
+
 ## 2026-10-24: z-sdlc runs the framework work it starts
 
 **Origin:** CD, when asked to choose an incubator SDLC tier for a factory change started here: "no, you (this repo) are the commanding SDLC expert".
