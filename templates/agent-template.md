@@ -23,7 +23,7 @@ FRONTMATTER REFERENCE:
     that agent is ever spawned — it is a permanent per-session tax, unlike the agent body (which
     only costs tokens once spawned). Keep it lean: example economy, not example abundance.
     Format: single-line YAML double-quoted string using \\n (double-backslash n) for newlines, never a block scalar (|, >)
-    WARNING: In YAML double-quoted strings, \n = real newline (breaks parser), \\n = literal \n (correct)
+    WARNING: In YAML double-quoted strings, \n = real newline (broke the parser in April 2026), \\n = literal \n (always worked; use it)
     Must include:
     - Triggering conditions ("Use this agent when...")
     - Example count tiered by confusability: 1 <example> block if no other agent's domain could

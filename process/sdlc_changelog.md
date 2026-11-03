@@ -37,6 +37,21 @@ Each entry contains:
 
 ---
 
+## 2026-10-29: The framework's own agents follow the `\\n` rule
+
+**Origin:** an adapter-installation audit of a Neuroloom-backed project. z-sdlc's rule says agent descriptions use `\\n`, but its own `sdlc-reviewer.md` and `sdlc-compliance-auditor.md` used single `\n`. So the reviewer flagged the framework's own agents in every project that keeps them byte-identical. CD chose to keep the rule and bring the two agents into line.
+
+**What happened:** the rule dates from 2026-04-13 (now in `changelog-archive/2026-Q2.md`), when two agents with single `\n` broke Claude Code's frontmatter parser and every `\\n` agent worked. On 2026-10-29, current Claude Code loaded both forms in two separate sessions. Only `\\n` has worked in every observation, so the rule stays, and its wording now records both observations instead of claiming a break that today's Claude Code doesn't show.
+
+**Changes made:**
+
+1. **`agents/sdlc-reviewer.md`, `agents/sdlc-compliance-auditor.md`:** the description's 16 single `\n` each become `\\n`. The frontmatter still parses, and the description holds literal `\n` with no real newlines. z-sdlc's own `.claude/agents/` copies are the same files.
+2. **`agents/sdlc-reviewer.md`** (the YAML parse rule and its Red Flags row), **`skills/sdlc-develop-agent/SKILL.md`** (the CRITICAL note and its Red Flags row), **`templates/agent-template.md`**, **`CLAUDE-SDLC.md`** (Agent Conventions): single `\n` broke the parser in April 2026, Claude Code loads both forms as of October 2026, and `\\n` stays the rule because it has always worked.
+
+**Rationale:** a rule the framework breaks itself makes every check of it noise, and a rule whose stated reason no longer reproduces invites someone to drop it. Keeping the form that works on every version seen, and saying why plainly, settles both. Release type: patch (a fix to existing files; no new contract).
+
+---
+
 ## 2026-10-29: The adapter audit defers to the adapter's own files
 
 **Origin:** CD, after an adapter-installation audit of a Neuroloom-backed project found that the audit's exempt list and the plugin's design disagreed.
