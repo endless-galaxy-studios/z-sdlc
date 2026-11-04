@@ -37,6 +37,29 @@ Each entry contains:
 
 ---
 
+## 2026-11-03: The factory lets a project opt in to a key that can do more than read
+
+**Origin:** CD, while the factory is extended to give agent jobs a project's own services in every stage. A memory service's plugin reads a full-power project key from a file in the checkout, and the external review gate needs a model provider's key, which spends. CD accepted that exposure on 2026-10-29, for private repositories, and asked for it to be recorded here.
+
+**What happened:** D2 forbade any write-capable token in an agent job, or one in a file the agent can read (Forbids 6). Services had to be read-only by attestation. Neither key fits.
+
+**Changes made:**
+
+1. **`process/factory.md`** D2:
+   - rule 8: a project may opt in, per service, to a key that can write or spend. The exposure is accepted, not mitigated. What holds:
+     - the entry says what the key can do;
+     - the tool list allows only the tools it names, and an unlisted tool is refused;
+     - writes the project keeps are staged in the PR and stored after merge by a writer job;
+     - one key per repository, with a provider spending limit on a spending key;
+     - a key in a checkout file is seeded before the agent step and deleted before seeding and right after it;
+     - smoke treats a declared key as expected and every other credential as a leak.
+   - Forbids 6 names the exception. Revisit when gains a repository the organization doesn't control, and a service starting to offer read-only keys.
+   - The mechanism (the project tool list) isn't built, so no project can opt in yet.
+
+**Rationale:** A rule the factory is about to break should be changed where it's written, before the code that breaks it, with its conditions and its owner stated. Release type: patch (a rule change in an existing process doc; the tool list that uses it comes later).
+
+---
+
 ## 2026-10-29: The framework's own agents follow the `\\n` rule
 
 **Origin:** an adapter-installation audit of a Neuroloom-backed project. z-sdlc's rule says agent descriptions use `\\n`, but its own `sdlc-reviewer.md` and `sdlc-compliance-auditor.md` used single `\n`. So the reviewer flagged the framework's own agents in every project that keeps them byte-identical. CD chose to keep the rule and bring the two agents into line.

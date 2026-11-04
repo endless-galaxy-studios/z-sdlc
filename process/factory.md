@@ -134,6 +134,14 @@ Agent jobs run on self-hosted runners, and a runner host may also run production
    CI's `workflow-policy` check catches accidental drift from these rules on every PR. It is not a security control: a workflow is a program (expressions, `$GITHUB_ENV` writes, other actions), so a static check can't be complete against someone editing workflows on purpose. Its known gaps are under Leaves open.
 
 7. **Fixtures a project's tests need from a secret-holding source come from a hosted fixtures job on the default branch, as an artifact; the agent job never holds the secret** (CD, 2026-10-13). `factory.json`'s `fixtures` block names the command, its one repository secret, the directory it fills (gitignored) and the cache key. The implement and revise workflows run it in a `fixtures` job on a GitHub-hosted runner, from the default branch's checkout, so a factory branch an agent wrote never runs with the secret. The job restores the directory from the Actions cache first (the project's CI can fill the same entry), so the source is called only on a miss. It refuses fixtures that contain the secret, then hands the directory over as an artifact, which the agent job puts in the workspace before the agent starts. `workflow_policy.py` holds the job to this shape, and refuses the secret anywhere else in the workflow.
+8. **A project may opt in to a service key that can do more than read** (CD, 2026-11-03). Examples: a memory service's project key, which can write and delete; a model provider's key, which can spend. The exposure is accepted, not mitigated: the organization's repositories are private, and the factory does not design against a prompt-injected agent for these keys. What holds:
+   - **The project opts in per service,** in its own CODEOWNERS-reviewed settings. The entry says what the key can do (read, write or spend). Nothing is on by default, so a project that doesn't opt in keeps every other rule here unchanged.
+   - **The tool list allows only the tools the entry names.** A tool left off it is refused: auto mode can't prompt, so no consent is implied. Writes the project wants kept are staged in the agent's result, shown in the PR, and stored after CD merges, by a writer job holding its own key.
+   - **One key per repository,** scoped to that repository's own workspace or account, never an organization-wide secret. A spending key carries a limit set at the provider.
+   - **A key the agent can read is removed at the end.** A memory service whose plugin reads its key from a file in the checkout gets the key seeded there before the agent step. The file is deleted before seeding, and again in an always-run step right after the agent step, before any commit, upload or cache save. The file must be git-ignored, and the seed refuses to write otherwise.
+   - **Smoke expects a declared key, and nothing else.** It treats the declared key as present by design. Every other credential must still be found nowhere.
+
+   The mechanism is the project tool list, which isn't built yet. Until it is, no project can opt in.
 
 ### Forbids
 
@@ -142,7 +150,7 @@ Agent jobs run on self-hosted runners, and a runner host may also run production
 3. Granting a stage Bash before smoke carries that stage's sandbox probe.
 4. Granting Bash without `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1`.
 5. `--security-opt seccomp=unconfined`, `apparmor=unconfined`, `--privileged` or `--cap-add` on factory containers.
-6. Giving the OAuth token to a non-agent job; giving any write-capable token to an agent job, or putting one in a file the agent can read.
+6. Giving the OAuth token to a non-agent job; giving any write-capable token to an agent job, or putting one in a file the agent can read, except a service key a project opted in to under rule 8.
 7. Running an agent step without a tool-policy file, or changing a tool policy without re-running smoke.
 
 ### Costs
@@ -174,6 +182,7 @@ Agent jobs run on self-hosted runners, and a runner host may also run production
 - Claude Code or the action changes credential handling or sandbox keys.
 - A stage needs a non-HTTP network path (the sandbox proxy covers HTTP(S) only).
 - The factory moves off a production host.
+- A repository the organization doesn't control runs the factory, or a service an opted-in key belongs to starts offering read-only keys (rule 8).
 
 ## D3: Planning Tier (spec and plan stages see real data and services)
 
