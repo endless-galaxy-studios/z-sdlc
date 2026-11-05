@@ -37,6 +37,22 @@ Each entry contains:
 
 ---
 
+## 2026-11-05: smoke's mcp-services job keeps the planning probe's transcript
+
+**Origin:** The `mcp-services` job's first run, in a third project (2026-11-05, dispatched with `mcp_probe`). It passed the execution entry: the credential arrived, Bash saw a placeholder, and the left-out tool was tried and refused. It failed the planning entry, which reported the execution entry's header digest.
+
+**What happened:** claude-code-action writes every run's execution output to one fixed path (`/__w/_temp/claude-execution-output.json`). The job's second agent step overwrote the first's transcript before the upload and the verdict read it. So the planning check read the execution probe's transcript. Its refusal and masking verdicts passed only because both transcripts behave the same there.
+
+**Changes made:**
+
+1. **`bundles/factory/tree/templates/factory-smoke.yml`** `mcp-services`: a step right after the planning probe copies its execution file to `$RUNNER_TEMP/mcp-plan-execution.json`. The planning transcript's upload and the verdict read the copy.
+2. **`bundles/factory/tree/tests/test_planning_probe.py`** (`McpServicesProbe`): the policy admits the job, the copy sits between the two agent steps, and the verdict reads it.
+3. **`process/factory.md`** D2 rule 10: what the first run observed (the execution entry end to end, the refusal under auto mode included), and that the planning half waits for the next run.
+
+**Rationale:** Two agent steps in one job share the action's output path. A verdict must read what each step wrote before the next step runs. Release type: patch.
+
+---
+
 ## 2026-11-05: Enablement step 3: a first image publish GHCR refuses is re-run
 
 **Origin:** A third project's first `factory-image` run (2026-11-05): GHCR created the package and took every layer, then refused the tag in the same second (`error from registry: denied`). A plain re-run published it.

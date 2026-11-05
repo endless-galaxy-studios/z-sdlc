@@ -144,3 +144,30 @@ class ServiceSlotTiers(unittest.TestCase):
                                    if "services.py" in str(s.get("run", "")) else s for s in job["steps"]])
         self.assertTrue(any("FACTORY_EXEC_SVC_1 reaches the agent" in f
                             for f in self.failures("factory-implement.yml", name, unbuilt)))
+
+
+
+@unittest.skipUnless(HAS_YAML, "needs PyYAML")
+class McpServicesProbe(unittest.TestCase):
+    """factory-smoke's mcp-services job runs two agent steps, and claude-code-action writes every run's execution
+    output to one fixed path: the verdict must read a copy of the first, never the second's file twice."""
+
+    def setUp(self):
+        self.assertEqual(policy.configure(FACTORY), [])
+        smoke = yaml.safe_load(render.render_all(FACTORY, FACTORY / "templates")["factory-smoke.yml"])
+        self.workflow_env = smoke.get("env") or {}
+        self.job = smoke["jobs"]["mcp-services"]
+
+    def test_the_policy_admits_it(self):
+        failures = policy.job_failures("mcp-services", self.job, self.workflow_env, None, FACTORY, "factory-smoke.yml", set())
+        self.assertEqual(failures, [])
+
+    def test_the_planning_transcript_is_copied_before_the_next_agent_step(self):
+        steps = self.job["steps"]
+        ids = [s.get("id") for s in steps]
+        copy = next(i for i, s in enumerate(steps) if "mcp-plan-execution.json" in str(s.get("run", "")))
+        self.assertLess(ids.index("plan"), copy)
+        self.assertLess(copy, ids.index("exec"))
+        verdict = next(s for s in steps if "authorization-sha256" in str(s.get("run", "")))
+        self.assertIn("$RUNNER_TEMP/mcp-plan-execution.json", verdict["run"])
+        self.assertNotIn("steps.plan.outputs.execution_file", str(verdict.get("env", {})))

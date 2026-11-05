@@ -1266,6 +1266,15 @@ jobs:
             --permission-mode auto --permission-prompts none
             --max-turns 8
 
+      # claude-code-action writes every run's execution output to one fixed path, so the next agent step would
+      # overwrite this one's: keep a copy for the upload and the verdict.
+      - name: Keep the planning probe's transcript
+        if: always() && steps.plan.outputs.execution_file != ''
+        shell: bash
+        env:
+          PLAN_OUT: ${{ steps.plan.outputs.execution_file }}
+        run: cp "$PLAN_OUT" "$RUNNER_TEMP/mcp-plan-execution.json"
+
       - name: Switch to the execution entry's MCP config
         if: steps.need.outputs.run == 'yes'
         shell: bash
@@ -1299,7 +1308,7 @@ jobs:
         continue-on-error: true
         with:
           name: mcp-services-plan-transcript
-          path: ${{ steps.plan.outputs.execution_file }}
+          path: /__w/_temp/mcp-plan-execution.json
           retention-days: 7
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -1314,11 +1323,11 @@ jobs:
         if: always() && steps.need.outputs.run == 'yes'
         shell: bash
         env:
-          PLAN_EXEC: ${{ steps.plan.outputs.execution_file }}
           EXEC_EXEC: ${{ steps.exec.outputs.execution_file }}
         run: |
           bad=0
-          for entry in "plan FACTORY_SVC_1 $PLAN_EXEC" "exec FACTORY_EXEC_SVC_1 $EXEC_EXEC"; do
+          # The planning probe's copy (its own execution file was overwritten by the execution probe's).
+          for entry in "plan FACTORY_SVC_1 $RUNNER_TEMP/mcp-plan-execution.json" "exec FACTORY_EXEC_SVC_1 $EXEC_EXEC"; do
             read -r label slot file <<< "$entry"
             if [ -z "$file" ] || [ ! -f "$file" ]; then echo "::error::$label: the agent step left no execution file"; bad=1; continue; fi
             out=$(jq -r '[.[] | .message?.content? | select(type == "array") | .[] | select(.type == "tool_result")
