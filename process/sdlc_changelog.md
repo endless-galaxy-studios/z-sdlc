@@ -47,7 +47,7 @@ Each entry contains:
 
 1. **`bundles/factory/tree/templates/factory-smoke.yml`** `mcp-services`: a step right after the planning probe copies its execution file to `$RUNNER_TEMP/mcp-plan-execution.json`. The planning transcript's upload and the verdict read the copy.
 2. **`bundles/factory/tree/tests/test_planning_probe.py`** (`McpServicesProbe`): the policy admits the job, the copy sits between the two agent steps, and the verdict reads it.
-3. **`process/factory.md`** D2 rule 10: what the first run observed (the execution entry end to end, the refusal under auto mode included), and that the planning half waits for the next run.
+3. **`process/factory.md`** D2 rule 10: what the first run observed (the execution entry end to end, the refusal under auto mode included). After v2.3.2, the next run observed the planning entry too: every check passed for both entries, the left-out tool tried and refused.
 
 **Rationale:** Two agent steps in one job share the action's output path. A verdict must read what each step wrote before the next step runs. Release type: patch.
 
