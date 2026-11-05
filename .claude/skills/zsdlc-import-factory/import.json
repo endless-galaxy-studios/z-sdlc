@@ -35,6 +35,9 @@
       "fixtures",
       "policy",
       "runners.ci"
+    ],
+    "planning.json": [
+      "database.sslmode"
     ]
   },
   "specific": [

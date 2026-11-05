@@ -37,6 +37,43 @@ Each entry contains:
 
 ---
 
+## 2026-11-05: Production gates for a host that builds each deploy, and TLS to a public planning database
+
+**Origin:** A third project enabling the factory runs production on Railway, a host that builds every deploy from the commit, with no compose host. CD decided (2026-11-05) that its production tier is built in that project, as the incubator's was, and that z-sdlc restates D4's compose-specific rules (13-15) for any host. CD also approved requiring TLS to a planning database on a public address. The project's read-only spike against Railway's live API (2026-11-05) supplied the host's facts:
+- an empty staged row can sit in an environment permanently;
+- variables carry no version;
+- a rollback restores variables as well as the image;
+- the deploy call that targets a commit returns the deployment's id;
+- the serving deployment is the newest successful one;
+- a pre-deploy step has no time limit;
+- a restore stages a change.
+
+**What happened:**
+- Rules 13-15 assumed a production checkout restarted by Compose. 13 refused dependency changes because a restart doesn't rebuild. 14 proved settings with a Compose dry run. 15 tied health to a restarted worker's heartbeat. Rule 16 assumed one tier per host.
+- A planning database on a public address needs no firewall exception (the tier reaches the internet). But `planning-services.sh` left pgbouncer's TLS mode at its default, which falls back to plaintext when the server offers no TLS.
+
+**Changes made:**
+
+1. **`process/factory.md`**:
+   - D4 rule 13: deploys move forward only from the broker's last recorded commit, and only the broker deploys (a host's own branch auto-deploy is off). What stays CD's is the project's list: on a compose host, compose files, Dockerfiles, `docker/`, dependencies, env files, the Makefile and units; on a host that rebuilds every deploy, its config-as-code, Dockerfiles and builder configuration.
+   - Rule 14, "A deploy never changes production's settings", with two realizations. Compose: the dry run. Railway: no non-empty staged patch, and an unchanged hash of each service's variables and configuration, computed in the broker's process and never printed or stored, recorded again after a rollback that restores settings.
+   - Rule 15, "Healthy after a deploy means the new release". Compose: the heartbeat. Railway: the returned deployment's SUCCESS, then health and heartbeat reporting `RAILWAY_DEPLOYMENT_ID`; the serving deployment is the newest successful one.
+   - Rule 11: a rollback never reverts a migration. Where the host runs migrations itself (Railway's pre-deploy command), the broker runs none of the commit's code, bounds the step with its own deadline and cancels the deployment past it. A restore is CD's runbook, never an operation.
+   - Rule 16: several projects' tiers on one host, each after the first with names of its own, and the request client finding the broker's socket from the calling user.
+   - Forbids 5 names rule 13's list.
+   - D3 rule 2: a public-address database needs no exception but is reached only over TLS.
+2. **`bundles/factory/tree/planning-services.sh`**: sets `server_tls_sslmode`. Without `database.sslmode`, it uses `require` for a host off the private, tailnet and loopback ranges, and `prefer` on them. It refuses `prefer` or `disable` off them, and any other value. It prints the decision before the password check. **`tests/test_planning_services.py`** covers it.
+3. **`bundles/factory/seed/planning.json`**: `database.sslmode` (empty), documented. **`.claude/skills/zsdlc-import-factory/import.json`**: the incubator may leave it out (`optional_settings`).
+
+**Upgrading:**
+- A project whose planning database is on its runner host or a tailnet address needs nothing: TLS stays `prefer`.
+- One on a public address now needs TLS on the server. Planning refuses to start its database proxy otherwise.
+- The D4 changes are rule text for each project's own production tier; a compose tier's behaviour doesn't change.
+
+**Rationale:** The rules protect the same three things on any host: only reviewed releases, unchanged settings, and health of the release just deployed. Writing them per host keeps a compose tier as it was and gives a host-built one exact checks instead of loopholes. Plaintext fallback to a production database over the internet isn't a mode the factory should allow by default. Release type: patch (rule text within D4's existing contract and a stricter check in an existing script).
+
+---
+
 ## 2026-11-05: The publish guard sees paths the way a case-insensitive checkout does
 
 **Origin:** A security review in a third project enabling the factory (rated major), confirmed here by probing the guard. CD approved the fix on 2026-11-05, to ship as its own patch ahead of the next minor release. CD also asked (2026-11-05) that the knowledge-file ownership rule be written into factory setup, so no project asks again.

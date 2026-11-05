@@ -14,9 +14,33 @@ if [ -z "$(jq -r '.database.host // ""' "$cfg")" ]; then
   echo "planning-services: planning.json names no database; planning runs without production data"
   exit 0
 fi
-[ -n "${FACTORY_DB_READER_PASSWORD:-}" ] || { echo "planning-services: no database password" >&2; exit 1; }
 host=$(jq -r .database.host "$cfg"); port=$(jq -r .database.port "$cfg"); name=$(jq -r .database.name "$cfg")
 user=$(jq -r .database.user "$cfg"); local_port=$(jq -r .database.local_port "$cfg")
+# TLS to the database (D3 rule 2). On a private, tailnet or loopback address (the runner host, a VPN peer) the
+# network is the boundary, and TLS is used when the server offers it. Anywhere else the login's exchange and
+# every row cross the internet, so TLS is required and prefer or disable is refused: pgbouncer's own default
+# would fall back to plaintext when the server doesn't offer TLS. planning.json's database.sslmode overrides
+# the default within those limits.
+private=no
+if [[ $host =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] && python3 -I -c '
+import ipaddress, sys
+a = ipaddress.IPv4Address(sys.argv[1])
+# RFC 1918, loopback, and the shared range (RFC 6598) that Tailscale addresses come from, 0x64400000/10.
+nets = ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", (0x64400000, 10), "127.0.0.0/8")
+sys.exit(0 if any(a in ipaddress.IPv4Network(n) for n in nets) else 1)' "$host" 2> /dev/null; then
+  private=yes
+fi
+sslmode=$(jq -r '.database.sslmode // ""' "$cfg")
+case "$sslmode" in
+  "") if [ $private = yes ]; then sslmode=prefer; else sslmode=require; fi ;;
+  require) ;;
+  prefer|disable)
+    [ $private = yes ] \
+      || { echo "planning-services: $host isn't a private address, so sslmode must be require, not $sslmode" >&2; exit 1; } ;;
+  *) echo "planning-services: database.sslmode must be require, prefer or disable, not $sslmode" >&2; exit 1 ;;
+esac
+echo "planning-services: TLS to $host: $sslmode"
+[ -n "${FACTORY_DB_READER_PASSWORD:-}" ] || { echo "planning-services: no database password" >&2; exit 1; }
 
 # A fresh directory each run: the runner's temp directory can outlive a job, and a stale pidfile or
 # config from an earlier run would stop pgbouncer from starting (silently, before this fix).
@@ -28,6 +52,7 @@ cat > "$dir/pgbouncer.ini" <<INI
 $name = host=$host port=$port dbname=$name user=$user password=$FACTORY_DB_READER_PASSWORD
 
 [pgbouncer]
+server_tls_sslmode = $sslmode
 listen_addr = 127.0.0.1
 listen_port = $local_port
 unix_socket_dir =

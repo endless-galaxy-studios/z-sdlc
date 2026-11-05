@@ -1,10 +1,11 @@
 {
-  "_doc": "The planning tier's database (design rule D3): the read-only reader login, reached through pgbouncer on the job container's loopback. The password is the factory-planning environment's FACTORY_DB_READER_PASSWORD secret. Optional: with host and name empty, the plan and spec stages run without a database. To give them one, set host, name and user and create the role (process/factory.md, Enablement step 2).",
+  "_doc": "The planning tier's database (design rule D3): the read-only reader login, reached through pgbouncer on the job container's loopback. The password is the factory-planning environment's FACTORY_DB_READER_PASSWORD secret. Optional: with host and name empty, the plan and spec stages run without a database. To give them one, set host, name and user and create the role (process/factory.md, Enablement step 2). database.sslmode: TLS to the database. Empty means require for a host that isn't on a private or tailnet address (the login and the data cross the internet) and prefer for one that is; prefer and disable are refused off a private network.",
   "database": {
     "host": "",
     "port": 5432,
     "name": "",
     "user": "factory_reader",
+    "sslmode": "",
     "local_port": 6432
   }
 }
