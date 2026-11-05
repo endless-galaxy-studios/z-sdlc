@@ -77,6 +77,15 @@ class CodeownersPaths(unittest.TestCase):
         for path in ["Claude.md", ".Claude/settings.local.json", ".GitHub/workflows/x.yml", "docs/claude.MD"]:
             self.assertIsNotNone(guard.protected(path, self.patterns), path)
 
+    def test_github_owns_every_casing_agents_load(self):
+        # GitHub matches CODEOWNERS case-sensitively, the guard doesn't: a casing CODEOWNERS doesn't list gets no
+        # code owner on a person's PR. So list each casing the tools load, early and again after the owner-less
+        # lines (last match wins). Add the casings your own tools load.
+        names = ["CLAUDE.md", "claude.md", "Claude.md", "CLAUDE.local.md", "claude.local.md", "Claude.local.md",
+                 "AGENTS.md", "agents.md", "Agents.md", "GEMINI.md"]
+        for path in names + ["docs/" + n for n in names] + ["ops/sdlc/disciplines/" + n for n in names]:
+            self.assertIsNotNone(guard.owner_on_github(path, self.patterns), path)
+
     def test_agent_files_stay_owned_under_the_owner_less_lines(self):
         # Last match wins: CLAUDE.md, CLAUDE.local.md and AGENTS.md are owned again after the owner-less lines.
         for path in ["ops/sdlc/disciplines/CLAUDE.md", "ops/sdlc/disciplines/CLAUDE.local.md",

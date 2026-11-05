@@ -127,6 +127,17 @@ class CodeownersRules(unittest.TestCase):
         for path in ["ops/sdlc/disciplines/testing.md", "ops/sdlc/process/sdlc_changelog.md"]:
             self.assertIsNone(guard.protected(path, patterns), path)
 
+    def test_github_sees_only_the_casings_listed(self):
+        """GitHub matches case-sensitively, so a casing CODEOWNERS doesn't list has no code owner there,
+        though the guard still refuses it (a person's PR is GitHub's to gate, a factory commit the guard's)."""
+        patterns = guard.codeowners_patterns(FIXTURE_CODEOWNERS)
+        self.assertEqual(guard.owner_on_github("api/CLAUDE.md", patterns), "CLAUDE.md")
+        self.assertIsNone(guard.owner_on_github("api/Claude.md", patterns))
+        self.assertIsNotNone(guard.protected("api/Claude.md", patterns))
+        # Last match wins, exactly as written: an owner-less line unowns, a later owned line owns again.
+        self.assertIsNone(guard.owner_on_github("ops/sdlc/disciplines/testing.md", patterns))
+        self.assertEqual(guard.owner_on_github("ops/sdlc/process/review-fix-loop.md", patterns), "/ops/sdlc/")
+
     def test_fold_is_caseless_and_normalization_insensitive(self):
         self.assertEqual(guard.fold(".Claude/Settings.json"), guard.fold(".claude/settings.json"))
         self.assertEqual(guard.fold("café.md"), guard.fold("café.md"))

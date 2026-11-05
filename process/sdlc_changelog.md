@@ -37,6 +37,25 @@ Each entry contains:
 
 ---
 
+## 2026-11-05: The seeded CODEOWNERS test checks GitHub's case-sensitive view too
+
+**Origin:** A review of a third project's CODEOWNERS after its migration to v2.3.0 (2026-11-05).
+
+**What happened:** v2.3.0 made the guard match owned lines in any case, and the seeded `tests/test_codeowners.py` checks ownership through it. So the test could no longer see a CODEOWNERS that owned `CLAUDE.local.md` but not `claude.local.md`. Under GitHub's case-sensitive, last-match-wins rules, those casings had no code owner after the owner-less lines. The guard still refused them in factory commits, but a person's PR touching them needed no code-owner review. The reviewer's mutation, deleting the last `AGENTS.md` line, failed no test.
+
+**Changes made:**
+
+1. **`bundles/factory/tree/implement_guard.py`**: each CODEOWNERS entry also keeps its exact regex. `owner_on_github()` evaluates a path as GitHub does: case-sensitive, last match wins. **`tests/test_implement_guard.py`** covers it: an unlisted casing has no owner on GitHub but is still refused by the guard.
+2. **`bundles/factory/seed/tests/test_codeowners.py`**: `test_github_owns_every_casing_agents_load` checks, through `owner_on_github`, that the agent files' casings are owned at the root, nested, and under the parking lots: `CLAUDE.md`, `claude.md` and `Claude.md`, the same for `CLAUDE.local.md` and `AGENTS.md`, and `GEMINI.md`. The reviewer's mutation now fails it.
+3. **`.claude/skills/zsdlc-import-factory/scripts/import_factory.py`**: the proof's CODEOWNERS lists those casings early and after the owner-less lines.
+4. **`process/factory.md`** Enablement step 9: list every casing a tool loads explicitly, early and again after the owner-less lines, `GEMINI.md` among the re-owned. The seeded test checks GitHub's view as well as the guard's.
+
+**Upgrading:** add the casing lines to CODEOWNERS (the seed's test shows which), and copy the new test into the project's own `tests/test_codeowners.py`.
+
+**Rationale:** The guard gates factory commits, and GitHub gates everyone else's. Each needs its own check, because one ignores case and the other doesn't. Release type: patch.
+
+---
+
 ## 2026-11-05: MCP services for the planning stages, and read-only ones for the execution stages
 
 **Origin:** A third project enabling the factory reads its production database through its own pgEdge MCP server. CD chose that route for its planning stages (2026-11-05), over a planning-database proxy on the tailnet. CD also asked for read-only MCP services in the execution stages, as framework capability for other repositories (2026-11-05), reversing the planning-only rule of 2026-10-10 for read-only entries. `services.py` already held the MCP path but refused it until it had its own proof (2026-10-10).

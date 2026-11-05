@@ -195,21 +195,26 @@ def codeowners_patterns(text):
         if any(c in pattern for c in "[]\\!"):
             raise Refused(f"CODEOWNERS pattern this check can't evaluate: {pattern}")
         anchored = pattern.startswith("/") or "/" in pattern.strip("/")
-        body = fold(pattern.strip("/")) if owners else pattern.strip("/")
-        regex, i = "", 0
-        while i < len(body):
-            if body.startswith("**/", i):
-                regex, i = regex + "(?:.*/)?", i + 3
-            elif body.startswith("**", i):
-                regex, i = regex + ".*", i + 2
-            elif body[i] == "*":
-                regex, i = regex + "[^/]*", i + 1
-            elif body[i] == "?":
-                regex, i = regex + "[^/]", i + 1
-            else:
-                regex, i = regex + re.escape(body[i]), i + 1
         suffix = "(?:/.*)?$" if owners else "$"
-        patterns.append((pattern, re.compile(("^" if anchored else "^(?:.*/)?") + regex + suffix), bool(owners)))
+
+        def compiled(body):
+            regex, i = "", 0
+            while i < len(body):
+                if body.startswith("**/", i):
+                    regex, i = regex + "(?:.*/)?", i + 3
+                elif body.startswith("**", i):
+                    regex, i = regex + ".*", i + 2
+                elif body[i] == "*":
+                    regex, i = regex + "[^/]*", i + 1
+                elif body[i] == "?":
+                    regex, i = regex + "[^/]", i + 1
+                else:
+                    regex, i = regex + re.escape(body[i]), i + 1
+            return re.compile(("^" if anchored else "^(?:.*/)?") + regex + suffix)
+
+        # The guard's form (an owned line folded) and GitHub's (every line exactly as written).
+        exact = compiled(pattern.strip("/"))
+        patterns.append((pattern, compiled(fold(pattern.strip("/"))) if owners else exact, bool(owners), exact))
     if not patterns:
         raise Refused("CODEOWNERS has no patterns")
     return patterns
@@ -219,7 +224,15 @@ def protected(path, patterns):
     """The owning pattern, or None. The last matching line wins, as on GitHub. Owned lines match the
     folded path, owner-less lines the path as written: unowning too much is the dangerous direction."""
     folded = fold(path)
-    match = next(((p, owned) for p, rx, owned in reversed(patterns) if rx.match(folded if owned else path)), None)
+    match = next(((p, owned) for p, rx, owned, _ in reversed(patterns) if rx.match(folded if owned else path)), None)
+    return match[0] if match and match[1] else None
+
+
+def owner_on_github(path, patterns):
+    """The owning pattern as GitHub sees it, or None: case-sensitive, the last matching line wins. That is
+    what makes a person's PR (not a factory commit, which the guard checks) need code-owner review, so a
+    project's CODEOWNERS lists each casing a tool loads (tests/test_codeowners.py checks it)."""
+    match = next(((p, owned) for p, _, owned, exact in reversed(patterns) if exact.match(path)), None)
     return match[0] if match and match[1] else None
 
 

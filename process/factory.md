@@ -569,13 +569,18 @@ needs an organization owner's `gh` login (`admin:org`) for the runner groups and
        `knowledge-management-methodology`, `model-tier-strategy`, `prompt-engineering-patterns`,
        `token-economics` and `security-review-taxonomy`. The guard keeps the list
        (`implement_guard.GOVERNING_KNOWLEDGE`) and refuses them by name too;
-     - `CLAUDE.md`, `CLAUDE.local.md` and `AGENTS.md`. Otherwise the parking lots' line unowns a
+     - `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md` and `GEMINI.md`. Otherwise the parking lots' line unowns a
        nested `[sdlc-root]/disciplines/CLAUDE.md` on GitHub, which Claude Code loads.
+   - **Every casing a tool loads, listed explicitly,** early and again after the owner-less lines:
+     `CLAUDE.md`, `claude.md` and `Claude.md`, the same for `CLAUDE.local.md` and `AGENTS.md`, and any
+     your own tools accept. GitHub matches CODEOWNERS case-sensitively, so an unlisted casing gets no
+     code owner on a person's PR. The guard refuses every casing in a factory commit either way.
    - **The other knowledge YAMLs are agent-writable on purpose** (SDLC hygiene, CD 2026-10-09),
      and CD's PR review is the control. Agents can therefore shape knowledge that later agents and
      reviewers read. CD accepted that, organization-wide, so a project doesn't ask again.
    - The seeded `tests/test_codeowners.py` checks the file against the guard, the governing list
-     and the order included. Until CODEOWNERS exists it fails. Its path lists are the project's to
+     and the order included, and against GitHub's case-sensitive matching for the agent files' casings
+     (`implement_guard.owner_on_github`). Until CODEOWNERS exists it fails. Its path lists are the project's to
      extend: its test and build configuration, the profile's list, its source paths.
 10. **CI**, required on `main`: `python .github/factory/render.py --check`, then
     `python .github/factory/workflow_policy.py .github/workflows`, then

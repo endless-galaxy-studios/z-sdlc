@@ -52,8 +52,14 @@ PROOF_CODEOWNERS = """/.github/ @owner
 .mcp.json @owner
 .claude/ @owner
 CLAUDE.md @owner
+claude.md @owner
+Claude.md @owner
 CLAUDE.local.md @owner
+claude.local.md @owner
+Claude.local.md @owner
 AGENTS.md @owner
+agents.md @owner
+Agents.md @owner
 GEMINI.md @owner
 .codex/ @owner
 .gemini/ @owner
@@ -138,8 +144,15 @@ babel.config.* @owner
 /ops/sdlc/knowledge/architecture/token-economics.yaml @owner
 /ops/sdlc/knowledge/architecture/security-review-taxonomy.yaml @owner
 CLAUDE.md @owner
+claude.md @owner
+Claude.md @owner
 CLAUDE.local.md @owner
+claude.local.md @owner
+Claude.local.md @owner
 AGENTS.md @owner
+agents.md @owner
+Agents.md @owner
+GEMINI.md @owner
 """
 
 
