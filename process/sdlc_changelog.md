@@ -118,6 +118,10 @@ Release type: minor (a new `stack.profile` value, with its contract).
    - D4 rule 13: deploys move forward only from the broker's last recorded commit, and only the broker deploys (a host's own branch auto-deploy is off). What stays CD's is the project's list: on a compose host, compose files, Dockerfiles, `docker/`, dependencies, env files, the Makefile and units; on a host that rebuilds every deploy, its config-as-code, Dockerfiles and builder configuration.
    - Rule 14, "A deploy never changes production's settings", with two realizations. Compose: the dry run. Railway: no non-empty staged patch, and an unchanged hash of each service's variables and configuration, computed in the broker's process and never printed or stored, recorded again after a rollback that restores settings.
    - Rule 15, "Healthy after a deploy means the new release". Compose: the heartbeat. Railway: the returned deployment's SUCCESS, then health and heartbeat reporting `RAILWAY_DEPLOYMENT_ID`; the serving deployment is the newest successful one.
+   - Rule 15 also takes three points from the project's review of its deployment-id reporting:
+     - a time-to-live heartbeat counts only on two reads more than one time-to-live apart, since a worker that writes once and crashes, or crash-loops as the same release, leaves its mark for a whole time-to-live;
+     - during the overlap the wait looks for the new mark, never a value that stops changing;
+     - the deployment status is read again at the end of the wait, and SUCCESS is no evidence for a service without a platform health check.
    - Rule 11: a rollback never reverts a migration. Where the host runs migrations itself (Railway's pre-deploy command), the broker runs none of the commit's code, bounds the step with its own deadline and cancels the deployment past it. A restore is CD's runbook, never an operation.
    - Rule 16: several projects' tiers on one host, each after the first with names of its own, and the request client finding the broker's socket from the calling user.
    - Forbids 5 names rule 13's list.
