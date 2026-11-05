@@ -263,6 +263,25 @@ class Bootstrap(unittest.TestCase):
         self.assertEqual((env["branches"], env["reviewers"][0]["reviewer"]["id"]), (["main"], 101))
         self.assertNotIn("factory-gate.yml", json.dumps(self.pool()["selected_workflows"]))
 
+    def test_a_production_tier_needs_merge_commits_only(self):
+        self.production_tier()
+        self.gh.repo.update(allow_merge_commit=True, allow_squash_merge=True, allow_rebase_merge=False)
+        code, out = self.run_it()
+        self.assertIn("main also allows squash merges", out)
+        # Restricted in the ruleset instead of the repository's settings, it holds.
+        self.gh.rulesets[0]["rules"][0]["parameters"]["allowed_merge_methods"] = ["merge"]
+        code, out = self.run_it()
+        self.assertIn("main merges with merge commits only", out)
+        self.gh.repo.update(allow_merge_commit=False)
+        code, out = self.run_it()
+        self.assertIn("main allows no merge commit", out)
+
+    def test_merge_settings_matter_only_with_a_production_tier(self):
+        self.gh.repo.update(allow_merge_commit=True, allow_squash_merge=True, allow_rebase_merge=True)
+        self.gh.set_up()
+        code, out = self.run_it()
+        self.assertNotIn("merge commit", out)
+
     def test_the_planning_secrets_follow_planning_json_and_services_json(self):
         factory = self.root / ".github" / "factory"
         (factory / "planning.json").write_text(json.dumps({"database": {"host": "db.example", "name": "w"}}))

@@ -137,6 +137,7 @@ class Bootstrap:
         if status != 200:
             raise Settings(f"can't read {self.repo} (HTTP {status}): check the name and gh's login")
         self.repo_id, self.default = info["id"], info["default_branch"]
+        self.merge_settings = {k: info.get(k) for k in ("allow_merge_commit", "allow_squash_merge", "allow_rebase_merge")}
         self.org = (info.get("owner") or {}).get("type") == "Organization"
         if not self.check_settings() and self.apply:
             # The labels and runner-group entries would work, but a factory with someone else's App or image
@@ -468,7 +469,7 @@ class Bootstrap:
         self.note("ok", "codeowners", f"{path} owns /.github/ and /.claude/ (the seeded tests check the rest)")
 
     def check_branch_rules(self):
-        owner_review, checks = False, set()
+        owner_review, checks, merge_methods = False, set(), None
         for rs in self.list_all(f"repos/{self.repo}/rulesets?includes_parents=true", None) or []:
             status, full = self.api("GET", f"repos/{self.repo}/rulesets/{rs['id']}")
             if status != 200 or full.get("enforcement") != "active" or full.get("target") != "branch":
@@ -480,6 +481,9 @@ class Bootstrap:
                 params = rule.get("parameters") or {}
                 if rule.get("type") == "pull_request" and params.get("require_code_owner_review"):
                     owner_review = True
+                if rule.get("type") == "pull_request" and params.get("allowed_merge_methods"):
+                    allowed = set(params["allowed_merge_methods"])
+                    merge_methods = allowed if merge_methods is None else merge_methods & allowed
                 if rule.get("type") == "required_status_checks":
                     checks |= {c.get("context") for c in params.get("required_status_checks") or []}
         status, prot = self.api("GET", f"repos/{self.repo}/branches/{self.default}/protection")
@@ -496,6 +500,31 @@ class Bootstrap:
         else:
             self.note("problem", "branch rules", f"{self.default} has no required status check: CI must run "
                       "render.py --check, workflow_policy.py and the factory's tests")
+        if self.production:
+            self.check_merge_methods(merge_methods)
+
+    def check_merge_methods(self, ruleset_methods):
+        """With a production tier, an execution PR merges with a merge commit (D4 rule 13): the broker deploys
+        the PR's head, so a squash or rebase leaves production on a commit the default branch doesn't contain,
+        and rule 7 refuses the next gate."""
+        keys = {"merge": "allow_merge_commit", "squash": "allow_squash_merge", "rebase": "allow_rebase_merge"}
+        if any(self.merge_settings.get(k) is None for k in keys.values()):
+            self.note("unchecked", "branch rules", "can't read the repository's merge settings (they need admin "
+                      "access): execution PRs must merge with a merge commit (D4 rule 13)")
+            return
+        allowed = {m for m, k in keys.items() if self.merge_settings[k]}
+        if ruleset_methods is not None:
+            allowed &= ruleset_methods
+        if "merge" not in allowed:
+            self.note("problem", "branch rules", f"{self.default} allows no merge commit: an execution PR merges "
+                      "with one (D4 rule 13)")
+        elif allowed - {"merge"}:
+            self.note("problem", "branch rules", f"{self.default} also allows {' and '.join(sorted(allowed - {'merge'}))} "
+                      "merges: one of an execution PR leaves production on a commit the branch doesn't contain, and "
+                      "the next gate is refused (D4 rules 7 and 13). Allow merge commits only, in the repository's "
+                      "settings or the branch's ruleset (allowed merge methods)")
+        else:
+            self.note("ok", "branch rules", f"{self.default} merges with merge commits only (D4 rule 13)")
 
 
 def main(argv=None, api=gh):

@@ -37,6 +37,23 @@ Each entry contains:
 
 ---
 
+## 2026-11-05: With a production tier, the default branch merges with merge commits only
+
+**Origin:** Designing a third project's production tier (2026-11-05). Its repository allows squash and rebase merges.
+
+**What happened:** D4 rule 13 says an execution PR merges with a merge commit: the broker deploys the PR's head, and production may run ahead of the default branch until then. Nothing set or checked a repository's merge settings. A squash or rebase of an execution PR would leave production on a commit the default branch doesn't contain, and rule 7's deployed-commit check would refuse every later gate until a `baseline`.
+
+**Changes made:**
+
+1. **`bundles/factory/tree/bootstrap.py`**: with a production tier (`production/ops.json`), it reads the repository's merge settings and the default branch's ruleset's allowed merge methods. It reports a problem when merge commits aren't allowed, or when squash or rebase also is, and unchecked without admin access. **`tests/test_bootstrap.py`** covers squash allowed, a ruleset restricted to merge, no merge commit, and no check without a production tier.
+2. **`process/factory.md`** Enablement step 9: with a production tier, the default branch allows merge commits only.
+
+**Upgrading:** a project with a production tier restricts its default branch to merge commits (repository settings, or the ruleset's allowed merge methods).
+
+**Rationale:** Rule 13 needed a check that holds it, not a habit. Release type: patch.
+
+---
+
 ## 2026-11-05: smoke's mcp-services job keeps the planning probe's transcript
 
 **Origin:** The `mcp-services` job's first run, in a third project (2026-11-05, dispatched with `mcp_probe`). It passed the execution entry: the credential arrived, Bash saw a placeholder, and the left-out tool was tried and refused. It failed the planning entry, which reported the execution entry's header digest.

@@ -580,6 +580,10 @@ needs an organization owner's `gh` login (`admin:org`) for the runner groups and
    - **The other knowledge YAMLs are agent-writable on purpose** (SDLC hygiene, CD 2026-10-09),
      and CD's PR review is the control. Agents can therefore shape knowledge that later agents and
      reviewers read. CD accepted that, organization-wide, so a project doesn't ask again.
+   - **With a production tier, `main` allows merge commits only,** in the repository's settings or
+     the ruleset's allowed merge methods. An execution PR merges with a merge commit (D4 rule 13):
+     a squash or rebase leaves production on a commit `main` doesn't contain, and the broker refuses
+     the next gate. `bootstrap.py` reports it.
    - The seeded `tests/test_codeowners.py` checks the file against the guard, the governing list
      and the order included, and against GitHub's case-sensitive matching for the agent files' casings
      (`implement_guard.owner_on_github`). Until CODEOWNERS exists it fails. Its path lists are the project's to
