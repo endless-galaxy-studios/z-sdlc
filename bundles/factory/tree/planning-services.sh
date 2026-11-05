@@ -53,6 +53,11 @@ $name = host=$host port=$port dbname=$name user=$user password=$FACTORY_DB_READE
 
 [pgbouncer]
 server_tls_sslmode = $sslmode
+; Deadlines the login can't lift (it can SET statement_timeout away): a query over a minute is cancelled, a
+; transaction left idle or a client left waiting for a connection is dropped after 30 seconds.
+query_timeout = 60
+idle_transaction_timeout = 30
+query_wait_timeout = 30
 listen_addr = 127.0.0.1
 listen_port = $local_port
 unix_socket_dir =
@@ -79,6 +84,58 @@ answer=$(psql -h 127.0.0.1 -p "$local_port" -U "$user" -d "$name" -tAc 'select 1
 if [ "$answer" != 1 ]; then
   echo "planning-services: the database proxy can't reach $host:$port ($answer)" >&2
   tail -20 "$dir/pgbouncer.log" 2> /dev/null >&2 || true
+  exit 1
+fi
+# Read-only is the login's privileges, never a session default: any session can open a read-write transaction
+# (COMMIT; BEGIN READ WRITE), and the privileges PUBLIC holds stay the login's. Refuse a login that can write
+# anything, keep anything, or lift its own limits (D3 rule 3), before the agent starts.
+reader_check=$(cat <<'SQL'
+select p from (
+  select 'it can write large objects through ' || f || ' (revoke EXECUTE from PUBLIC)' as p
+    from unnest(array['lo_create(oid)', 'lo_creat(integer)', 'lo_from_bytea(oid,bytea)', 'lo_put(oid,bigint,bytea)',
+                      'lowrite(integer,bytea)', 'lo_truncate(integer,integer)', 'lo_truncate64(integer,bigint)',
+                      'lo_import(text)', 'lo_import(text,oid)']) f
+   where has_function_privilege(f, 'EXECUTE')
+  union all
+  select 'it can create temporary tables (revoke TEMPORARY on the database from PUBLIC)'
+   where has_database_privilege(current_database(), 'TEMPORARY')
+  union all
+  select 'it can create schemas in the database' where has_database_privilege(current_database(), 'CREATE')
+  union all
+  select 'temp_file_limit is unlimited (set it on the role; only a superuser can change it)'
+   where current_setting('temp_file_limit') = '-1'
+  union all
+  select 'it is a superuser, or can create roles or databases, or bypasses row security'
+    from pg_roles where rolname = current_user and (rolsuper or rolcreaterole or rolcreatedb or rolbypassrls)
+  union all
+  select 'it is a member of ' || r
+    from unnest(array['pg_write_all_data', 'pg_write_server_files', 'pg_execute_server_program',
+                      'pg_read_server_files', 'pg_signal_backend']) r
+   where pg_has_role(current_user, r, 'MEMBER')
+  union all
+  select 'it owns the database' from pg_database where datname = current_database() and datdba = (select oid from pg_roles where rolname = current_user)
+  union all
+  select 'it owns ' || c.oid::regclass from pg_class c where c.relowner = (select oid from pg_roles where rolname = current_user)
+  union all
+  select 'it can create in schema ' || n.nspname from pg_namespace n
+   where n.nspname not like 'pg\_%' and n.nspname <> 'information_schema' and has_schema_privilege(n.oid, 'CREATE')
+  union all
+  select 'it can write to ' || c.oid::regclass from pg_class c join pg_namespace n on n.oid = c.relnamespace
+   where c.relkind in ('r', 'p', 'v', 'm', 'f') and n.nspname not like 'pg\_%' and n.nspname <> 'information_schema'
+     and (has_any_column_privilege(c.oid, 'INSERT') or has_any_column_privilege(c.oid, 'UPDATE')
+          or has_table_privilege(c.oid, 'DELETE') or has_table_privilege(c.oid, 'TRUNCATE'))
+  union all
+  select 'it can change sequence ' || c.oid::regclass from pg_class c
+   where case when c.relkind = 'S' then has_sequence_privilege(c.oid, 'UPDATE') else false end
+) problems
+SQL
+)
+problems=$(psql -h 127.0.0.1 -p "$local_port" -U "$user" -d "$name" -tA -c "$reader_check" 2>&1) \
+  || { echo "planning-services: can't check $user's privileges: $problems" >&2; problems=unchecked; }
+if [ -n "$problems" ]; then
+  echo "planning-services: $user isn't read-only (process/factory.md, D3 rule 3):" >&2
+  printf '%s\n' "$problems" | head -20 | sed 's/^/  - /' >&2
+  kill "$(cat "$dir/pgbouncer.pid" 2> /dev/null)" 2> /dev/null || true
   exit 1
 fi
 echo "planning-services: $name at 127.0.0.1:$local_port (read-only, as $user)" >&2

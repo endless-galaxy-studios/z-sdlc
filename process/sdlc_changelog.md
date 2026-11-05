@@ -37,6 +37,48 @@ Each entry contains:
 
 ---
 
+## 2026-11-05: The planning database login is read-only by its privileges, checked before the agent starts
+
+**Origin:** A security review of a third project's planning login (2026-11-05). It reproduced, on Postgres 17, a lasting write by a SELECT-only role: a large object the reader owned after its transaction committed. Confirmed here on a throwaway Postgres 17 cluster: a SELECT-only role keeps PUBLIC's large-object functions and `TEMPORARY`, and can't lift a role-level `temp_file_limit`.
+
+**What happened:** D3 rule 3 asked for a role with `SELECT` only, a statement timeout and a connection limit. Neither the read-only intent nor the timeout is a boundary the role can't cross:
+- any session can `COMMIT; BEGIN READ WRITE`;
+- PUBLIC's `EXECUTE` on `lo_create`, `lo_from_bytea`, `lo_put` and `lowrite` writes large objects that last;
+- `TEMPORARY` makes tables;
+- a role can `SET statement_timeout = 0`.
+`planning-services.sh`'s pgbouncer set no deadline either.
+
+**Changes made:**
+
+1. **`bundles/factory/tree/planning-services.sh`**:
+   - pgbouncer gets `query_timeout = 60`, `idle_transaction_timeout = 30` and `query_wait_timeout = 30`, deadlines the login can't lift.
+   - After the connect test, a check runs through the proxy as the login, and the script refuses (stopping pgbouncer) a login that can do any of these. It lists each problem with its fix:
+     - write a table (column-level `INSERT` or `UPDATE` grants included), a sequence or a large object;
+     - create a temporary table, a schema or an object in a schema;
+     - own the database or a relation;
+     - run with unlimited `temp_file_limit`;
+     - hold superuser, create-role, create-database or bypass-RLS;
+     - belong to `pg_write_all_data` or the server-file and signal roles.
+   The check was run on Postgres 17: a SELECT-only role with PUBLIC's defaults is refused on the large-object functions, `TEMPORARY` and `temp_file_limit`; after the revokes it passes; a later `UPDATE` grant is refused again.
+2. **`process/factory.md`**, D3 rule 3:
+   - Read-only is the role's privileges, never a session default.
+   - The role's SQL revokes from PUBLIC the large-object write functions and `TEMPORARY`, granting back to the app's roles what they use, and sets `temp_file_limit`.
+   - `planning-services.sh` checks it.
+   - The proxy's deadline is the one the role can't lift.
+   - The connection limit covers 4 connections per planning job.
+   - The same rules hold when planning reads a database through a service such as an MCP server: the role's privileges are the boundary, not the service's read-only mode.
+   D3 Costs: `work_mem`, parallel queries and session advisory locks still let a read-only role load the primary until planning reads a replica. That's CD's to accept.
+
+**Upgrading:** before taking this, a project with a planning database runs, as a superuser:
+- `REVOKE EXECUTE ON FUNCTION lo_create(oid), lo_creat(integer), lo_from_bytea(oid,bytea), lo_put(oid,bigint,bytea), lowrite(integer,bytea), lo_truncate(integer,integer), lo_truncate64(integer,bigint) FROM PUBLIC;`
+- `REVOKE TEMPORARY ON DATABASE <name> FROM PUBLIC;`
+- `ALTER ROLE <reader> SET temp_file_limit = '1GB';`
+Then it grants back to the app's own roles what they use. Otherwise planning refuses to start its database proxy, naming each problem. Then it checks the role's connection limit against 4 per planning job.
+
+**Rationale:** A boundary has to be something the bounded party can't change. A role's default transaction mode and statement timeout are settings it can change; its privileges and the proxy's deadlines aren't. The check makes the rule hold by construction, not by each project's memory of it. Release type: patch (a stricter check within D3 rule 3's existing contract; projects update their role, as the upgrade note says).
+
+---
+
 ## 2026-11-05: A third factory stack profile, python-uv-node (uv, alembic, pgvector, Redis, pnpm)
 
 **Origin:** A third project enabling the factory has two uv projects (an API and an MCP server), a pnpm/Vite web app, Postgres 17 with pgvector and Redis. `python-node`'s pip install and Django probe don't fit. Under the pilot rule the profile goes straight into the bundle code, as `dotnet-node` did. CD approved it (2026-11-05) with:
