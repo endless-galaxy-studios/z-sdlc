@@ -110,7 +110,7 @@ D2 rule 8 (2026-11-03) named "the project tool list" as unbuilt.
 - The credential stays out of the sandbox and is sent only where the code-owned list points.
 - The tools the agent may call are the ones the entry names.
 - What the credential can do is bounded where it's issued, not by the factory.
-Release type: minor (new schema projects write into `services.json`, and a new smoke job).
+Release type: patch (CD, 2026-11-05; the bump rule reads new `services.json` schema as minor, and CD chose a patch for it).
 
 ---
 
