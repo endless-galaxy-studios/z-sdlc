@@ -23,11 +23,17 @@ NODE_FILES = ["package.json", ".npmrc", "eslint.config.js", "tsconfig.json", "ts
               "vitest.config.ts", "postcss.config.js", ".postcssrc", "babel.config.js", ".babelrc"]
 # Each profile's package manager: npm reads its own lockfile, pnpm its own, its workspace file and .pnpmfile.cjs.
 PACKAGE_MANAGER_FILES = {"python-node": ["package-lock.json"],
-                         "dotnet-node": ["pnpm-lock.yaml", "pnpm-workspace.yaml", ".pnpmfile.cjs"]}
+                         "dotnet-node": ["pnpm-lock.yaml", "pnpm-workspace.yaml", ".pnpmfile.cjs"],
+                         "python-uv-node": ["pnpm-lock.yaml", "pnpm-workspace.yaml", ".pnpmfile.cjs"]}
 PROFILE_FILES = {
     "python-node": ["requirements.txt", "requirements-dev.txt", "pyproject.toml", "setup.py", "setup.cfg", "pytest.ini",
                     ".pytest.ini", "pytest.toml", ".pytest.toml", "tox.ini", "conftest.py", "tests/conftest.py",
                     "sitecustomize.py", "hatch.toml", "hatch_build.py"],
+    # Every uv project, not only stack.python's (the profile installs and checks each top-level one): add theirs.
+    "python-uv-node": ["pyproject.toml", "uv.lock", "uv.toml", ".python-version", ".python-versions", "setup.py",
+                       "setup.cfg", "pytest.ini", ".pytest.ini", "pytest.toml", ".pytest.toml", "tox.ini",
+                       "conftest.py", "tests/conftest.py", "sitecustomize.py", "hatch.toml", "hatch_build.py",
+                       "ruff.toml", ".ruff.toml", "mypy.ini", ".mypy.ini", ".coveragerc", "alembic.ini"],
     "dotnet-node": ["App.csproj", "src/App/App.csproj", "src/App/App.csproj.user", "Directory.Build.props",
                     "Directory.Build.targets",
                     "src/Directory.Build.rsp", "Directory.Packages.props", "Directory.Solution.props",

@@ -527,6 +527,121 @@ class VerifyDotnetNode(Verify):
         self.assertEqual(self.verify("python").returncode, 2)
 
 
+
+class VerifyPythonUvNode(Verify):
+    """The python-uv-node profile's verify: every top-level uv project, and python= the one with the database."""
+
+    def setUp(self):
+        super().setUp()
+        shutil.copy(FACTORY / "profiles/python-uv-node/verify", self.dir)
+        (self.dir / "verify.conf").write_text("python=api\nnode=web\ndatabase=app\n")
+        for project in ("api", "mcp"):
+            (self.dir / project).mkdir()
+            (self.dir / project / "uv.lock").write_text("")
+            (self.dir / project / "pyproject.toml").write_text("")
+        # A directory with a lockfile but no project beside it isn't a uv project.
+        (self.dir / "scripts").mkdir()
+        (self.dir / "scripts" / "uv.lock").write_text("")
+
+    def test_print_shows_the_commands(self):
+        r = self.verify("--print")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        wrap = f"{self.dir}/with-test-services"
+        lines = r.stdout.splitlines()
+        # The note first: an agent's own Python commands use each project's .venv, offline.
+        self.assertIn(".venv/bin", lines[0])
+        python = ("cd {p} && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/mypy && "
+                  f"{wrap} .venv/bin/python -m pytest -q -p no:cacheprovider --ignore=tests/integration")
+        self.assertEqual(lines[1], "python api: " + python.format(p="api"))
+        self.assertEqual(lines[2], "python mcp: " + python.format(p="mcp"))
+        self.assertTrue(lines[3].startswith(f"migrations: {wrap} bash -c 'cd api && dropdb --if-exists"))
+        self.assertIn("createdb -h 127.0.0.1 -U app app_migrations && export DATABASE_URL="
+                      "postgresql+asyncpg://app@127.0.0.1:5432/app_migrations && .venv/bin/alembic upgrade head && "
+                      ".venv/bin/alembic downgrade -1 && .venv/bin/alembic upgrade head", lines[3])
+        self.assertIn("tests/integration -m \"not slow\"", lines[4])
+        self.assertEqual(lines[5], "node: cd web && node_modules/.bin/eslint . --max-warnings 0 && "
+                                   "node_modules/.bin/tsc -b && node_modules/.bin/vitest run")
+        probe = self.verify("--print", "probe").stdout
+        self.assertIn(".venv/bin/alembic current > /dev/null && echo db-ok", probe)
+        self.assertIn("echo probe-ok", probe)
+
+    def test_runs_every_area_and_reports_the_failures(self):
+        (self.dir / "with-test-services").write_text('#!/usr/bin/env bash\nexec "$@"\n')
+        (self.dir / "with-test-services").chmod(0o755)
+        (self.dir / "verify.conf").write_text("python=api\nnode=no-such-dir\ndatabase=app\n")
+        r = self.verify("python", "node")
+        self.assertEqual(r.returncode, 1)
+        for label in ("python api", "python mcp", "node"):
+            self.assertIn(f"== verify {label}:", r.stdout)
+        self.assertIn("verify: failed: python api python mcp node", r.stdout)
+        # The other profiles' area names aren't this one's.
+        self.assertEqual(self.verify("dotnet").returncode, 2)
+
+    def test_the_database_areas_need_a_uv_project_and_a_database(self):
+        (self.dir / "verify.conf").write_text("python=web\nnode=web\ndatabase=app\n")
+        r = self.verify("--print", "migrations")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("isn't a uv project", r.stderr)
+        (self.dir / "verify.conf").write_text("python=api\nnode=web\n")
+        for area in ("migrations", "integration", "probe"):
+            r = self.verify("--print", area)
+            self.assertEqual(r.returncode, 2, area)
+            self.assertIn("no database= line", r.stderr)
+        # The python and node areas don't need one.
+        self.assertEqual(self.verify("--print", "python", "node").returncode, 0)
+
+
+class InstallPythonUvNode(unittest.TestCase):
+    """The python-uv-node profile's install.sh: uv sync in every uv project, pnpm in the Node one, caches in
+    .factory/ and uv offline for the agent, with stand-ins for uv and pnpm that record their calls."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        root = pathlib.Path(self.tmp.name)
+        self.ws, self.bin, self.calls = root / "ws", root / "bin", root / "calls"
+        self.ws.mkdir()
+        self.bin.mkdir()
+        for tool in ("uv", "pnpm"):
+            (self.bin / tool).write_text(f'#!/usr/bin/env bash\necho "{tool} $(basename "$PWD") $*" >> {self.calls}\n')
+            (self.bin / tool).chmod(0o755)
+        for project in ("api", "mcp"):
+            (self.ws / project).mkdir()
+            (self.ws / project / "uv.lock").write_text("")
+            (self.ws / project / "pyproject.toml").write_text("")
+        (self.ws / "web").mkdir()
+        (self.ws / "web" / "pnpm-lock.yaml").write_text("")
+        self.env_file = root / "github_env"
+        self.env_file.write_text("")
+
+    def install(self, python_dir="api", node_dir="web"):
+        env = {**os.environ, "PATH": f"{self.bin}:{os.environ['PATH']}", "GITHUB_WORKSPACE": str(self.ws),
+               "GITHUB_ENV": str(self.env_file)}
+        return subprocess.run(["bash", str(FACTORY / "profiles/python-uv-node/install.sh"), python_dir, node_dir],
+                              cwd=self.ws, env=env, capture_output=True, text=True)
+
+    def test_installs_every_uv_project_and_the_node_one(self):
+        r = self.install()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        calls = self.calls.read_text().splitlines()
+        self.assertEqual(calls[:2], ["uv api sync --locked --quiet", "uv mcp sync --locked --quiet"])
+        self.assertTrue(calls[2].startswith(f"pnpm web install --frozen-lockfile --store-dir {self.ws}/.factory/pnpm-store"))
+        settings = self.env_file.read_text().splitlines()
+        for line in (f"UV_CACHE_DIR={self.ws}/.factory/uv-cache", f"MYPY_CACHE_DIR={self.ws}/.factory/mypy-cache",
+                     f"RUFF_CACHE_DIR={self.ws}/.factory/ruff-cache", "UV_PYTHON_DOWNLOADS=never", "UV_OFFLINE=1"):
+            self.assertIn(line, settings)
+
+    def test_refuses_a_python_dir_that_isnt_a_uv_project(self):
+        r = self.install(python_dir="web")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("isn't a uv project", r.stderr)
+        self.assertFalse(self.calls.exists())
+
+    def test_refuses_a_node_dir_without_a_pnpm_lockfile(self):
+        r = self.install(node_dir="api")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("no pnpm-lock.yaml", r.stderr)
+
 class Usage(AgentJob):
     def test_unknown_command(self):
         self.assertEqual(self.run_script("nope").returncode, 2)

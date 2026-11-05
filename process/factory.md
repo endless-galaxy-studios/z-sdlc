@@ -26,8 +26,9 @@ service are the organization's own: the seed holds placeholders for them, which 
 (steps 3 to 5).
 
 **Limits of this version.** The project's SDLC root must be `ops/sdlc` (the scripts and the gate
-digest name it). The runners need Linux hosts (systemd, nftables, rootless Docker). Two stack
-profiles: `python-node` (Django and Vite, npm) and `dotnet-node` (.NET 10 and Vite, pnpm); another
+digest name it). The runners need Linux hosts (systemd, nftables, rootless Docker). Three stack
+profiles: `python-node` (Django and Vite, npm), `dotnet-node` (.NET 10 and Vite, pnpm) and
+`python-uv-node` (uv projects with alembic, Postgres 17 with pgvector, Redis, and a pnpm app); another
 stack needs a profile of its own (§ Stack Profiles). The plan and spec stages run with or without a
 database (`planning.json`, D3).
 
@@ -377,9 +378,11 @@ agent could have edited. A profile has six files:
 | `verify [<area> ...\|probe]` | The stages and smoke | The project's checks (tests, lint, type check, build), in the profile's own areas, which `--print` lists; `probe` proves the toolchain and the test database work. Reads its directories from `verify.conf`. |
 
 The interface is the first profile's shape: `agent_job.sh` passes `stack.python` and `stack.node` as
-the project's two directories (`verify.conf`'s `python=` and `node=`), whatever the stack. A profile
-for another stack uses them for its own directories; renaming them is a change to every project's
-`factory.json`, left until a stack doesn't fit two directories. Start from a copy of the nearest
+the project's two directories (`verify.conf`'s `python=` and `node=`, beside `database=`,
+`stack.database`), whatever the stack. A profile for another stack uses them for its own directories,
+and may find more itself: `python-uv-node` checks every top-level uv project, with `stack.python`
+naming the one that holds the database. Renaming them is a change to every project's `factory.json`,
+left until a stack doesn't fit that. Start from a copy of the nearest
 profile, keep its security properties (no superuser test login, services started with an empty
 environment, nothing installed inside the sandbox), and prove it with `factory-smoke`.
 
@@ -387,6 +390,7 @@ environment, nothing installed inside the sandbox), and prove it with `factory-s
 |---|---|---|---|---|
 | `python-node` | The Django project; the Vite app (npm) | `python` (pytest), `node` (eslint, `tsc -b`, Vite build) | Postgres 16 and Redis 7 | Django reads the env file; `probe` runs `manage.py migrate --plan` |
 | `dotnet-node` | The directory of the solution (or project) `dotnet` builds; the Vite app (pnpm) | `dotnet` (`dotnet test`, Release), `node` (eslint, `tsc -b`, vitest, Vite build) | Postgres 16 | Tests in the categories `Nightly` (long suites on their own schedule) and `External` (they need the network or a secret, which no job has) are left out; `eslint .` must pass, not only the paths the project's lint script names; the default connection string names `stack.database` as database and user (ASP.NET Core reads no env file) |
+| `python-uv-node` | The uv project holding the database and its alembic migrations; the Node app (pnpm). Every top-level directory with a `uv.lock` beside its `pyproject.toml` is a uv project, installed and checked | `python` (in each uv project: `ruff check`, `ruff format --check`, `mypy`, the tests outside `tests/integration`), `migrations` (alembic `upgrade head`, `downgrade -1`, `upgrade head` on a fresh database each run), `integration` (`tests/integration` without `slow`), `node` (`eslint .` with no warnings, `tsc -b`, `vitest run`) | Postgres 17 with pgvector (in template1's `extensions` schema, on the role's `search_path`) and Redis 7 | Each uv project's mypy targets in its own configuration (`files`), and a bare `pytest --ignore=tests/integration` collecting what CI's unit run does; `ruff` and `mypy` in each project's locked dev group; `ruff format --check .` passing everywhere; `eslint .` passing; `alembic.ini` beside `stack.python`'s project, its `env.py` reading `DATABASE_URL`; the settings reading only `DATABASE_URL` and `REDIS_URL` from the env file (it holds nothing else, so settings that refuse unknown keys load) and the tests reading `TEST_DATABASE_URL` and `TEST_REDIS_URL` from the environment, which `with-test-services` exports; integration tests in `stack.python`'s `tests/integration`, the long ones marked `slow`; `.venv/` ignored |
 
 `verify` calls the tools, never a Makefile or package.json script, so a check a project's build
 script chains in (a bundle-size gate, a generated file) is left to CI on the PR. In the sandbox, Unix
@@ -407,6 +411,10 @@ case).
   `tox.ini`, `conftest.py`, `sitecustomize.py`, `hatch.toml` and `hatch_build.py` (a hatchling build
   hook runs when the project installs, outside the sandbox), any in-tree build backend a
   `pyproject.toml`'s `backend-path` names, and the Node files below.
+- **`python-uv-node`:** `python-node`'s list, in every uv project, plus `uv.lock`, `uv.toml`,
+  `.python-version` and `.python-versions` (uv picks the interpreter from them), `ruff.toml`,
+  `.ruff.toml`, `mypy.ini`, `.mypy.ini`, `.coveragerc` (its `plugins` import modules) and
+  `alembic.ini`, and the Node files below with pnpm's.
 - **`dotnet-node`:** `*.csproj` (and `*.fsproj`, `*.vbproj`), their `.user` files (MSBuild imports
   `<project>.user` when it exists), `*.props`, `*.targets`, `*.rsp` (`Directory.Build.*`,
   `Directory.Packages.props` and `Directory.Solution.*` among them), `*.sln`, `*.slnx`, `*.slnf`,
@@ -418,8 +426,8 @@ case).
   (`eslint.config.*`, `.eslintrc*`), TypeScript (`tsconfig*.json`), Vite and Vitest
   (`vite.config.*`, `vitest.config.*`, `vitest.workspace.*`) configs, and the PostCSS and Babel ones
   Vite loads when they exist (`postcss.config.*`, `.postcssrc*`, `babel.config.*`, `.babelrc*`); for
-  npm (`python-node`) `package-lock.json`, and for pnpm (`dotnet-node`) `pnpm-lock.yaml`,
-  `pnpm-workspace.yaml` and `.pnpmfile.cjs`.
+  npm (`python-node`) `package-lock.json`, and for pnpm (`dotnet-node`, `python-uv-node`)
+  `pnpm-lock.yaml`, `pnpm-workspace.yaml` and `.pnpmfile.cjs`.
 
 ---
 

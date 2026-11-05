@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+# python-uv-node profile: the project's checks, for agents in the Bash sandbox. The factory's skills run
+# this instead of naming the project's commands: it calls the tools directly, never a Makefile or a
+# package.json script, which the agent could have edited. Installed read-only at /opt/factory by
+# agent_job.sh workspace, beside verify.conf (python=<dir>, node=<dir>, database=<name>, from factory.json's
+# stack). Every top-level directory holding a uv.lock beside its pyproject.toml is a uv project; python=
+# names the one with the database and its migrations.
+# Usage: verify [--print] [python|migrations|integration|node|probe ...]
+#   no area      python, migrations, integration and node
+#   python       in every uv project: ruff check, ruff format --check, mypy (its configured files) and the
+#                tests outside tests/integration (pytest's own configuration picks the rest)
+#   migrations   in python=: alembic upgrade head, downgrade -1 and upgrade head, on a database made fresh
+#                for every run (<database>_migrations), as CI's round trip runs on a new one
+#   integration  in python=: tests/integration, without the tests marked slow
+#   node         eslint . (no warnings), tsc -b and vitest run
+#   probe        what an agent job needs works here: the test database through the project's own alembic
+#                settings (alembic current, which writes nothing) and the Node toolchain (factory-smoke's
+#                implement-tools probe); prints probe-ok when both do
+#   --print      print the commands and run nothing (to run a narrower one, such as a single test)
+# The tests reach the test services through with-test-services, which also exports TEST_DATABASE_URL and
+# TEST_REDIS_URL. Runs every area asked for, even after one fails, and exits 1 if any did.
+set -uo pipefail
+
+here=$(cd "$(dirname "$0")" && pwd)
+python_dir=$(sed -n 's/^python=//p' "$here/verify.conf")
+node_dir=$(sed -n 's/^node=//p' "$here/verify.conf")
+db=$(sed -n 's/^database=//p' "$here/verify.conf")
+[ -n "$python_dir" ] && [ -n "$node_dir" ] || { echo "verify: no python or node directory in $here/verify.conf" >&2; exit 2; }
+wrap=$here/with-test-services
+bin=node_modules/.bin
+
+print=no
+areas=()
+for a in "$@"; do
+  case "$a" in
+    --print) print=yes ;;
+    python|migrations|integration|node|probe) areas+=("$a") ;;
+    *) echo "verify: unknown area $a (python, migrations, integration, node, probe)" >&2; exit 2 ;;
+  esac
+done
+[ ${#areas[@]} -gt 0 ] || areas=(python migrations integration node)
+
+# The uv projects, as install.sh found them.
+projects=()
+for lock in */uv.lock; do
+  [ -f "$lock" ] && [ -f "${lock%/uv.lock}/pyproject.toml" ] && projects+=("${lock%/uv.lock}")
+done
+python_dir=${python_dir%/}
+
+# Each check as "<label>\t<command>"; the python area has one per uv project.
+commands_for() {
+  case "$1" in
+    python)
+      [ ${#projects[@]} -gt 0 ] || { printf 'python\t%s\n' "echo 'verify: no uv project (a top-level directory with uv.lock and pyproject.toml)' >&2; false"; return; }
+      for p in "${projects[@]}"; do
+        printf 'python %s\t%s\n' "$p" "cd $p && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/mypy && $wrap .venv/bin/python -m pytest -q -p no:cacheprovider --ignore=tests/integration"
+      done ;;
+    migrations)
+      printf 'migrations\t%s\n' "$wrap bash -c 'cd $python_dir && dropdb --if-exists -h 127.0.0.1 -U $db ${db}_migrations && createdb -h 127.0.0.1 -U $db ${db}_migrations && export DATABASE_URL=postgresql+asyncpg://$db@127.0.0.1:5432/${db}_migrations && .venv/bin/alembic upgrade head && .venv/bin/alembic downgrade -1 && .venv/bin/alembic upgrade head'" ;;
+    integration)
+      printf 'integration\t%s\n' "$wrap bash -c 'cd $python_dir && if [ -d tests/integration ]; then .venv/bin/python -m pytest -q -p no:cacheprovider tests/integration -m \"not slow\"; else echo \"verify: no tests/integration in $python_dir\"; fi'" ;;
+    node)
+      printf 'node\t%s\n' "cd $node_dir && $bin/eslint . --max-warnings 0 && $bin/tsc -b && $bin/vitest run" ;;
+    probe)
+      printf 'probe\t%s\n' "$wrap bash -c 'cd $python_dir && .venv/bin/alembic current > /dev/null && echo db-ok' && (cd $node_dir && $bin/tsc --version) && echo probe-ok" ;;
+  esac
+}
+
+for area in "${areas[@]}"; do
+  case "$area" in
+    migrations|integration|probe)
+      [[ $db =~ ^[a-z_][a-z0-9_]*$ ]] || { echo "verify: no database= line in $here/verify.conf (needed by $area)" >&2; exit 2; }
+      printf '%s\n' "${projects[@]}" | grep -qxF "$python_dir" \
+        || { echo "verify: $python_dir (python=) isn't a uv project: it has no uv.lock beside a pyproject.toml" >&2; exit 2; } ;;
+  esac
+done
+
+failed=()
+[ "$print" = no ] || echo "note: the sandbox has no network. Run each uv project's tools from its .venv/bin (uv run would try to sync; uv is offline here), and reach the test services through $wrap, which also exports TEST_DATABASE_URL and TEST_REDIS_URL."
+for area in "${areas[@]}"; do
+  while IFS=$'\t' read -r label cmd; do
+    if [ "$print" = yes ]; then echo "$label: $cmd"; continue; fi
+    echo "== verify $label: $cmd"
+    bash -c "$cmd" || failed+=("$label")
+  done < <(commands_for "$area")
+done
+if [ ${#failed[@]} -gt 0 ]; then
+  echo "verify: failed: ${failed[*]}"
+  exit 1
+fi
+[ "$print" = yes ] || echo "verify: passed: ${areas[*]}"

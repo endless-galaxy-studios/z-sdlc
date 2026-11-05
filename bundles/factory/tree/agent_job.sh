@@ -100,7 +100,7 @@ case "$cmd" in
     # and runs the project's checks with verify (the factory's skills name it, not the commands).
     install -D -m 755 "$here/profiles/$profile/with-test-services" /opt/factory/with-test-services
     install -D -m 755 "$here/profiles/$profile/verify" /opt/factory/verify
-    printf 'python=%s\nnode=%s\n' "$python_dir" "$node_dir" > /opt/factory/verify.conf
+    printf 'python=%s\nnode=%s\ndatabase=%s\n' "$python_dir" "$node_dir" "$database" > /opt/factory/verify.conf
     chmod 644 /opt/factory/verify.conf
     "$here/profiles/$profile/install.sh" "$python_dir" "$node_dir"
     # Paths this project's code reads, moved into the workspace: the sandbox's root is read-only (the

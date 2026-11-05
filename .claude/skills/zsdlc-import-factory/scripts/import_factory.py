@@ -78,6 +78,16 @@ conftest.py @owner
 sitecustomize.py @owner
 hatch.toml @owner
 hatch_build.py @owner
+uv.lock @owner
+uv.toml @owner
+.python-version @owner
+.python-versions @owner
+ruff.toml @owner
+.ruff.toml @owner
+mypy.ini @owner
+.mypy.ini @owner
+.coveragerc @owner
+alembic.ini @owner
 *.csproj @owner
 *.fsproj @owner
 *.vbproj @owner

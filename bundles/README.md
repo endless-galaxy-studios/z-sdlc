@@ -49,7 +49,7 @@ A software factory built on the same skills, agents, review lenses and knowledge
 
 **What it installs:** three headless skills (`sdlc-triage`, `sdlc-implement`, `sdlc-revise`), the process doc, and the factory's scripts, guards, schemas, sandbox settings and workflow templates under `.github/factory/`. The workflows in `.github/workflows/factory-*.yml` are *rendered* from the templates and the project's `factory.json`, and CI refuses a hand edit.
 
-**Requirements and limits of this version:** a GitHub organization (and GitHub Team or above for a private repository), Linux runner hosts with systemd, nftables and rootless Docker, the project's SDLC root at `ops/sdlc`, and one of the shipped stack profiles (`python-node` or `dotnet-node`) or one you write. The production tier is per project and is not part of the bundle. Setup is the ordered Enablement section of the process doc, and `bootstrap.py` checks each step and changes nothing unless told to.
+**Requirements and limits of this version:** a GitHub organization (and GitHub Team or above for a private repository), Linux runner hosts with systemd, nftables and rootless Docker, the project's SDLC root at `ops/sdlc`, and one of the shipped stack profiles (`python-node`, `dotnet-node` or `python-uv-node`) or one you write. The production tier is per project and is not part of the bundle. Setup is the ordered Enablement section of the process doc, and `bootstrap.py` checks each step and changes nothing unless told to.
 
 The factory is incubated in a separate private project and imported here, so improvements to the factory itself start there. Fixes found in a project that installed the bundle are made here and then handed back.
 

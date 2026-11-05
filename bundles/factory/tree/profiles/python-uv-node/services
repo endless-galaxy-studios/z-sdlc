@@ -1,0 +1,4 @@
+# The test services test-services.sh starts and with-test-services forwards, "<label> <port>" a line.
+# factory-smoke's bash-sandbox job requires each to answer from sandboxed Bash (sandbox_check.py).
+db 5432
+redis 6379

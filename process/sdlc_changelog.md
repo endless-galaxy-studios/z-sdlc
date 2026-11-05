@@ -37,6 +37,66 @@ Each entry contains:
 
 ---
 
+## 2026-11-05: A third factory stack profile, python-uv-node (uv, alembic, pgvector, Redis, pnpm)
+
+**Origin:** A third project enabling the factory has two uv projects (an API and an MCP server), a pnpm/Vite web app, Postgres 17 with pgvector and Redis. `python-node`'s pip install and Django probe don't fit. Under the pilot rule the profile goes straight into the bundle code, as `dotnet-node` did. CD approved it (2026-11-05) with:
+- **Name:** `python-uv-node`.
+- **Folders:** every top-level uv project is installed and checked, with `stack.python` naming the one with the database. No new `factory.json` field.
+- **Scope:** CI's checks, plus integration and the alembic round trip.
+- **Probe:** `alembic current`.
+
+**What happened:**
+- **pgvector:** tested on Postgres 17.9 with pgvector 0.8.2, as a `LOGIN CREATEDB` role.
+  - pgvector isn't a trusted extension, so the role can't create it.
+  - Preinstalled in `public`, a test teardown's `DROP SCHEMA public CASCADE` drops it silently, and the role can't create it again.
+  - In a schema of its own in template1, on the role's `search_path`, every database made from template1 has it: the project's, its test database, a test's scratch databases. The teardown leaves it, and `CREATE EXTENSION IF NOT EXISTS` skips it.
+- **The env file:** the project's settings refuse unknown keys (pydantic-settings' `extra=forbid`). So an env file holding the test URLs or `POSTGRES_*` stops the app, alembic and the tests from loading.
+
+**Changes made:**
+
+1. **`bundles/factory/tree/profiles/python-uv-node/`** (new):
+   - **`Dockerfile`:** `python:3.12-slim-bookworm`; uv 0.13.5 (pip, on PATH; Python downloads off); Node 22 with pnpm 10.34.7 as a package; PGDG `postgresql-17` and `postgresql-17-pgvector` (version floor 0.8); `redis-server` with the Lua-fix floor (EVAL stays enabled); `pgbouncer`.
+   - **`install.sh`:** finds every top-level `uv.lock` beside a `pyproject.toml` and refuses when `stack.python` isn't among them. It runs `uv sync --locked` in each, then `pnpm install --frozen-lockfile`. The uv, mypy, ruff and pnpm caches go in `.factory/`, and `UV_OFFLINE=1` is set for the agent.
+   - **`test-services.sh`:** `python-node`'s lockdown on Postgres 17.
+     - The superuser installs pgvector in template1's `extensions` schema before the role exists, and the role gets `search_path = "$user", public, extensions`.
+     - Two more fail-closed checks: pgvector resolves for the role, and the role doesn't own it.
+     - The output is `DATABASE_URL` (asyncpg) and `REDIS_URL` only.
+   - **`with-test-services`:** `python-node`'s ports. It also exports `TEST_DATABASE_URL` (`<database>_test`) and `TEST_REDIS_URL` (db 15), from `verify.conf`'s `database=`.
+   - **`services`:** db and redis.
+   - **`verify`**, areas:
+     - `python`, per uv project: `ruff check`, `ruff format --check`, `mypy`, and pytest without `tests/integration`;
+     - `migrations`: the alembic round trip on a fresh `<database>_migrations` each run, so an edited migration never meets a stale schema;
+     - `integration`: `tests/integration -m "not slow"`;
+     - `node`: `eslint . --max-warnings 0`, `tsc -b`, `vitest run`;
+     - `probe`: `alembic current`, which writes nothing, and `tsc --version`.
+     Tools run from each project's `.venv/bin`, never `uv run`, and `--print`'s note says so.
+2. **`bundles/factory/tree/agent_job.sh`** `workspace`: `verify.conf` gains `database=` (additive; the other profiles ignore it).
+3. **`bundles/factory/tree/tests/test_agent_job.py`**:
+   - `VerifyPythonUvNode`: the commands, every area's failures, discovery, `stack.python` without a `uv.lock`, the database line.
+   - `InstallPythonUvNode`: stand-in `uv` and `pnpm` record the calls; the refusals.
+   `test_sandbox_check.py` already covers every profile's `services`.
+4. **`process/factory.md`**:
+   - "Limits of this version" lists three profiles;
+   - the profile table gets a row with what the project must meet;
+   - the interface paragraph names `database=` and the profile's discovery;
+   - What CODEOWNERS must cover: `python-uv-node`'s list (uv's files, ruff, mypy, coverage and alembic configs, pnpm's).
+5. **`bundles/README.md`** lists the profile. **`bundles/factory/seed/tests/test_codeowners.py`** gets its keys (new installs). **`.claude/skills/zsdlc-import-factory/scripts/import_factory.py`**: the proof's CODEOWNERS gains the uv lines.
+
+**Upgrading:** nothing changes for a project on another profile. To adopt this one:
+- set `stack.profile` and render;
+- publish the image to a package of its own (`factory-image` pushes `:latest`);
+- meet the table's row;
+- cover the CODEOWNERS list in every uv project.
+
+**Rationale:** The profile checks what the project's CI checks, in the order an agent needs them, and keeps the profile's security properties:
+- no superuser test login, with pgvector installed by the superuser and owned by it;
+- services started with an empty environment;
+- nothing installed inside the sandbox.
+
+Release type: minor (a new `stack.profile` value, with its contract).
+
+---
+
 ## 2026-11-05: Production gates for a host that builds each deploy, and TLS to a public planning database
 
 **Origin:** A third project enabling the factory runs production on Railway, a host that builds every deploy from the commit, with no compose host. CD decided (2026-11-05) that its production tier is built in that project, as the incubator's was, and that z-sdlc restates D4's compose-specific rules (13-15) for any host. CD also approved requiring TLS to a planning database on a public address. The project's read-only spike against Railway's live API (2026-11-05) supplied the host's facts:

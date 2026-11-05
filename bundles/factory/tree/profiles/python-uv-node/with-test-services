@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# Run a command with the job's local services reachable inside the Bash sandbox or out of it:
+# 127.0.0.1:5432 (test Postgres) and :6379 (test Redis), and on the planning tier :6432 (the
+# production database, read-only, through pgbouncer).
+# Usage: with-test-services <command> [args...]
+#
+# The services listen on the job container's loopback. A sandboxed command has a loopback of its
+# own, and the sandbox blocks Unix sockets, so this forwards each port through the sandbox's HTTP
+# proxy (CONNECT), which allows `localhost` and nothing else local. Outside the sandbox (no proxy
+# set) the ports are already there. Installed read-only at /opt/factory by the job.
+set -euo pipefail
+
+# The test database's and test Redis's URLs, as the environment the project's tests read: the env file holds
+# only the app's own settings (a project's settings may refuse a key they don't define). Built from
+# verify.conf's database= line beside this script; with none (a planning job), nothing is exported.
+here=$(cd "$(dirname "$0")" && pwd)
+db=$(sed -n 's/^database=//p' "$here/verify.conf" 2> /dev/null || true)
+if [[ $db =~ ^[a-z_][a-z0-9_]*$ ]]; then
+  export TEST_DATABASE_URL="postgresql+asyncpg://$db@127.0.0.1:5432/${db}_test"
+  export TEST_REDIS_URL="redis://127.0.0.1:6379/15"
+fi
+
+proxy=${HTTP_PROXY:-${http_proxy:-}}
+if [ -n "$proxy" ]; then
+  # http://[user:token@]host:port — the sandbox's proxy takes a per-session credential.
+  hostport=${proxy#*://}
+  hostport=${hostport%%/*}
+  auth=
+  if [[ $hostport == *@* ]]; then auth=${hostport%@*}; hostport=${hostport##*@}; fi
+  host=${hostport%:*}
+  port=${hostport##*:}
+  for p in 5432 6379 6432; do
+    socat "TCP-LISTEN:$p,bind=127.0.0.1,fork,reuseaddr" \
+      "PROXY:$host:localhost:$p,proxyport=$port${auth:+,proxyauth=$auth}" > /dev/null 2>&1 &
+  done
+  for p in 5432 6379 6432; do
+    for _ in $(seq 50); do (exec 3<> "/dev/tcp/127.0.0.1/$p") 2> /dev/null && break; sleep 0.1; done
+  done
+fi
+exec "$@"
