@@ -20,13 +20,14 @@ CODEOWNERS = PATH.read_text() if PATH.exists() else ""
 # What the stack profile's tools load just because it exists (z-sdlc process/factory.md, § Stack Profiles, What
 # CODEOWNERS must cover): sample paths in the project's two directories (factory.json's stack), present or not.
 NODE_FILES = ["package.json", ".npmrc", "eslint.config.js", "tsconfig.json", "tsconfig.app.json", "vite.config.ts",
-              "vitest.config.ts"]
+              "vitest.config.ts", "postcss.config.js", ".postcssrc", "babel.config.js", ".babelrc"]
 # Each profile's package manager: npm reads its own lockfile, pnpm its own, its workspace file and .pnpmfile.cjs.
 PACKAGE_MANAGER_FILES = {"python-node": ["package-lock.json"],
                          "dotnet-node": ["pnpm-lock.yaml", "pnpm-workspace.yaml", ".pnpmfile.cjs"]}
 PROFILE_FILES = {
     "python-node": ["requirements.txt", "requirements-dev.txt", "pyproject.toml", "setup.py", "setup.cfg", "pytest.ini",
-                    "tox.ini", "conftest.py", "tests/conftest.py", "sitecustomize.py"],
+                    ".pytest.ini", "pytest.toml", ".pytest.toml", "tox.ini", "conftest.py", "tests/conftest.py",
+                    "sitecustomize.py", "hatch.toml", "hatch_build.py"],
     "dotnet-node": ["App.csproj", "src/App/App.csproj", "src/App/App.csproj.user", "Directory.Build.props",
                     "Directory.Build.targets",
                     "src/Directory.Build.rsp", "Directory.Packages.props", "Directory.Solution.props",
@@ -58,6 +59,24 @@ class CodeownersPaths(unittest.TestCase):
                      ".mcp.json", "ops/sdlc/process/review-fix-loop.md"]:
             self.assertIsNotNone(guard.protected(path, self.patterns), path)
 
+    def test_other_agents_and_tools_configuration(self):
+        # What other agents, editors and environment tools load on CD's machine just because it exists.
+        for path in ["AGENTS.md", "api/AGENTS.md", "GEMINI.md", ".codex/config.toml", ".gemini/settings.json",
+                     ".cursor/rules/x.mdc", ".vscode/tasks.json", ".devcontainer/devcontainer.json", ".envrc",
+                     ".gitattributes", "mise.toml", ".tool-versions"]:
+            self.assertIsNotNone(guard.protected(path, self.patterns), path)
+
+    def test_any_case(self):
+        # A case-insensitive checkout (macOS) reads .Claude/ as .claude/; the guard matches owned lines in any case.
+        for path in ["Claude.md", ".Claude/settings.local.json", ".GitHub/workflows/x.yml", "docs/claude.MD"]:
+            self.assertIsNotNone(guard.protected(path, self.patterns), path)
+
+    def test_agent_files_stay_owned_under_the_owner_less_lines(self):
+        # Last match wins: CLAUDE.md, CLAUDE.local.md and AGENTS.md are owned again after the owner-less lines.
+        for path in ["ops/sdlc/disciplines/CLAUDE.md", "ops/sdlc/disciplines/CLAUDE.local.md",
+                     "ops/sdlc/disciplines/AGENTS.md"]:
+            self.assertIsNotNone(guard.protected(path, self.patterns), path)
+
     def test_the_profiles_build_files(self):
         # A revise run installs a factory branch's dependencies outside the sandbox, and CI builds a factory PR.
         stack = json.loads((FACTORY / "factory.json").read_text())["stack"]
@@ -84,10 +103,12 @@ class CodeownersPaths(unittest.TestCase):
             self.assertIsNotNone(guard.protected(path, self.patterns), path)
 
     def test_knowledge_writable_except_what_governs_agents(self):
-        self.assertIsNone(guard.protected("ops/sdlc/knowledge/x.yaml", self.patterns))
-        # Add the knowledge files that route or govern agents in this project.
-        for name in ["agent-context-map.yaml"]:
-            self.assertIsNotNone(guard.protected("ops/sdlc/knowledge/" + name, self.patterns), name)
+        # Agent-writable on purpose (SDLC hygiene), with CD's PR review as the control (z-sdlc process/factory.md,
+        # Enablement step 9); the files that route or govern agents are owned again. The guard keeps the list.
+        for path in ["ops/sdlc/knowledge/x.yaml", "ops/sdlc/knowledge/coding/shell-patterns.yaml"]:
+            self.assertIsNone(guard.protected(path, self.patterns), path)
+        for path in guard.GOVERNING_KNOWLEDGE:
+            self.assertIsNotNone(guard.protected(path, self.patterns), path)
 
     def test_the_changelog_and_only_it_is_writable(self):
         self.assertIsNone(guard.protected("ops/sdlc/process/sdlc_changelog.md", self.patterns))

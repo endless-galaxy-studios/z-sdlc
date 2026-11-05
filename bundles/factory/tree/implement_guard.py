@@ -42,6 +42,7 @@ import pathlib
 import re
 import subprocess
 import sys
+import unicodedata
 
 # The shared catalog reader sits beside this script, in the base checkout (never the agent's tree).
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -54,10 +55,34 @@ MAX_BLOB_BYTES = 200_000
 TOKEN = re.compile(r"sk-ant-|gh[pousr]_[A-Za-z0-9_]{20}|github_pat_|ctx7sk|-----BEGIN [A-Z ]*PRIVATE KEY-----")
 EMBED = re.compile(r"!\[|<\s*(img|picture|source|video|audio|svg|iframe|object|embed)\b", re.I)
 SYMLINK, GITLINK = "120000", "160000"
-# Agent and gate configuration, refused at any depth whatever CODEOWNERS says: an owner-less
+# Agent, tool and gate configuration, refused at any depth whatever CODEOWNERS says: an owner-less
 # CODEOWNERS line must never be able to unown a nested copy (e.g. ops/sdlc/disciplines/x.md/CLAUDE.md).
-CONFIG_DIRS = {".claude", ".github", ".git"}
-CONFIG_FILES = {"claude.md", "claude.local.md", ".mcp.json"}
+# Compared case-folded: on a case-insensitive checkout (macOS, Windows) .Claude/ is .claude/. The other
+# agents' and editors' directories run code or steer an agent on CD's machine (VS Code tasks run on
+# folder open).
+CONFIG_DIRS = {".claude", ".github", ".git", ".codex", ".gemini", ".cursor", ".vscode", ".devcontainer"}
+CONFIG_FILES = {"claude.md", "claude.local.md", ".mcp.json", "agents.md", "gemini.md"}
+# The knowledge that routes agents or governs how they work, talk, are tiered, prompted and budgeted, and
+# how their work is security-reviewed (z-sdlc process/factory.md, Enablement step 9). Every other knowledge
+# YAML is agent-writable on purpose (SDLC hygiene), with CD's PR review as the control; these never are.
+# The project's CODEOWNERS owns them again after its owner-less knowledge line, and its seeded
+# test_codeowners.py reads this list.
+GOVERNING_KNOWLEDGE = tuple("ops/sdlc/knowledge/" + name for name in (
+    "agent-context-map.yaml",
+    "architecture/agent-communication-protocol.yaml",
+    "architecture/agent-orchestration-patterns.yaml",
+    "architecture/knowledge-management-methodology.yaml",
+    "architecture/model-tier-strategy.yaml",
+    "architecture/prompt-engineering-patterns.yaml",
+    "architecture/token-economics.yaml",
+    "architecture/security-review-taxonomy.yaml",
+))
+
+
+def fold(path):
+    """A path as a case- and normalization-insensitive filesystem sees it (APFS, NTFS): canonical caseless
+    matching, NFD(casefold(NFD(path)))."""
+    return unicodedata.normalize("NFD", unicodedata.normalize("NFD", path).casefold())
 
 
 GATE_ID = re.compile(r"^G[1-9][0-9]?$")
@@ -104,9 +129,10 @@ def plan_gate_lines(plan_text, catalog_text):
 
 
 def agent_config(path):
-    parts = path.split("/")
-    return any(part in CONFIG_DIRS for part in parts[:-1]) or parts[-1].lower() in CONFIG_FILES \
-        or parts[-1] in CONFIG_DIRS
+    folded = fold(path)
+    parts = folded.split("/")
+    return any(part in CONFIG_DIRS for part in parts) or parts[-1] in CONFIG_FILES \
+        or folded in GOVERNING_KNOWLEDGE
 CODE_STAGES = ("implement", "execute")
 DOC_STAGES = ("plan", "spec", "split")
 SPLIT_DOC = re.compile(r"^docs/current_work/planning/(d\d+)_[a-z0-9_]+_split\.md$")
@@ -156,7 +182,10 @@ def codeowners_patterns(text):
     """CODEOWNERS paths as regexes (gitignore rules: a leading or inner slash anchors at the root,
     otherwise the name matches at any depth; an owned pattern also covers everything under a
     directory). Each entry is (pattern, regex, owned): a line with no owner unowns exactly the files
-    it names, never anything beneath them, which is stricter than GitHub."""
+    it names, never anything beneath them, which is stricter than GitHub. An owned line matches
+    case- and normalization-insensitively (against fold()), so pyproject.toml also owns PyProject.toml,
+    which a case-insensitive checkout reads as the same file; an owner-less line matches exactly.
+    Both are stricter than GitHub, whose matching is case-sensitive."""
     patterns = []
     for line in text.splitlines():
         line = line.split("#", 1)[0].strip()
@@ -166,7 +195,7 @@ def codeowners_patterns(text):
         if any(c in pattern for c in "[]\\!"):
             raise Refused(f"CODEOWNERS pattern this check can't evaluate: {pattern}")
         anchored = pattern.startswith("/") or "/" in pattern.strip("/")
-        body = pattern.strip("/")
+        body = fold(pattern.strip("/")) if owners else pattern.strip("/")
         regex, i = "", 0
         while i < len(body):
             if body.startswith("**/", i):
@@ -187,9 +216,35 @@ def codeowners_patterns(text):
 
 
 def protected(path, patterns):
-    """The owning pattern, or None. The last matching line wins, as on GitHub."""
-    match = next(((p, owned) for p, rx, owned in reversed(patterns) if rx.match(path)), None)
+    """The owning pattern, or None. The last matching line wins, as on GitHub. Owned lines match the
+    folded path, owner-less lines the path as written: unowning too much is the dangerous direction."""
+    folded = fold(path)
+    match = next(((p, owned) for p, rx, owned in reversed(patterns) if rx.match(folded if owned else path)), None)
     return match[0] if match and match[1] else None
+
+
+def case_collisions(commits, changed):
+    """Refuse a changed path that aliases another on a case- or normalization-insensitive checkout (macOS
+    APFS, Windows): two names in one commit's tree, files or the directories above them, that fold to the
+    same name, where one is a changed path or a directory above one. Checked out there, one lands in the
+    other (.Claude/settings.local.json inside .claude/). Every commit: each can be checked out."""
+    touched = set()
+    for path in changed:
+        parts = path.split("/")
+        touched.update("/".join(parts[:i]) for i in range(1, len(parts) + 1))
+    for sha in commits:
+        raw = git("ls-tree", "-r", "-z", "--name-only", sha, binary=True)
+        seen = {}
+        for name in filter(None, raw.decode("utf-8", errors="surrogateescape").split("\0")):
+            parts = name.split("/")
+            for i in range(1, len(parts) + 1):
+                prefix = "/".join(parts[:i])
+                seen.setdefault(fold(prefix), set()).add(prefix)
+        for group in seen.values():
+            if len(group) > 1 and group & touched:
+                first, second = sorted(group)[:2]
+                raise Refused(f"{first} and {second} are the same path on a case-insensitive checkout "
+                              f"(macOS, Windows); the factory never adds one beside the other")
 
 
 def strings(value):
@@ -516,6 +571,7 @@ def check_commits(bundle, base, patterns, allowed_prefix=None):
         owner = protected(path, patterns)
         if owner:
             raise Refused(f"{path}: covered by CODEOWNERS ({owner}); the factory never changes it")
+    case_collisions(commits, paths)
     if allowed_prefix:
         allowed = (allowed_prefix,) if isinstance(allowed_prefix, str) else tuple(allowed_prefix)
         outside = [path for path in sorted(paths) if not path.startswith(allowed)]

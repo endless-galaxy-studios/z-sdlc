@@ -37,6 +37,57 @@ Each entry contains:
 
 ---
 
+## 2026-11-05: The publish guard sees paths the way a case-insensitive checkout does
+
+**Origin:** A security review in a third project enabling the factory (rated major), confirmed here by probing the guard. CD approved the fix on 2026-11-05, to ship as its own patch ahead of the next minor release. CD also asked (2026-11-05) that the knowledge-file ownership rule be written into factory setup, so no project asks again.
+
+**What happened:** The guard compared directory names and CODEOWNERS patterns case-sensitively, as git and GitHub do, but macOS and Windows checkouts are case-insensitive, and APFS is normalization-insensitive too. Paths that passed both checks:
+- `.Claude/settings.local.json`, which on CD's Mac lands inside `.claude/`, so its hooks run in CD's next session;
+- `.GitHub/workflows/x.yml`;
+- `api/PyProject.toml`.
+`AGENTS.md`, `.vscode/` and the other agents' and editors' configuration weren't covered at all. File names were already compared lowercased, so `.MCP.json` and `api/Claude.md` were refused. The CODEOWNERS lists also missed:
+- pytest 9's `pytest.toml`, `.pytest.toml` and `.pytest.ini`, read before `pyproject.toml`;
+- hatchling's `hatch.toml` and `hatch_build.py`, a build hook that runs at install, outside the sandbox;
+- the PostCSS and Babel configs Vite loads.
+And under last-match-wins, the parking lots' owner-less line unowned a nested `disciplines/CLAUDE.md` on GitHub.
+
+**Changes made:**
+
+1. **`bundles/factory/tree/implement_guard.py`**:
+   - `fold()` gives the canonical caseless form, `NFD(casefold(NFD(path)))`.
+   - `agent_config()` compares every path component folded. It gains `.codex`, `.gemini`, `.cursor`, `.vscode`, `.devcontainer`, `agents.md` and `gemini.md`.
+   - It also gains `GOVERNING_KNOWLEDGE`, the eight knowledge files that route or govern agents, refused by name.
+   - `codeowners_patterns()`/`protected()`: an owned line matches the folded path; an owner-less line still matches exactly, since unowning too much is the dangerous direction.
+   - `case_collisions()`, run by `check_commits()`, refuses a changed path that folds to the same name as another file or directory in any pushed commit's tree. A collision already on the base, untouched by the change, is left alone.
+2. **`bundles/factory/tree/tests/test_implement_guard.py`**:
+   - casings, the new configuration names, the governing list, owned lines in any case and owner-less lines exactly, and `fold()`;
+   - collisions built through the index, since a case-insensitive filesystem can't hold both names;
+   - an untouched collision on the base.
+   **`tests/test_revise_doc_guard.py`**: the context map is now refused by name; the CODEOWNERS case uses another owned knowledge file.
+3. **`bundles/factory/seed/tests/test_codeowners.py`** (new installs; existing projects extend their own copy): other agents' and tools' configuration, any-case samples, the agent files owned again under the owner-less lines, the governing list read from the guard, and the new Python and Node files.
+4. **`.claude/skills/zsdlc-import-factory/scripts/import_factory.py`**: the proof's CODEOWNERS follows the new step 9, ordering included.
+5. **`process/factory.md`**:
+   - D2 rule 6: the guard's stricter matching.
+   - § Stack Profiles, What CODEOWNERS must cover: the pytest TOML configs, hatchling's files, an in-tree build backend, the PostCSS, Babel, eslintrc and Vitest workspace configs.
+   - Enablement step 9:
+     - other agents' and tools' configuration;
+     - the owner-less lines;
+     - then the eight governing knowledge files and `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md` owned again;
+     - the other knowledge YAMLs stated as agent-writable on purpose, with CD's PR review as the control, an exposure CD accepted organization-wide.
+   - Step 10: preview-deploying hosts (Vercel, Netlify, Cloudflare Pages, Railway's PR environments) build factory branches with their preview variables, so turn them off for `factory/**` or keep secrets out.
+   - The off-limits paragraph names what the guard refuses.
+6. **`skills/sdlc-implement/SKILL.md`**, **`skills/sdlc-revise/SKILL.md`**: the same off-limits paragraph.
+7. **`knowledge/architecture/security-review-taxonomy.yaml`**: `supply_chain_security` gains `load_on_presence` (files tools load just because they exist, by ecosystem, with review checks) and `case_aliasing`. The code-reviewer and security-engineer roles already read it.
+
+**Upgrading:** take the bundle code. In CODEOWNERS:
+- add the other agents' and tools' configuration and the new profile files;
+- after the owner-less lines, own the eight governing knowledge files and `CLAUDE.md`, `CLAUDE.local.md` and `AGENTS.md` again.
+Then extend your `tests/test_codeowners.py` to match (the seed's version shows how). A commit that adds a path differing from an existing one only in case is now refused.
+
+**Rationale:** The guard protects CD's own machine as much as `main`, and that machine reads paths case-insensitively. A protection that git and GitHub's case-sensitive matching can't see has to come from the guard. Writing the knowledge rule and its accepted risk into Enablement ends a question every project's reviewers raised. Release type: patch (stricter checks within the existing guard contract).
+
+---
+
 ## 2026-11-03: The factory lets a project opt in to a key that can do more than read
 
 **Origin:** CD, while the factory is extended to give agent jobs a project's own services in every stage. A memory service's plugin reads a full-power project key from a file in the checkout, and the external review gate needs a model provider's key, which spends. CD accepted that exposure on 2026-10-29, for private repositories, and asked for it to be recorded here.

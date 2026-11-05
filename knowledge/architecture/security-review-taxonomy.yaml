@@ -2,7 +2,7 @@
 # Cross-project general taxonomy for security reviews.
 # Project-specific findings, known vulnerabilities, accepted risks, and audit status
 # belong in the agent body (security-engineer/MEMORY.md).
-# Last updated: 2026-03-13
+# Last updated: 2026-11-05
 
 id: security-review-taxonomy
 name: "Security Review Taxonomy — 7 Domain Framework"
@@ -13,7 +13,7 @@ spec_relevant: false
 project_applicability:
   relevant_when: "Always relevant — all projects have security concerns"
   action_if_irrelevant: keep
-last_updated: 2026-03-14
+last_updated: 2026-11-05
 
 # ─────────────────────────────────────────────
 # Severity Scale
@@ -351,6 +351,39 @@ supply_chain_security:
       - "Review new package additions in PRs — a typo in a dependency can introduce a malicious package"
       - "Use automated tools (socket.dev, Snyk) that flag suspicious package characteristics"
       - "Verify publisher identity for new packages before merging"
+
+  load_on_presence:
+    name: "Files a tool loads just because they exist"
+    description: >
+      Code review protects what a change visibly does, but many tools read or run a file only because it
+      sits in the tree: a config search order, a build hook, a lifecycle script, an editor task. A change
+      that adds one of these runs code at install, build or folder-open time, often outside any sandbox
+      and with the developer's or CI's credentials. Treat each as code-owned configuration, covered at
+      any depth, whether or not the project has one yet: review rebuilds this list from memory and misses
+      the newer entries.
+    examples:
+      - "Python: pyproject.toml, setup.py, setup.cfg, conftest.py, sitecustomize.py; pytest reads pytest.toml, .pytest.toml, pytest.ini and .pytest.ini before pyproject.toml (pytest 9); hatchling merges hatch.toml and runs hatch_build.py as a build hook at install; an in-tree build backend named by backend-path"
+      - "uv: uv.lock, uv.toml, .python-version, .python-versions"
+      - "Node: package.json (install runs lifecycle scripts), .npmrc, the lockfile, pnpm-workspace.yaml, .pnpmfile.cjs; Vite loads postcss.config.* and .postcssrc*, and Babel configs, when present"
+      - ".NET: *.csproj and their .user files, Directory.Build.*, *.props, *.targets, *.rsp, nuget.config in every casing, tool manifests"
+      - "Agents and editors: CLAUDE.md, AGENTS.md, GEMINI.md, .claude/, .codex/, .gemini/, .cursor/, .mcp.json; .vscode/ (tasks can run on folder open), .devcontainer/, .envrc"
+      - "Review itself: .gitattributes (linguist-generated collapses a file's diff in review); mise.toml and .tool-versions pick the toolchain"
+    review_checks:
+      - "Does the change add or edit a file from this list, at any depth, in any letter case?"
+      - "Does CODEOWNERS cover each of them, and does a later owner-less line unown one by accident (last match wins)?"
+
+  case_aliasing:
+    name: "Case and Unicode aliasing on case-insensitive checkouts"
+    description: >
+      Git and GitHub's CODEOWNERS match paths case-sensitively, but macOS (APFS) and Windows (NTFS) are
+      case-insensitive, and APFS is normalization-insensitive too. A path that a check sees as new and
+      unprotected (.Claude/settings.local.json, api/PyProject.toml) is, once checked out there, the
+      protected one (.claude/settings.local.json), and its hooks or settings take effect on the
+      developer's machine.
+    mitigations:
+      - "Match protected names and owned patterns case-insensitively (casefold and NFD-normalize both sides); keep owner-less (unowning) patterns exact, since unowning too much is the dangerous direction"
+      - "Refuse a change that adds a path folding to the same name as another path or directory in the tree"
+      - "Git's own core.protectHFS and core.protectNTFS cover .git, not the rest"
 
   license_compatibility:
     description: >

@@ -98,6 +98,40 @@ class CodeownersRules(unittest.TestCase):
         with self.assertRaises(guard.Refused):
             guard.codeowners_patterns("/web/[ab].ts @x\n")
 
+    def test_agent_config_whatever_the_case(self):
+        """A case-insensitive checkout (macOS, Windows) puts .Claude/ in .claude/: every casing is the same."""
+        for path in [".Claude/settings.local.json", ".GitHub/workflows/x.yml", "a/.GIT/config", "API/CLAUDE.MD",
+                     ".MCP.json", "x/.Vscode/tasks.json"]:
+            self.assertTrue(guard.agent_config(path), path)
+
+    def test_other_agents_and_editors_configuration(self):
+        for path in ["AGENTS.md", "api/agents.md", "GEMINI.md", ".codex/config.toml", ".gemini/settings.json",
+                     ".cursor/rules/x.mdc", ".vscode/tasks.json", ".devcontainer/devcontainer.json"]:
+            self.assertTrue(guard.agent_config(path), path)
+        self.assertFalse(guard.agent_config("docs/agents-overview.md"))
+
+    def test_governing_knowledge_whatever_codeowners_says(self):
+        for path in guard.GOVERNING_KNOWLEDGE:
+            self.assertTrue(guard.agent_config(path), path)
+        self.assertTrue(guard.agent_config("ops/sdlc/knowledge/Architecture/Token-Economics.YAML"))
+        for path in ["ops/sdlc/knowledge/coding/shell-patterns.yaml", "ops/sdlc/knowledge/architecture/x.yaml"]:
+            self.assertFalse(guard.agent_config(path), path)
+        self.assertEqual(len(guard.GOVERNING_KNOWLEDGE), 8)
+
+    def test_owned_lines_match_any_case_and_owner_less_lines_exactly(self):
+        patterns = guard.codeowners_patterns(FIXTURE_CODEOWNERS)
+        for path in ["a/b/ConfTest.py", "MAKEFILE", "OPS/sdlc/process/x.md", "ops/sdlc/Disciplines/testing.md",
+                     "ops/sdlc/disciplines/Testing.MD", "ops/sdlc/process/SDLC_changelog.md"]:
+            self.assertIsNotNone(guard.protected(path, patterns), path)
+        # Written exactly as the owner-less line names them, they stay writable.
+        for path in ["ops/sdlc/disciplines/testing.md", "ops/sdlc/process/sdlc_changelog.md"]:
+            self.assertIsNone(guard.protected(path, patterns), path)
+
+    def test_fold_is_caseless_and_normalization_insensitive(self):
+        self.assertEqual(guard.fold(".Claude/Settings.json"), guard.fold(".claude/settings.json"))
+        self.assertEqual(guard.fold("café.md"), guard.fold("café.md"))
+        self.assertNotEqual(guard.fold("api/x.py"), guard.fold("web/x.py"))
+
 
 class SandboxSettings(unittest.TestCase):
     def test_implement_settings_are_the_probed_ones_without_network(self):
@@ -144,12 +178,17 @@ class Commits(unittest.TestCase):
         return subprocess.run(["git", "rev-parse", ref], cwd=self.src, check=True,
                               capture_output=True, text=True).stdout.strip()
 
-    def check(self):
+    def check(self, checkout=True):
+        """checkout=False leaves the clone without a working tree: a tree with names that collide on a
+        case-insensitive filesystem (macOS) can't be checked out there, and the guard reads only objects."""
         bundle = pathlib.Path(self.tmp.name) / "out.bundle"
         run("git", "bundle", "create", "-q", str(bundle), f"{self.base}..HEAD", cwd=self.src)
         dst = pathlib.Path(self.tmp.name) / "dst"
-        run("git", "clone", "-q", "--no-local", str(self.src), str(dst), cwd=self.tmp.name)
-        run("git", "checkout", "-q", "--detach", self.base, cwd=dst)
+        if checkout:
+            run("git", "clone", "-q", "--no-local", str(self.src), str(dst), cwd=self.tmp.name)
+            run("git", "checkout", "-q", "--detach", self.base, cwd=dst)
+        else:
+            run("git", "clone", "-q", "--no-local", "--no-checkout", str(self.src), str(dst), cwd=self.tmp.name)
         cwd = os.getcwd()
         os.chdir(dst)
         try:
@@ -171,6 +210,42 @@ class Commits(unittest.TestCase):
         self.commit("remove")
         with self.assertRaisesRegex(guard.Refused, "CODEOWNERS"):
             self.check()
+
+    def add_blob(self, path, text):
+        """Stage a path through the index only: on a case-insensitive filesystem (macOS) writing API/x.py
+        would land in api/, so a colliding name can't be made through the working tree."""
+        sha = subprocess.run(["git", "hash-object", "-w", "--stdin"], cwd=self.src, input=text, check=True,
+                             capture_output=True, text=True).stdout.strip()
+        run("git", "update-index", "--add", "--cacheinfo", f"100644,{sha},{path}", cwd=self.src)
+
+    def commit_index(self, msg):
+        run("git", "commit", "-q", "-m", msg, cwd=self.src)
+
+    def test_refuses_a_name_that_aliases_another_on_a_case_insensitive_checkout(self):
+        self.add_blob("api/config.py", "X = 1\n")
+        self.commit_index("base file")
+        self.base = self.rev("HEAD")
+        self.add_blob("API/new.py", "Y = 2\n")
+        self.commit_index("alias")
+        with self.assertRaisesRegex(guard.Refused, "case-insensitive checkout"):
+            self.check(checkout=False)
+
+    def test_refuses_a_file_that_aliases_another_file(self):
+        self.add_blob("docs/Notes.md", "a\n")
+        self.add_blob("docs/notes.md", "b\n")
+        self.commit_index("two")
+        with self.assertRaisesRegex(guard.Refused, "case-insensitive checkout"):
+            self.check(checkout=False)
+
+    def test_an_untouched_collision_on_the_base_is_left_alone(self):
+        self.add_blob("old/Readme.md", "a\n")
+        self.add_blob("old/README.md", "b\n")
+        self.commit_index("already there")
+        self.base = self.rev("HEAD")
+        self.add_blob("api/ml/config.py", "X = 1\n")
+        self.commit_index("fix")
+        head, paths = self.check(checkout=False)
+        self.assertEqual(paths, ["api/ml/config.py"])
 
     def test_refuses_nested_agent_config_under_an_unowned_path(self):
         self.write("ops/sdlc/disciplines/x.md/CLAUDE.md", "be evil\n")

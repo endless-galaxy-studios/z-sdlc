@@ -110,8 +110,12 @@ class ReviseDocGuard(unittest.TestCase):
         self.refused(result(), "may only change")
 
     def test_refuses_an_owned_sdlc_file(self):
-        self.revise("ops/sdlc/knowledge/agent-context-map.yaml", "x: 1\n")
+        self.revise("ops/sdlc/knowledge/README.md", "x\n")
         self.refused(result(), "CODEOWNERS")
+
+    def test_refuses_knowledge_that_governs_agents_by_name(self):
+        self.revise("ops/sdlc/knowledge/agent-context-map.yaml", "x: 1\n")
+        self.refused(result(), "agent or gate configuration")
 
     def test_refuses_another_document(self):
         self.revise()

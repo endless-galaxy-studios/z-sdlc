@@ -127,7 +127,7 @@ Agent jobs run on self-hosted runners, and a runner host may also run production
 
    Re-run smoke on every action, image or tool-policy change.
 6. **Workflow edits are trusted only through review.** The boundary against a malicious workflow change is:
-   - CODEOWNERS on `.github/`, `.claude/`, `CLAUDE.md`, `.mcp.json`, `[sdlc-root]/` and the test and build config, enforced by the `main` ruleset. The discipline parking lots (`[sdlc-root]/disciplines/*.md`) are the exception: an owner-less line unowns them so agents can add entries. The writer's guard follows GitHub's last-match-wins rule, and CD still sees each entry in the PR diff;
+   - CODEOWNERS on `.github/`, `.claude/`, `CLAUDE.md`, `.mcp.json`, other agents' and tools' configuration, `[sdlc-root]/` and the test and build config, enforced by the `main` ruleset. The discipline parking lots (`[sdlc-root]/disciplines/*.md`) and the knowledge YAMLs other than the governing ones are the exception: an owner-less line unowns them so agents can add entries. The writer's guard follows GitHub's last-match-wins rule, and CD still sees each entry in the PR diff. Unlike GitHub, the guard matches an owned line in any case and Unicode normalization, refuses agent configuration by name in any case, and refuses a path that collides with another on a case-insensitive checkout: on CD's Mac, `.Claude/settings.local.json` is `.claude/settings.local.json`;
    - the factory's own GitHub App (Z Software Factory) has no `workflows` permission, so no factory token can push a workflow change. Its key is in the `factory-writer` environment, which only `main` can use, so a factory branch can't mint the token;
    - the runtime sandbox probe (rule 5).
 
@@ -323,7 +323,7 @@ that run there:
 <!-- MIRROR-SOURCE-START: factory-sandbox -->
 - **Bash is sandboxed:** it can write only the workspace and the temp directory, and has no network. Dependencies are already installed; nothing can be installed.
 - **No GitHub access:** no `gh`, no push. The issue is in the context file.
-- **Off-limits paths:** edits to `.github/`, `.claude/`, `CLAUDE.md`, `.mcp.json` and `.git/` are denied, and the publish job rejects any commit touching a path in `.github/CODEOWNERS` (the project's test and build config, dependency manifests, `[sdlc-root]/` and the like). The SDLC hygiene files are the exception, and you may write them: the discipline parking lots (`[sdlc-root]/disciplines/*.md`) and the knowledge YAMLs (`[sdlc-root]/knowledge/`), except `[sdlc-root]/knowledge/agent-context-map.yaml` and the agent-governing files CODEOWNERS still lists. A knowledge entry the fix makes wrong is corrected in this PR. If the change needs one of them, stop (Edge Cases).
+- **Off-limits paths:** edits to `.github/`, `.claude/`, `CLAUDE.md`, `.mcp.json` and `.git/` are denied, and the publish job rejects any commit touching a path in `.github/CODEOWNERS` (the project's test and build config, dependency manifests, `[sdlc-root]/` and the like). The SDLC hygiene files are the exception, and you may write them: the discipline parking lots (`[sdlc-root]/disciplines/*.md`) and the knowledge YAMLs (`[sdlc-root]/knowledge/`), except the eight that route or govern agents (`[sdlc-root]/knowledge/agent-context-map.yaml` and seven in `[sdlc-root]/knowledge/architecture/`), which the publish guard refuses by name. It also refuses other agents' and editors' configuration (`AGENTS.md`, `GEMINI.md`, `.codex/`, `.gemini/`, `.cursor/`, `.vscode/`, `.devcontainer/`), all of these in any letter case, and a path that differs from another only in case. A knowledge entry the fix makes wrong is corrected in this PR. If the change needs one of them, stop (Edge Cases).
 <!-- MIRROR-SOURCE-END: factory-sandbox -->
 
 | Mirror | Copies |
@@ -395,10 +395,14 @@ the switch, so they run with `--no-build` after a `dotnet build -m:1`). End-to-e
 factory branch's dependencies outside the sandbox, and the project's CI builds a factory PR's code.
 Both rely on no factory commit having changed a file a tool loads just because it exists. The
 publish guard and the branch check refuse only what CODEOWNERS covers, so it must cover each of
-these at any depth, whether or not the project has one yet. CODEOWNERS matching is case-sensitive,
-so cover every casing a tool accepts.
+these at any depth, whether or not the project has one yet. GitHub's CODEOWNERS matching is
+case-sensitive, so cover every casing a tool accepts (the guard itself matches an owned line in any
+case).
 - **`python-node`:** `requirements*.txt`, `pyproject.toml`, `setup.py`, `setup.cfg`, `pytest.ini`,
-  `tox.ini`, `conftest.py`, `sitecustomize.py`, and the Node files below.
+  `.pytest.ini`, `pytest.toml` and `.pytest.toml` (pytest 9 reads them before `pyproject.toml`),
+  `tox.ini`, `conftest.py`, `sitecustomize.py`, `hatch.toml` and `hatch_build.py` (a hatchling build
+  hook runs when the project installs, outside the sandbox), any in-tree build backend a
+  `pyproject.toml`'s `backend-path` names, and the Node files below.
 - **`dotnet-node`:** `*.csproj` (and `*.fsproj`, `*.vbproj`), their `.user` files (MSBuild imports
   `<project>.user` when it exists), `*.props`, `*.targets`, `*.rsp` (`Directory.Build.*`,
   `Directory.Packages.props` and `Directory.Solution.*` among them), `*.sln`, `*.slnx`, `*.slnf`,
@@ -406,9 +410,12 @@ so cover every casing a tool accepts.
   root `dotnet-tools.json`, `*.runsettings`, `xunit.runner.json`, `.editorconfig`, `.globalconfig`,
   and the Node files below. A project file can run code during `dotnet restore`, so owning `*.csproj`
   makes a new project or package CD's change; the implement sandbox can't fetch a package anyway.
-- **Node, in both:** `package.json` (`install` runs its lifecycle scripts), `.npmrc`, and the eslint,
-  TypeScript, Vite and Vitest configs; for npm (`python-node`) `package-lock.json`, and for pnpm
-  (`dotnet-node`) `pnpm-lock.yaml`, `pnpm-workspace.yaml` and `.pnpmfile.cjs`.
+- **Node, in both:** `package.json` (`install` runs its lifecycle scripts), `.npmrc`, the eslint
+  (`eslint.config.*`, `.eslintrc*`), TypeScript (`tsconfig*.json`), Vite and Vitest
+  (`vite.config.*`, `vitest.config.*`, `vitest.workspace.*`) configs, and the PostCSS and Babel ones
+  Vite loads when they exist (`postcss.config.*`, `.postcssrc*`, `babel.config.*`, `.babelrc*`); for
+  npm (`python-node`) `package-lock.json`, and for pnpm (`dotnet-node`) `pnpm-lock.yaml`,
+  `pnpm-workspace.yaml` and `.pnpmfile.cjs`.
 
 ---
 
@@ -509,11 +516,29 @@ needs an organization owner's `gh` login (`admin:org`) for the runner groups and
 9. **CODEOWNERS and the `main` ruleset** (D2 rule 6): code owners on `.github/`, `.claude/`,
    `CLAUDE.md` at any depth, `.mcp.json`, `[sdlc-root]/` and the test and build configuration,
    including every file the profile's tools load just because it exists (§ Stack Profiles, What
-   CODEOWNERS must cover), with owner-less lines last for the discipline parking lots, the knowledge
-   YAMLs (except the agent-governing ones) and the SDLC changelog; code-owner review required on
-   `main`. The seeded `tests/test_codeowners.py` checks the file against the guard; until it exists
-   it fails, and its path lists are the project's to extend (its test and build configuration, the
-   profile's list, its source paths).
+   CODEOWNERS must cover); code-owner review required on `main`.
+   - **What other agents and tools load on CD's machine:** `AGENTS.md`, `GEMINI.md`, `.codex/`,
+     `.gemini/`, `.cursor/`, `.vscode/` (its tasks can run when the folder opens), `.devcontainer/`,
+     `.envrc`, `.gitattributes` (`linguist-generated` collapses a file's diff in review),
+     `mise.toml` and `.tool-versions`.
+   - **Owner-less lines, after the owned ones,** for what agents may write: the discipline parking
+     lots (`[sdlc-root]/disciplines/*.md`), every knowledge YAML (`[sdlc-root]/knowledge/**/*.yaml`)
+     and the SDLC changelog.
+   - **Then owned again, after the owner-less lines** (the last matching line wins):
+     - the eight knowledge files that route agents or govern how they work, talk, are tiered,
+       prompted and budgeted, and how their work is security-reviewed: `agent-context-map.yaml`,
+       and in `architecture/`, `agent-communication-protocol`, `agent-orchestration-patterns`,
+       `knowledge-management-methodology`, `model-tier-strategy`, `prompt-engineering-patterns`,
+       `token-economics` and `security-review-taxonomy`. The guard keeps the list
+       (`implement_guard.GOVERNING_KNOWLEDGE`) and refuses them by name too;
+     - `CLAUDE.md`, `CLAUDE.local.md` and `AGENTS.md`. Otherwise the parking lots' line unowns a
+       nested `[sdlc-root]/disciplines/CLAUDE.md` on GitHub, which Claude Code loads.
+   - **The other knowledge YAMLs are agent-writable on purpose** (SDLC hygiene, CD 2026-10-09),
+     and CD's PR review is the control. Agents can therefore shape knowledge that later agents and
+     reviewers read. CD accepted that, organization-wide, so a project doesn't ask again.
+   - The seeded `tests/test_codeowners.py` checks the file against the guard, the governing list
+     and the order included. Until CODEOWNERS exists it fails. Its path lists are the project's to
+     extend: its test and build configuration, the profile's list, its source paths.
 10. **CI**, required on `main`: `python .github/factory/render.py --check`, then
     `python .github/factory/workflow_policy.py .github/workflows`, then
     `python -m unittest discover -s .github/factory/tests` (with PyYAML; with a CI tier, on a
@@ -538,6 +563,12 @@ needs an organization owner's `gh` login (`admin:org`) for the runner groups and
 
     A job that needs a secret (a fixture fetch) runs the default branch's code, as the fixtures job
     does (D2 rule 7).
+
+    **Preview deploys run agent-written code too.** A host that builds a preview of every pushed
+    branch (Vercel, Netlify, Cloudflare Pages, Railway's PR environments) builds `factory/**` with
+    its preview variables. Turn previews off for those branches (on Vercel,
+    `git.deploymentEnabled` set false for `factory/**`), or keep every secret out of the preview
+    environment.
 
     **The CI tier.** A project CI job that outgrows GitHub-hosted runners, such as an end-to-end
     suite, runs on the CI tier: one disposable runner per job, on the runner host. The label is

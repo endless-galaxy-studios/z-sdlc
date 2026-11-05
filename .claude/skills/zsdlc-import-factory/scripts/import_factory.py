@@ -45,21 +45,39 @@ ROOT = HERE.parents[4]
 RULES = HERE.parents[1] / "import.json"
 
 # The CODEOWNERS Enablement step 9 asks for (process/factory.md), for the empty project's seeded test: the
-# factory's paths, and what each profile's tools load just because it exists (§ Stack Profiles).
+# factory's and other agents' and tools' paths, what each profile's tools load just because it exists (§ Stack
+# Profiles), the owner-less lines for what agents may write, then the governing knowledge and the agent files
+# owned again after them (last match wins).
 PROOF_CODEOWNERS = """/.github/ @owner
 .mcp.json @owner
 .claude/ @owner
 CLAUDE.md @owner
 CLAUDE.local.md @owner
+AGENTS.md @owner
+GEMINI.md @owner
+.codex/ @owner
+.gemini/ @owner
+.cursor/ @owner
+.vscode/ @owner
+.devcontainer/ @owner
+.envrc @owner
+.gitattributes @owner
+mise.toml @owner
+.tool-versions @owner
 /ops/sdlc/ @owner
 requirements*.txt @owner
 pyproject.toml @owner
 setup.py @owner
 setup.cfg @owner
 pytest.ini @owner
+.pytest.ini @owner
+pytest.toml @owner
+.pytest.toml @owner
 tox.ini @owner
 conftest.py @owner
 sitecustomize.py @owner
+hatch.toml @owner
+hatch_build.py @owner
 *.csproj @owner
 *.fsproj @owner
 *.vbproj @owner
@@ -92,10 +110,26 @@ eslint.config.* @owner
 tsconfig*.json @owner
 vite.config.* @owner
 vitest.config.* @owner
+vitest.workspace.* @owner
+.eslintrc* @owner
+postcss.config.* @owner
+.postcssrc* @owner
+babel.config.* @owner
+.babelrc* @owner
 /ops/sdlc/disciplines/*.md
 /ops/sdlc/knowledge/**/*.yaml
 /ops/sdlc/process/sdlc_changelog.md
 /ops/sdlc/knowledge/agent-context-map.yaml @owner
+/ops/sdlc/knowledge/architecture/agent-communication-protocol.yaml @owner
+/ops/sdlc/knowledge/architecture/agent-orchestration-patterns.yaml @owner
+/ops/sdlc/knowledge/architecture/knowledge-management-methodology.yaml @owner
+/ops/sdlc/knowledge/architecture/model-tier-strategy.yaml @owner
+/ops/sdlc/knowledge/architecture/prompt-engineering-patterns.yaml @owner
+/ops/sdlc/knowledge/architecture/token-economics.yaml @owner
+/ops/sdlc/knowledge/architecture/security-review-taxonomy.yaml @owner
+CLAUDE.md @owner
+CLAUDE.local.md @owner
+AGENTS.md @owner
 """
 
 
