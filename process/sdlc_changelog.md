@@ -37,6 +37,18 @@ Each entry contains:
 
 ---
 
+## 2026-11-05: Enablement step 3: a first image publish GHCR refuses is re-run
+
+**Origin:** A third project's first `factory-image` run (2026-11-05): GHCR created the package and took every layer, then refused the tag in the same second (`error from registry: denied`). A plain re-run published it.
+
+**Changes made:**
+
+1. **`process/factory.md`** Enablement step 3: on a package's first publish, a `denied` tag push is re-run.
+
+**Rationale:** A first-publish failure that a re-run fixes looks like a permissions problem and sends people to the package settings. One sentence saves that detour. Release type: patch.
+
+---
+
 ## 2026-11-05: The seeded CODEOWNERS test checks GitHub's case-sensitive view too
 
 **Origin:** A review of a third project's CODEOWNERS after its migration to v2.3.0 (2026-11-05).

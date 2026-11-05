@@ -487,7 +487,9 @@ needs an organization owner's `gh` login (`admin:org`) for the runner groups and
 3. **The job image.** Set `image.repository` to where the organization publishes it (for example
    `ghcr.io/<org>/factory-job`), render, and push to `main`: `factory-image` builds the profile's
    `Dockerfile` on a GitHub-hosted runner and publishes it (or run it by hand). Its run on the
-   install's own push fails, publishing to the placeholder; this one is the first that counts. Copy the digest from
+   install's own push fails, publishing to the placeholder; this one is the first that counts. On
+   a package's first publish, GHCR can refuse the tag (`error from registry: denied`) in the
+   same second it creates the package and takes every layer: re-run the job, and it publishes. Copy the digest from
    its run summary into `image.digest` and render again. Every factory job runs in this image, pinned
    by its digest. Projects on the same profile can share one image: give each repository read
    access to the package.
