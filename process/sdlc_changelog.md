@@ -37,6 +37,20 @@ Each entry contains:
 
 ---
 
+## 2026-11-05: The factory imported from the incubator (9e56842..7c07be1): Where to look, a revision's gate stop
+
+**Origin:** The incubator merged the factory code for the entry below, its own fix of 2026-10-20 for a revision's gate stop, and a larger patch cap.
+
+**What happened:** The first report found z-sdlc ahead on 24 bundle files, the implement and revise skills and `process/factory.md`, none of them in the incubator since the last import. Six bundle files had changed on both sides: `implement_guard.py` and its tests, the implement and revise templates, `workflow_policy.py` and `tests/test_revise_gate.py`. `--apply --accept` takes the incubator's file, so it would have dropped z-sdlc's side. `--to-incubator` handed z-sdlc's changes over first, the six were merged by hand in the incubator, and its CI passed before this import took them. In `implement_guard.py`, z-sdlc's case-folded CODEOWNERS form is now built with the `path_regex` Where to look added, not a second copy of the pattern compiler. The seed README needs nothing: its generic version has none of the sections the incubator changed.
+
+**Changes made:**
+1. **`bundles/factory/tree/`:** `implement_guard.py` (Where to look, and the patch cap raised from 400,000 to 550,000 bytes), the implement and revise templates and `render.py` (Where to look), `templates/factory-gate-stop.yml` (new) and `revise_gate.sh stopped` (CD dispatches it for a PR whose last revision stopped before a gate without its gate stop, and it does that job's work with no agent and no revision counted), `factory-revise.yml`'s stop-at-gate running after a skipped fixtures job, and `workflow_policy.py` (a factory job after one that carries on past a skipped job has a status function in its own `if`), with their tests.
+2. **`.claude/skills/zsdlc-import-factory/import.json`:** `last_import` is `7c07be1`.
+
+**Rationale:** The factory's code comes only from its incubator, and an import that takes a file changed on both sides has to find z-sdlc's side already there.
+
+---
+
 ## 2026-11-05: Where to look: factory PRs list the files CD always looks at
 
 **Origin:** CD chose it from an "AI That Works" episode on software factories (2026-10-23). The episode treated code review as risk management: rules over the diff, not the author, decide what a person must look at.

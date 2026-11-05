@@ -77,6 +77,11 @@ Allowlists, not blocklists:
   ${{ secrets['NAME'] }} in a run step's FIXTURE_SECRET, and no other job or workflow env references
   that secret. factory.json's fixtures values, which render into the workflow text, hold no
   expression and no character that would break it.
+- Job conditions: in a factory workflow, a job after one whose `if` has a status function (always(),
+  !cancelled(): it runs past a skipped or failed job) has one in its own `if` too. Without one GitHub adds
+  success(), which reads every job before it, not just those it needs, so it is skipped whenever an earlier
+  job carried on (factory-revise.yml's stop-at-gate after a skipped fixtures job, 2026-10-20). Not a boundary:
+  a job skipped this way leaves a stage stopped. A project's own workflows are its own.
 """
 
 import json
@@ -156,6 +161,7 @@ FIXTURES_JOB = "fixtures"
 FIXTURES_WORKFLOWS = {"factory-implement.yml", "factory-revise.yml"}
 FIXTURES_ACTIONS = ("actions/checkout@", "actions/cache@", "actions/upload-artifact@")
 FIXTURE_SECRET = re.compile(r"^\$\{\{ secrets\['([A-Za-z_][A-Za-z0-9_]*)?'\] \}\}$")
+STATUS_FUNCTION = re.compile(r"\b(?:always|success|failure|cancelled)\(\)")
 # factory.json's fixtures values render into workflow text: an expression or a quote would change it.
 FIXTURE_VALUES = {
     "path": re.compile(r"^(?!/)(?!.*(?:^|/)\.\.(?:/|$))[A-Za-z0-9._/-]*$"),
@@ -767,6 +773,37 @@ def fixture_secret_failures(path, workflow):
     return failures
 
 
+def condition_failures(path, workflow):
+    """A factory job after one that carries on past a skipped or failed job (a status function in its `if`)
+    has a status function in its own `if`: GitHub's implicit success() reads every earlier job."""
+    if not path.name.startswith("factory-"):
+        return []
+    jobs = workflow.get("jobs") or {}
+
+    def needs(name):
+        n = (jobs.get(name) or {}).get("needs") or []
+        return [n] if isinstance(n, str) else list(n)
+
+    def carries_on(name):
+        return bool(STATUS_FUNCTION.search(str((jobs.get(name) or {}).get("if", ""))))
+
+    failures = []
+    for name in jobs:
+        if carries_on(name):
+            continue
+        earlier, todo = set(), needs(name)
+        while todo:
+            n = todo.pop()
+            if n not in earlier:
+                earlier.add(n)
+                todo += needs(n)
+        past = sorted(n for n in earlier if carries_on(n))
+        if past:
+            failures.append(f"{path}: {name}: runs after {', '.join(past)}, which carry on past a skipped or "
+                            "failed job, so its `if` needs a status function too (!cancelled() or always())")
+    return failures
+
+
 def fixture_value_failures(factory_dir):
     config = json.loads((pathlib.Path(factory_dir) / "factory.json").read_text())
     fixtures = config.get("fixtures") or {}
@@ -848,6 +885,7 @@ def main():
             failures += [f"{path}: {f}" for f in job_failures(name, job, workflow_env, model_input, factory_dir,
                                                                path.name, used)]
         failures += fixture_secret_failures(path, workflow)
+        failures += condition_failures(path, workflow)
     failures += fixture_value_failures(factory_dir)
     # An exemption names a job that exists: the list stays exactly what it lets through.
     for workflow, job in sorted(set(EXEMPTIONS) - used):

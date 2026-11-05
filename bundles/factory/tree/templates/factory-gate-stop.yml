@@ -1,0 +1,99 @@
+# Factory gate stop (design rule D4). A revision that stopped before a production gate whose stop-at-gate job
+# didn't run (factory-revise.yml): CD dispatches this for the PR, and it does what that job does without
+# another revision. A re-run of the revise run would run the agent again. The gate job (revise_gate.sh
+# stopped) finds what stop-at-gate was given from what the run left on GitHub. The plan and next gate are the
+# revise gate's. The App's last revision comment must say it stopped before that gate, and the branch's last
+# push must be the App's push of the PR's head, from before that comment. stop-at-gate (gate_stop.sh) then
+# posts the gate tracker, sets factory:gate, and asks factory-gate-request.yml for the gate run CD approves,
+# on that commit. No agent runs and no revision is counted.
+# Stage contract: .github/factory/README.md.
+name: factory-gate-stop
+run-name: "factory-gate-stop: PR #${{ inputs.pr }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: The factory code PR whose last revision stopped before a production gate
+        type: number
+        required: true
+
+permissions: {}
+
+concurrency:
+  group: factory-gate-stop-${{ inputs.pr }}
+
+env:
+  PR: ${{ inputs.pr }}
+  RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+    outputs:
+      proceed: ${{ steps.gate.outputs.proceed }}
+      issue: ${{ steps.gate.outputs.issue }}
+      plan: ${{ steps.gate.outputs.plan }}
+      next_gate: ${{ steps.gate.outputs.next_gate }}
+      head: ${{ steps.gate.outputs.head }}
+    steps:
+      # The gate check comes from the default branch.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Check the PR, its last revision and the commit it pushed
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: .github/factory/revise_gate.sh stopped
+
+  # factory-revise.yml's stop-at-gate job, with the gate job's findings for the revision's outputs.
+  stop-at-gate:
+    needs: gate
+    if: needs.gate.outputs.proceed == 'true'
+    runs-on: ubuntu-latest
+    environment: %{environments.writer}
+    timeout-minutes: 5
+    # actions: write only to ask factory-gate-request.yml for a gate run (dispatch advances, D1 rule 2).
+    permissions:
+      actions: write
+      contents: read
+      issues: read
+      pull-requests: read
+    steps:
+      # The gate tracker's renderer (gates.py) comes from the default branch.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: app
+        with:
+          client-id: ${{ vars.FACTORY_APP_CLIENT_ID }}
+          private-key: ${{ secrets.FACTORY_APP_PRIVATE_KEY }}
+          permission-issues: write
+          # Comments and labels on a PR need the pull-requests permission too.
+          permission-pull-requests: write
+
+      - name: Update the gate tracker, label the issue and ask for the gate run
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          READ_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ needs.gate.outputs.issue }}
+          PLAN: ${{ needs.gate.outputs.plan }}
+          NEXT_GATE: ${{ needs.gate.outputs.next_gate }}
+          PUBLISHED_HEAD: ${{ needs.gate.outputs.head }}
+          # gate_stop.sh reads only the result's gate.
+          RESULT: '{"gate": "${{ needs.gate.outputs.next_gate }}"}'
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: .github/factory/gate_stop.sh

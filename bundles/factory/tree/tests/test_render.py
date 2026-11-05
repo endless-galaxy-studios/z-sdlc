@@ -211,13 +211,13 @@ class Fixtures(unittest.TestCase):
                                                                    else "\n  revise:\n", 1)
                 self.assertIn("ART_API_KEY", jobs[0])
                 self.assertNotIn("ART_API_KEY", jobs[1])
-        self.assertEqual(self.policy(), (0, "workflow policy: 17 workflows, 0 violations\n"))
+        self.assertEqual(self.policy(), (0, "workflow policy: 18 workflows, 0 violations\n"))
 
     def test_a_projects_own_fixtures_job_is_its_own(self):
         # The policy reads every workflow; a project's ci.yml may have a job of that name.
         (self.out / "ci.yml").write_text("on: push\njobs:\n  fixtures:\n    runs-on: ubuntu-latest\n    steps:\n"
                                           "      - run: make fixtures\n        env:\n          K: ${{ secrets.OTHER_KEY }}\n")
-        self.assertEqual(self.policy(), (0, "workflow policy: 18 workflows, 0 violations\n"))
+        self.assertEqual(self.policy(), (0, "workflow policy: 19 workflows, 0 violations\n"))
 
     def test_the_secret_in_an_agent_job(self):
         self.edit("factory-implement.yml", "          ADVISOR: ${{ inputs.advisor || 'none' }}\n",
@@ -318,7 +318,7 @@ class ProjectWorkflows(unittest.TestCase):
                                                              + "    - uses: ./.github/actions/inner\n"))
         self.action(".github/actions/inner", COMPOSITE.format(steps=RUN.format(run="echo inner")))
         self.ci(JOB.format(name="test", runs_on="ubuntu-latest", extra="", uses="./.github/actions/setup"))
-        self.assertEqual(self.policy(), (0, "workflow policy: 18 workflows, 0 violations\n"))
+        self.assertEqual(self.policy(), (0, "workflow policy: 19 workflows, 0 violations\n"))
         # A nested action's step is checked like any other.
         self.action(".github/actions/inner", COMPOSITE.format(steps=RUN.format(run="claude -p hello")))
         code, out = self.policy()
@@ -357,12 +357,29 @@ class ProjectWorkflows(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("OAuth token in env outside an agent job's run step", out)
 
+    def test_a_job_after_one_that_carries_on_needs_a_status_function_too(self):
+        # factory-revise.yml's stop-at-gate as #78 merged it: skipped whenever the fixtures job was.
+        path = self.workflows / "factory-revise.yml"
+        text = path.read_text()
+        old = "      !cancelled() && needs.report.result == 'success'"
+        self.assertIn(old, text)
+        path.write_text(text.replace(old, "      needs.report.result == 'success'", 1))
+        code, out = self.policy()
+        self.assertEqual(code, 1)
+        self.assertIn("factory-revise.yml: stop-at-gate: runs after publish, report, revise, which carry on past a "
+                      "skipped or failed job, so its `if` needs a status function too", out)
+        # A project's own workflows are its own.
+        path.write_text(text)
+        self.ci(JOB.format(name="build", runs_on="ubuntu-latest", extra="    if: always()\n", uses="actions/checkout@v4"),
+                JOB.format(name="test", runs_on="ubuntu-latest", extra="    needs: build\n", uses="actions/checkout@v4"))
+        self.assertEqual(self.policy(), (0, "workflow policy: 19 workflows, 0 violations\n"))
+
     def test_the_organizations_hosted_labels(self):
         self.ci(JOB.format(name="big", runs_on="org-linux-16core", extra="", uses="actions/checkout@v4"))
         code, out = self.policy()
         self.assertIn("big: runs off GitHub-hosted runners without a container", out)
         self.set_policy(hosted_labels=["org-linux-16core"])
-        self.assertEqual(self.policy(), (0, "workflow policy: 18 workflows, 0 violations\n"))
+        self.assertEqual(self.policy(), (0, "workflow policy: 19 workflows, 0 violations\n"))
         # Labels every self-hosted runner carries (GitHub matches them without regard to case), or a factory runner's.
         for label in ("self-hosted", "Linux", "x64", "ARM64", "strict-pool", "Strict-Pool", "has space"):
             with self.subTest(label=label):
@@ -408,7 +425,7 @@ class ProjectWorkflows(unittest.TestCase):
     def test_a_ci_tier_job_that_holds_nothing(self):
         # No container (it runs in the launcher's), read-only, no persisted credentials, no secret, no job token.
         self.ci_tier()
-        self.assertEqual(self.policy(), (0, "workflow policy: 18 workflows, 0 violations\n"))
+        self.assertEqual(self.policy(), (0, "workflow policy: 19 workflows, 0 violations\n"))
 
     def test_what_a_ci_tier_job_may_not_do(self):
         cases = [

@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 FACTORY = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(FACTORY))
@@ -856,3 +857,446 @@ class DocStagePaths(unittest.TestCase):
         self.assertIsNotNone(guard.protected("ops/sdlc/process/sdlc_changelog.md.bak", patterns))
         self.assertIsNone(guard.protected("ops/sdlc/process/sdlc_changelog.md", patterns))
 
+
+
+
+# Where to look (factory.json review.focus). Generic paths: these tests ship in z-sdlc's factory bundle.
+def focus(*rules):
+    return guard.focus_rules({"review": {"focus": list(rules)}})
+
+
+MIGRATION = {"name": "Migration", "why": "changes the database", "tier": "high", "paths": ["**/migrations/**"]}
+ENV = {"name": "Environment read", "why": "a setting production needs", "tier": "medium", "added": r"os\.environ",
+       "except": ["**/tests/**"]}
+ACCESS = {"name": "Access check", "why": "who may call what", "removed": "login_required"}
+FLOAT = {"name": "Float field", "why": "money is Decimal", "tier": "high", "paths": ["/app/"], "added": "FloatField"}
+
+
+def named(flags):
+    return [(rule["name"], hits) for rule, hits in flags]
+
+
+class FocusRules(unittest.TestCase):
+    def test_no_rules_without_the_block(self):
+        self.assertEqual(guard.focus_rules({}), [])
+        self.assertEqual(guard.focus_rules({"review": {}}), [])
+        self.assertEqual(guard.focus_rules({"review": {"_doc": "x", "focus": []}}), [])
+
+    def test_the_projects_own_rules_load(self):
+        # read_focus_rules() raises on a broken rule in this repository's factory.json, so CI fails on the PR
+        # that adds one, before any publish job reads it.
+        self.assertIsInstance(guard.read_focus_rules(), list)
+
+    def test_refuses_broken_rules(self):
+        good = {"name": "n", "why": "w", "paths": ["app/"]}
+        for bad in [{"review": []}, {"review": {"fokus": [good]}}, {"review": {"focus": {}}},
+                    {"review": {"focus": [good] * 31}}, {"review": {"focus": ["app/"]}}]:
+            with self.assertRaises(guard.Refused, msg=bad):
+                guard.focus_rules(bad)
+        for change in [{"name": ""}, {"name": "n" * 41}, {"why": " "}, {"why": "w" * 161}, {"tier": "low"},
+                       {"tier": "High"}, {"paths": "app/"}, {"paths": ["app dir/"]}, {"paths": ["app/#x"]},
+                       {"paths": ["app/[ab]"]}, {"paths": [""]}, {"except": ["a b"]}, {"added": "("},
+                       {"removed": 3}, {"changed": "x" * 501}, {"paths": [], "added": ""},
+                       {"paths": [], "except": ["docs/"]}, {"owner": "cd"}]:
+            with self.assertRaises(guard.Refused, msg=change):
+                focus(dict(good, **change))
+
+    def test_an_except_covers_whats_beneath_only_when_it_says_so(self):
+        rule = focus(dict(ENV, **{"except": ["tests.py", "**/fixtures/"]}))[0]
+        out = lambda p: any(rx.match(p) for rx in rule["except"])  # noqa: E731
+        self.assertTrue(out("app/tests.py"))
+        self.assertFalse(out("app/tests.py/views.py"))
+        self.assertTrue(out("app/fixtures/a.py"))
+
+    def test_paths_are_codeowners_patterns_covering_what_is_beneath(self):
+        rule = focus({"name": "n", "why": "w", "paths": ["/app/models/", "**/migrations/**", "settings*.py"]})[0]
+        hit = lambda p: any(rx.match(p) for rx in rule["paths"])  # noqa: E731
+        for path in ["app/models/a.py", "app/models/x/y.py", "migrations/0001.py", "a/b/migrations/0002.py",
+                     "settings.py", "conf/settings_prod.py"]:
+            self.assertTrue(hit(path), path)
+        for path in ["app/modelsx.py", "lib/app/models/a.py", "migrations.py", "conf/settings/prod.py"]:
+            self.assertFalse(hit(path), path)
+
+    def test_a_file_is_flagged_by_its_path_and_its_lines(self):
+        rules = focus(MIGRATION, ENV, ACCESS, FLOAT,
+                      {"name": "Raw SQL", "why": "unchecked SQL", "changed": "(?i:delete from)"})
+        lines = {"app/migrations/0002.py": ([], []),
+                 "app/views.py": (["x = os.environ['K']", "price = FloatField()"], []),
+                 "app/tests/test_views.py": (["os.environ['K'] = 'x'"], []),
+                 "lib/auth.py": ([], ["@login_required"]),
+                 "lib/other.py": (["@login_required", "FloatField()"], ["os.environ", "DELETE FROM t"])}
+        asked = []
+
+        def changed(path, as_move):
+            asked.append(path)
+            return lines[path]
+        flags = guard.look_here(rules, sorted(lines), changed)
+        self.assertEqual(named(flags), [
+            ("Migration", [("app/migrations/0002.py", "")]), ("Environment read", [("app/views.py", "")]),
+            ("Access check", [("lib/auth.py", "")]), ("Float field", [("app/views.py", "")]),
+            ("Raw SQL", [("lib/other.py", "")])])
+        self.assertEqual(sorted(asked), sorted(set(asked)))  # each file's lines are read once
+        asked.clear()
+        self.assertEqual(len(guard.look_here(focus(MIGRATION), sorted(lines), changed)), 1)
+        self.assertEqual(asked, [])  # a rule with only paths reads no lines
+        self.assertEqual(guard.look_here(rules, [], changed), [])
+
+    def test_a_file_changed_and_changed_back_flags_by_its_path(self):
+        flags = guard.look_here(focus(MIGRATION, ENV), ["app/views.py"],
+                                lambda path, as_move: (["os.environ"], []), ["app/migrations/0002.py", "app/views.py"])
+        self.assertEqual(named(flags), [("Migration", [("app/migrations/0002.py", "changed and changed back")]),
+                                        ("Environment read", [("app/views.py", "")])])
+
+    def test_tier_is_the_highest_rule_flagging_the_final_diff(self):
+        a, b = [("a", "")], [("b", "")]
+        self.assertEqual(guard.focus_tier([]), "")
+        self.assertEqual(guard.focus_tier([(focus(ACCESS)[0], a)]), "")
+        self.assertEqual(guard.focus_tier([(focus(ENV)[0], a), (focus(MIGRATION)[0], b)]), "high")
+        # A file changed and changed back is listed, but nothing of it is left to raise the rating.
+        self.assertEqual(guard.focus_tier([(focus(MIGRATION)[0], [("b", "changed and changed back")])]), "")
+
+    def test_a_regex_too_big_to_compile_is_a_broken_rule(self):
+        with self.assertRaises(guard.Refused):
+            focus(dict(ENV, added="a{99999999999}"))
+
+
+class FocusRendering(unittest.TestCase):
+    def ok(self, tier="low"):
+        r = Result().ok()
+        r["brief"] = brief(risk={"tier": tier, "why": "input checks only.", "items": [], "undo": "revert the merge."})
+        return r
+
+    def body(self, flags, tier="low", paths=("a",), focus_error=""):
+        return guard.pr_body(self.ok(tier), "7", "https://r", list(paths), "implement", None, lambda p: True,
+                             flags=flags, focus_error=focus_error)
+
+    def test_where_to_look_leads_review_focus(self):
+        flags = [(focus(MIGRATION)[0], [("app/migrations/0002.py", ""), ("app/migrations/0001.py", "changed and changed back")]),
+                 (focus(ACCESS)[0], [("app/views.py", "")])]
+        body = self.body(flags)
+        section = body[body.index("## Review focus"):body.index("## How it was verified")]
+        self.assertEqual(section.split("\n")[2:6], [
+            "- **Where to look:** the files the project's review rules flag (found by the factory, not the agent)",
+            "  - **Migration** (high risk: changes the database): `app/migrations/0002.py`, "
+            "`app/migrations/0001.py` (changed and changed back)",
+            "  - **Access check** (who may call what): `app/views.py`",
+            "- the boolean rule"])
+        self.assertNotIn("Where to look", self.body([]))
+
+    def test_every_flagged_file_is_named(self):
+        # Decoys can't push the real file out of the list.
+        hits = [(f"app/a{n}/migrations/0001.py", "") for n in range(12)] + [("app/z/migrations/0042.py", "")]
+        body = self.body([(focus(MIGRATION)[0], hits)])
+        for path, _ in hits:
+            self.assertIn(f"`{path}`", body)
+
+    def test_long_paths_are_cut_in_the_middle(self):
+        long = "app/migrations/" + "d" * 400 + "/0001_x.py"
+        line = self.body([(focus(MIGRATION)[0], [(long, "")])])
+        shown = re.search(r"database\): (\S+)", line).group(1)
+        self.assertLess(len(shown), guard.MAX_SHOWN_PATH + 60)
+        self.assertIn(r"\[\.\.\.\]", shown)
+        self.assertTrue(shown.endswith(r"0001\_x\.py"))
+
+    def test_odd_paths_are_literal_text(self):
+        odd = "app/migrations/a`x`.py fe\u200bes\u0430.py"
+        line = self.body([(focus(MIGRATION)[0], [(odd, "")])])
+        self.assertIn(r"(high risk: changes the database): app\/migrations\/a\`x\`\.py fe\[U\+200B\]es\[U\+0430\]\.py", line)
+        forged = "app/migrations/a\n  - **Money** (x): `app/fees.py`"
+        line = self.body([(focus(MIGRATION)[0], [(forged, "")])])
+        self.assertIn(r"app\/migrations\/a\[U\+000A\]  \- \*\*Money\*\* \(x\)\: \`app\/fees\.py\`", line)
+        self.assertNotIn("`app/fees.py`", line)
+
+    def test_a_rule_above_the_agents_rating_leads_the_risk_line(self):
+        migration, env = focus(MIGRATION)[0], focus(ENV)[0]
+        a, b = [("a", "")], [("b", "")]
+        self.assertIn("**High** by the project's review rules (Migration); the agent rated it **Low**: input checks only\\.",
+                      self.body([(env, a), (migration, b)]))
+        self.assertIn("**Medium** by the project's review rules (Environment read); the agent rated it **Low**:",
+                      self.body([(env, a)]))
+        self.assertIn("## Risk\n\n**High**: input checks only", self.body([(env, a), (migration, b)], "high"))
+        self.assertIn("## Risk\n\n**Low**: input checks only", self.body([(focus(ACCESS)[0], a)]))
+
+    def test_rules_that_dont_load_say_so(self):
+        body = self.body([], focus_error="factory.json review.focus rule 2: added isn't a regex")
+        self.assertIn("- **Where to look is off:** the project's review rules didn't load (factory\\.json review\\.focus "
+                      "rule 2\\: added isn\\'t a regex). Fix `factory.json`'s `review.focus`", body)
+        self.assertIn("## Risk\n\n**Low**:", body)
+        comment = guard.revise_comment(Revise().ok(), 1, 3, "https://r", ["a"], None, [], "broken")
+        self.assertIn("### Where to look\n\n- **Where to look is off:**", comment)
+
+    def test_changed_paths_render_safely_everywhere(self):
+        odd = "ops/sdlc/knowledge/a`@cd`.yaml"
+        self.assertNotIn("`ops/sdlc/knowledge/a`", self.body([], paths=("a", odd)))
+        comment = guard.revise_comment(Revise().ok(), 1, 3, "https://r", ["app/a`b.py", "app/c.py"])
+        self.assertIn("  - `app/c.py`", comment)
+        self.assertNotIn("`app/a`", comment)
+        add = {"what": "Fix", "why": "Same file", "paths": ["app/a`b.py"], "verified": "pytest"}
+        body = guard.pr_body(Result().ok(add_ons=[add]), "7", "https://r", ["app/a`b.py"], "implement", None,
+                             lambda p: True)
+        self.assertIn(r"Files: app\/a\`b\.py.", body)
+
+    def test_a_revision_lists_what_it_flags(self):
+        flags = [(focus(MIGRATION)[0], [("app/migrations/0003.py", "")])]
+        comment = guard.revise_comment(Revise().ok(), 1, 3, "https://r", ["app/migrations/0003.py"], None, flags)
+        section = comment[comment.index("### Where to look"):comment.index("### How it was verified")]
+        self.assertIn("- **Migration** (high risk: changes the database): `app/migrations/0003.py`", section)
+        self.assertLess(comment.index("### What you asked for"), comment.index("### Where to look"))
+        self.assertNotIn("Where to look", guard.revise_comment(Revise().ok(), 1, 3, "https://r", ["a"]))
+
+
+# Long enough that git still sees a move after a one-line edit.
+JOBS = "".join(f"def job_{n}():\n    return {n}\n\n" for n in range(8)) + "def purge():\n    {delete}\n    return {value}\n"
+
+
+class FocusDiffs(unittest.TestCase):
+    """The diff readers against throwaway repositories, and main()'s range in each publish job's checkout."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = pathlib.Path(self.tmp.name)
+        self.src = self.root / "src"
+        self.src.mkdir()
+        run("git", "init", "-q", "-b", "main", cwd=self.src)
+        run("git", "config", "user.email", "t@example.com", cwd=self.src)
+        run("git", "config", "user.name", "t", cwd=self.src)
+        self.write("app/views.py", "a = 1\n-- old comment\n")
+        self.write("app/jobs.py", JOBS.format(delete="Job.objects.all().delete()", value=1))
+        self.write(".github/CODEOWNERS", FIXTURE_CODEOWNERS)
+        self.commit("base")
+        self.base = self.rev("HEAD")
+        self.cwd = os.getcwd()
+
+    def tearDown(self):
+        os.chdir(self.cwd)
+        self.tmp.cleanup()
+
+    def write(self, path, text):
+        p = self.src / path
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(text.encode() if isinstance(text, str) else text)
+
+    def commit(self, msg):
+        run("git", "add", "-A", cwd=self.src)
+        run("git", "commit", "-q", "-m", msg, cwd=self.src)
+
+    def rev(self, ref):
+        return subprocess.run(["git", "rev-parse", ref], cwd=self.src, check=True,
+                              capture_output=True, text=True).stdout.strip()
+
+    def flags(self, *rules):
+        os.chdir(self.src)
+        return named(guard.focus_flags(focus(*rules), self.base, self.rev("HEAD")))
+
+    def test_added_and_removed_lines(self):
+        self.write("app/views.py", "a = 2\n++ new\n")
+        self.commit("change")
+        os.chdir(self.src)
+        added, removed = guard.changed_lines(self.base, self.rev("HEAD"), "app/views.py")
+        self.assertEqual(added, ["a = 2", "++ new"])  # content that looks like a diff header is still content
+        self.assertEqual(removed, ["a = 1", "-- old comment"])
+
+    def test_long_lines_and_nul_bytes_hide_nothing(self):
+        self.write("app/long.py", "x = 1; " + " " * 5000 + "price = FloatField()\n")
+        self.write("app/nul.js", b"// \0\nexport const k = os.environ.K;\n")
+        self.commit("add")
+        self.assertEqual(self.flags(FLOAT, ENV), [("Float field", [("app/long.py", "")]),
+                                                  ("Environment read", [("app/nul.js", "")])])
+
+    def test_pathspecs_are_literal(self):
+        self.write("app/*.py", "x = 1\n")
+        self.write("app/other.py", "secret = os.environ['K']\n")
+        self.commit("add")
+        os.chdir(self.src)
+        self.assertEqual(guard.changed_lines(self.base, self.rev("HEAD"), "app/*.py"), (["x = 1"], []))
+
+    def test_a_file_changed_and_changed_back(self):
+        self.write("app/migrations/0002.py", "op = 1\n")
+        self.write("app/views.py", "a = os.environ['A']\n-- old comment\n")
+        self.commit("one")
+        (self.src / "app/migrations/0002.py").unlink()
+        self.write("app/views.py", "a = 1\n-- old comment\n")
+        self.commit("back")
+        self.assertEqual(self.flags(MIGRATION, ENV),
+                         [("Migration", [("app/migrations/0002.py", "changed and changed back")])])
+        self.assertEqual(guard.focus_flags([], self.base, self.rev("HEAD")), [])
+
+    def test_a_move_counts_only_what_it_changes(self):
+        bulk = {"name": "Bulk write", "why": "many rows", "tier": "high", "added": r"\.delete\(",
+                "removed": r"\.delete\("}
+        jobs = {"name": "Jobs", "why": "the job code", "paths": ["/app/jobs.py", "/app/tasks.py"]}
+        run("git", "mv", "app/jobs.py", "app/tasks.py", cwd=self.src)
+        self.commit("move")
+        self.assertEqual(self.flags(bulk, jobs), [("Jobs", [("app/jobs.py", ""), ("app/tasks.py", "")])])
+        self.write("app/tasks.py", JOBS.format(delete="Job.objects.all().delete()", value=2))
+        self.commit("edit")
+        self.assertEqual(self.flags(bulk), [])
+        self.write("app/tasks.py", JOBS.format(delete="Job.objects.filter(old=True).delete()", value=2))
+        self.commit("edit the delete")
+        self.assertEqual(self.flags(bulk), [("Bulk write", [("app/tasks.py", "")])])
+
+    def test_a_directory_replaced_by_a_file_reads_only_the_file(self):
+        self.write("app/x/y.py", "permission_classes = [A]\n")
+        self.commit("dir")
+        self.base = self.rev("HEAD")
+        (self.src / "app/x/y.py").unlink()
+        (self.src / "app/x").rmdir()
+        self.write("app/x", "hello\n")
+        self.commit("file")
+        os.chdir(self.src)
+        self.assertEqual(guard.changed_lines(self.base, self.rev("HEAD"), "app/x"), (["hello"], []))
+
+    def test_git_names_keep_what_isnt_utf8_visible(self):
+        self.assertEqual(guard.git_names(b"a.py\0b/c.py\0"), ["a.py", "b/c.py"])
+        self.assertEqual(guard.git_names(b"bad\xff.py\0"), ["bad�.py"])
+
+    def test_a_move_across_a_rules_scope_reads_the_file_in_full(self):
+        scoped = {"name": "Bulk write", "why": "many rows", "tier": "high", "paths": ["/app/"],
+                  "except": ["/app/tests/**"], "changed": r"\.delete\("}
+        self.write("app/tests/helpers.py", JOBS.format(delete="Job.objects.all().delete()", value=1))
+        self.commit("helper")
+        self.base = self.rev("HEAD")
+        run("git", "mv", "app/tests/helpers.py", "app/services.py", cwd=self.src)
+        self.commit("into scope")
+        self.assertEqual(self.flags(scoped), [("Bulk write", [("app/services.py", "")])])
+        self.base = self.rev("HEAD")
+        run("git", "mv", "app/jobs.py", "app/tests/fixture.py", cwd=self.src)
+        self.commit("out of scope")
+        self.assertEqual(self.flags(scoped), [("Bulk write", [("app/jobs.py", "")])])  # its lines, all removed
+
+    def test_a_move_beside_a_directory_of_the_same_name(self):
+        # Pathspecs for app/q would also match app/q/a.py: a move compares the two versions directly.
+        self.write("app/q", JOBS.format(delete="pass", value=1))
+        self.write("app/z/a.py", "os.environ['A']\n")
+        self.commit("setup")
+        self.base = self.rev("HEAD")
+        run("git", "mv", "app/q", "app/r", cwd=self.src)
+        self.write("app/r", JOBS.format(delete="KEY = os.environ['K']", value=1))
+        self.write("app/q/a.py", "a\n")
+        self.write("app/q/b.py", "b\n")
+        self.commit("move and edit")
+        os.chdir(self.src)
+        moved = guard.diff_changes(self.base, self.rev("HEAD"))[2]
+        self.assertEqual(moved, {"app/r": "app/q"})
+        self.assertEqual(guard.changed_lines(self.base, self.rev("HEAD"), "app/r", "app/q"),
+                         (["    KEY = os.environ['K']"], ["    pass"]))
+        self.assertEqual(self.flags(ENV), [("Environment read", [("app/r", "")])])
+
+    def test_non_utf8_names_are_refused(self):
+        sha = subprocess.run(["git", "hash-object", "-w", "--stdin"], cwd=self.src, input=b"x\n", check=True,
+                             capture_output=True).stdout.decode().strip()
+        subprocess.run([b"git", b"update-index", b"--add", b"--cacheinfo", f"100644,{sha},".encode() + b"bad\xff.py"],
+                       cwd=self.src, check=True, capture_output=True)
+        run("git", "commit", "-q", "-m", "odd name", cwd=self.src)
+        bundle = self.root / "out.bundle"
+        run("git", "bundle", "create", "-q", str(bundle), f"{self.base}..HEAD", cwd=self.src)
+        dst = self.root / "dst"
+        run("git", "clone", "-q", "--no-local", "--no-checkout", f"file://{self.src}", str(dst), cwd=self.root)
+        run("git", "checkout", "-q", "--detach", self.base, cwd=dst)
+        os.chdir(dst)
+        with self.assertRaisesRegex(guard.Refused, "isn't UTF-8"):
+            guard.check_commits(str(bundle), self.base, guard.codeowners_patterns(FIXTURE_CODEOWNERS))
+
+    # main() as each publish job runs it: in a checkout of the default branch, with the agent's bundle, and the
+    # rules from a factory.json (FOCUS_SETTINGS) the test writes.
+    def publish(self, bundle_from, stage, result, depth=None, env=None, settings=None, expect=0):
+        run("git", "switch", "-q", "agent", cwd=self.src)
+        bundle = self.root / "out.bundle"
+        run("git", "bundle", "create", "-q", str(bundle), f"{bundle_from}..HEAD", cwd=self.src)
+        run("git", "switch", "-q", "main", cwd=self.src)
+        dst = self.root / "dst"
+        run("git", "clone", "-q", "--no-local", "--branch", "main", *(["--depth", str(depth)] if depth else []),
+            f"file://{self.src}", str(dst), cwd=self.root)
+        if not depth:
+            run("git", "fetch", "-q", "origin", "agent", cwd=dst)  # factory_branch.sh fetch
+        (self.root / "result.json").write_text(json.dumps(result))
+        settings_file = self.root / "factory.json"
+        if settings is None:
+            settings = json.dumps({"review": {"focus": [MIGRATION, ENV]}})
+        if settings is not False:
+            settings_file.write_text(settings)
+        out = self.root / "out"
+        argv = ["implement_guard.py", str(bundle), bundle_from, str(self.root / "result.json"), "7", "https://r",
+                str(out), stage]
+        os.chdir(dst)
+        with mock.patch.object(sys, "argv", argv), mock.patch.dict(os.environ, env or {}), \
+                mock.patch.object(guard, "FOCUS_SETTINGS", settings_file):
+            self.assertEqual(guard.main(), expect)
+        if expect:
+            return None
+        main = (out / ("comment.md" if stage == "revise" else "pr-body.md")).read_text()
+        segment = (out / "focus.md").read_text() if (out / "focus.md").exists() else None
+        return main, segment
+
+    def agent_adds_a_migration(self):
+        run("git", "switch", "-q", "-c", "agent", cwd=self.src)
+        self.write("app/migrations/0002.py", "op = 1\n")
+        self.commit("agent")
+        run("git", "switch", "-q", "main", cwd=self.src)
+
+    def test_main_implement_in_a_shallow_checkout(self):
+        self.agent_adds_a_migration()
+        body, segment = self.publish(self.base, "implement", Result().ok(), depth=1)
+        self.assertIn("**Migration** (high risk: changes the database): `app/migrations/0002.py`", body)
+        self.assertEqual(segment, "")  # a first segment's list is in the body
+
+    def test_main_continued_execution_counts_every_segment(self):
+        run("git", "switch", "-q", "-c", "agent", cwd=self.src)
+        self.write("app/migrations/0002.py", "op = 1\n")
+        self.commit("segment 1")
+        segment_base = self.rev("HEAD")
+        self.write("app/views.py", "a = os.environ['A']\n")
+        self.commit("segment 2")
+        run("git", "switch", "-q", "main", cwd=self.src)
+        self.write("app/later.py", "b = os.environ['B']\n")  # the default branch moves on meanwhile
+        self.commit("main moves")
+        body, segment = self.publish(segment_base, "execute", Result().ok())
+        self.assertIn("`app/migrations/0002.py`", body)  # segment 1, which base..head would miss
+        self.assertIn("**Environment read** (medium risk: a setting production needs): `app/views.py`", body)
+        self.assertNotIn("app/later.py", body)
+        # The gate stop's comment gets this segment's alone.
+        self.assertEqual(segment, "- **Environment read** (medium risk: a setting production needs): `app/views.py`\n")
+
+    def test_main_continued_segment_with_nothing_flagged_says_so(self):
+        run("git", "switch", "-q", "-c", "agent", cwd=self.src)
+        self.write("app/migrations/0002.py", "op = 1\n")
+        self.commit("segment 1")
+        segment_base = self.rev("HEAD")
+        self.write("README.md", "docs\n")
+        self.commit("segment 2")
+        run("git", "switch", "-q", "main", cwd=self.src)
+        _, segment = self.publish(segment_base, "execute", Result().ok())
+        self.assertEqual(segment, "- Nothing this segment changed matches the project's review rules.\n")
+
+    def test_main_revise_counts_only_the_revision(self):
+        run("git", "switch", "-q", "-c", "agent", cwd=self.src)
+        self.write("app/migrations/0002.py", "op = 1\n")
+        self.commit("the PR so far")
+        pr_head = self.rev("HEAD")
+        self.write("app/views.py", "a = os.environ['A']\n")
+        self.commit("revision")
+        run("git", "switch", "-q", "main", cwd=self.src)
+        comment, segment = self.publish(pr_head, "revise", Revise().ok(), env={"REVISION": "1", "REVISION_LIMIT": "3"})
+        self.assertIn("### Where to look", comment)
+        self.assertIn("`app/views.py`", comment)
+        self.assertNotIn("0002", comment)
+        self.assertIsNone(segment)
+
+    def test_main_publishes_when_the_rules_dont_load(self):
+        self.agent_adds_a_migration()
+        bad_rule = json.dumps({"review": {"focus": [dict(MIGRATION, name="")]}})
+        for settings, reason in [("{not json", "Expecting property name"), (False, "No such file"),
+                                 (bad_rule, "name must be 1 to 40 characters"),
+                                 (json.dumps({"review": {"fokus": []}}), "may hold only focus")]:
+            with self.subTest(reason=reason):
+                for leftover in ("dst", "out"):
+                    subprocess.run(["rm", "-rf", str(self.root / leftover)], check=True)
+                (self.root / "factory.json").unlink(missing_ok=True)
+                body, _ = self.publish(self.base, "implement", Result().ok(), settings=settings)
+                self.assertIn("**Where to look is off:** the project's review rules didn't load (", body)
+                self.assertIn(re.sub(r"([!-/:-@\[-`{-~])", r"\\\1", reason), body)
+
+    def test_main_refuses_a_description_over_the_cap(self):
+        self.agent_adds_a_migration()
+        with mock.patch.object(guard, "MAX_POST", 500):
+            self.assertIsNone(self.publish(self.base, "implement", Result().ok(), expect=1))

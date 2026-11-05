@@ -1,6 +1,6 @@
 """Tests for revise_gate.sh: which PRs a revise stage takes, who may ask, the revision limit, and the plan
-and next gate an execution PR's revision may stop before; and for gate_stop.sh, what a revision that stopped
-there does. A fake gh serves fixture responses (applying --jq with jq) and logs every write, so the
+and next gate an execution PR's revision may stop before, and (stopped) what a revision that stopped there left
+for its gate stop; and for gate_stop.sh, what a revision that stopped there does. A fake gh serves fixture responses (applying --jq with jq) and logs every write, so the
 comments, labels, dispatches and outputs are checked exactly. The scripts run from a copy of the factory
 directory with a test receipt key, so a gate this PR has passed can be signed, and an empty catalog: the
 plan's gates are CD gates, so the tests need no project's operations."""
@@ -196,6 +196,11 @@ class ReviseGate(unittest.TestCase):
         self.data["repos/o/r/pulls/5"]["head"]["ref"] = ref
         self.data["repos/o/r/pulls/5/files"] = [{"filename": f, "status": s} for f, s in files]
 
+    def execution(self, files, on_main=(LITE_PLAN,), text=PLAN):
+        self.data["repos/o/r/pulls/5/files"] = [{"filename": f, "status": s} for f, s in files]
+        for path in on_main:
+            self.data[f"repos/o/r/contents/{path}"] = text
+
 
 class Code(ReviseGate):
     def test_proceeds_with_the_next_revision(self):
@@ -206,11 +211,6 @@ class Code(ReviseGate):
                                           "base": "a" * 40, "revision": "2", "plan": "", "next_gate": ""})
         self.assertEqual(self.summary.read_text(), "Revision 2 of 3 for PR #5 (issue #7)\n")
         self.assertEqual(self.writes(), [])
-
-    def execution(self, files, on_main=(LITE_PLAN,), text=PLAN):
-        self.data["repos/o/r/pulls/5/files"] = [{"filename": f, "status": s} for f, s in files]
-        for path in on_main:
-            self.data[f"repos/o/r/contents/{path}"] = text
 
     def test_an_execution_pr_names_the_plan_its_result_doc_belongs_to(self):
         for result, plan, reserved in [
@@ -415,6 +415,92 @@ class Doc(ReviseGate):
         self.assertEqual(self.writes()[1], {"method": "POST", "path": "repos/o/r/issues/5/comments",
                                             "fields": {"body": body}, "token": "app-token"})
         self.assertEqual(self.writes()[2]["call"], ["issue", "edit", "7", "--add-label", "factory:escalated"])
+
+
+class Stopped(ReviseGate):
+    """revise_gate.sh stopped: factory-gate-stop.yml's gate, for a revision whose stop-at-gate job didn't run."""
+
+    ACTIVITY = "repos/o/r/activity?ref=refs/heads/factory/7-impl&direction=desc&per_page=1"
+    STOP = ("<!-- factory-revise: 2 -->\n\n**Revision 2 of 3:** Done\\.\n\n**Stopped before production gate G1.** The "
+            "work before it is done and nothing is open for you, so the factory asks for the gate.")
+
+    def setUp(self):
+        super().setUp()
+        self.stopped_pr()
+
+    def stopped_pr(self):
+        """An execution PR whose last revision, the App's, stopped before G1 after pushing the PR's head."""
+        self.execution([("docs/current_work/sdlc-lite/d19_x_result.md", "added")])
+        self.data["repos/o/r/issues/5/comments"].append(comment(self.STOP))
+        self.data[self.ACTIVITY] = [{"activity_type": "push", "actor": {"id": APP_USER_ID}, "before": "e" * 40,
+                                     "after": HEAD, "timestamp": "2026-10-11T23:59:50Z"}]
+        # No requester: dispatching the workflow took write access.
+        del self.data["repos/o/r/collaborators/cd/permission"]
+
+    def refused(self, error):
+        r = self.run_gate("stopped", 3)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn(f"::error::{error}", r.stdout)
+        self.assertEqual(self.outputs(), {"proceed": "false"})
+        self.assertEqual(self.writes(), [])
+
+    def test_finds_what_the_stop_at_gate_job_was_given(self):
+        # At the revision limit, as the last revision leaves it: nothing is counted.
+        r = self.run_gate("stopped", 2)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.outputs(), {"proceed": "true", "issue": "7", "plan": LITE_PLAN, "next_gate": "G1",
+                                          "head": HEAD})
+        self.assertEqual(self.summary.read_text(),
+                         f"PR #5's last revision stopped before G1 at {HEAD[:12]} (issue #7, executing {LITE_PLAN})\n")
+        self.assertEqual(self.writes(), [])
+
+    def test_the_last_revision_must_have_stopped_before_the_plans_next_gate(self):
+        def comments(d):
+            return d["repos/o/r/issues/5/comments"]
+
+        not_stopped = "PR #5's last revision didn't stop before G1"
+        no_gate = "PR #5 has no production gate left for a revision to stop before"
+        cases = [
+            # A later revision that didn't stop.
+            ("later revision", lambda d: comments(d).append(comment("<!-- factory-revise: 3 -->\n\nDone\\.")), not_stopped),
+            # The line in a comment that isn't the App's revision comment.
+            ("by a person", lambda d: comments(d).__setitem__(-1, comment(self.STOP, 1, "User", "someone")), not_stopped),
+            ("no marker", lambda d: comments(d).__setitem__(-1, comment(self.STOP.split("\n\n", 1)[1])), not_stopped),
+            # The agent's text quoting the line: never at a line's start.
+            ("quoted", lambda d: comments(d).__setitem__(-1, comment(
+                "<!-- factory-revise: 2 -->\n\n**Revision 2 of 3:** `**Stopped before production gate G1.**`")),
+             not_stopped),
+            # Before another gate than the plan's next.
+            ("another gate", lambda d: comments(d).__setitem__(-1, comment(self.STOP.replace("gate G1", "gate G2"))),
+             not_stopped),
+            # No gate left, or no plan.
+            ("all passed", lambda d: comments(d).extend(passed("G1") + passed("G2")), no_gate),
+            ("direct fix", lambda d: d.__setitem__("repos/o/r/pulls/5/files", []), no_gate)]
+        for name, change, error in cases:
+            with self.subTest(name):
+                self.fresh()
+                self.stopped_pr()
+                change(self.data)
+                self.refused(error)
+
+    def test_the_head_must_be_the_apps_push_from_before_that_comment(self):
+        moved = "PR #5's head isn't the commit its last revision pushed"
+        for change in ({"actor": {"id": 1}}, {"actor": None}, {"after": "d" * 40}, {"activity_type": "force_push"},
+                       {"timestamp": "2026-10-12T00:00:10Z"}):
+            with self.subTest(change=change):
+                self.fresh()
+                self.stopped_pr()
+                self.data[self.ACTIVITY][0].update(change)
+                self.refused(moved)
+        # No push on record.
+        self.fresh()
+        self.stopped_pr()
+        self.data[self.ACTIVITY] = []
+        self.refused(moved)
+
+    def test_refuses_what_isnt_an_open_factory_code_pr(self):
+        self.data["repos/o/r/pulls/5"]["head"]["ref"] = "factory/7-plan"
+        self.refused("PR #5 isn't an open factory code PR")
 
 
 class StopAtGate(ReviseGate):

@@ -6,7 +6,7 @@
 # limit the issue gets factory:escalated and nothing runs. A revision of an execution PR that leaves nothing
 # open for CD stops before its plan's next production gate (awaiting-approval, design rule D4), as execute
 # does: stop-at-gate (gate_stop.sh) posts the gate tracker and asks factory-gate-request.yml for the gate run
-# CD approves, on the commit the revision pushed.
+# CD approves, on the commit the revision pushed (factory-gate-stop.yml does it again if that job didn't run).
 # Stage contract: .github/factory/README.md.
 name: factory-revise
 run-name: "factory-revise: PR #${{ inputs.pr }}"
@@ -415,10 +415,11 @@ jobs:
       BRANCH: ${{ needs.gate.outputs.branch }}
       BASE: ${{ needs.gate.outputs.base }}
     steps:
-      # The guard and CODEOWNERS come from the default branch; the PR's head is fetched beside it.
-      # No stored credentials: checkout's saved auth header would override the App token on push.
+      # The guard, CODEOWNERS and the review rules come from the default branch; the PR's head is fetched
+      # beside it. No stored credentials: checkout's saved auth header would override the App token on push.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -502,10 +503,13 @@ jobs:
 
   # What execute's report job does at a gate stop, for a revision that stopped before a gate. Its own job,
   # after the revision comment: re-running it never posts that comment (and its revision marker) twice, and
-  # every step here can run again.
+  # every step here can run again. When it didn't run, factory-gate-stop.yml does the same without a revision.
   stop-at-gate:
     needs: [gate, revise, publish, report]
-    if: needs.report.result == 'success' && needs.revise.outputs.status == 'awaiting-approval'
+    # A status function, as in every job after revise: without one GitHub adds success(), which reads every job
+    # before this one, so a skipped fixtures job skipped it (workflow_policy.py checks this now).
+    if: >-
+      !cancelled() && needs.report.result == 'success' && needs.revise.outputs.status == 'awaiting-approval'
     runs-on: ubuntu-latest
     environment: %{environments.writer}
     timeout-minutes: 5

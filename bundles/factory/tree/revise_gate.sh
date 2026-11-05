@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
 # The revise stages' gate (F15/F16): is this an open factory PR the requester may have revised, and is
 # it under its revision limit? Run by the gate job of factory-revise.yml (code) and
-# factory-revise-doc.yml (doc), on a GitHub-hosted runner, from the default branch.
-# Usage: revise_gate.sh <code|doc>
+# factory-revise-doc.yml (doc), on a GitHub-hosted runner, from the default branch. factory-gate-stop.yml runs
+# it as `stopped`: a code PR whose last revision stopped before a production gate, for that revision's gate
+# stop, with no requester, no revision counted and nothing written.
+# Usage: revise_gate.sh <code|doc|stopped>
 # Environment: PR, REQUESTER, REVISION_LIMIT, RUN_URL, GH_REPO; GH_TOKEN (the job's read-only token)
-# and APP_TOKEN (the App's issues token: the requester notice, the limit comment and the labels).
+# and APP_TOKEN (the App's issues token: the requester notice, the limit comment and the labels). stopped
+# needs only PR, GH_REPO and GH_TOKEN.
 # Writes proceed=true and the PR's facts to $GITHUB_OUTPUT when the revision may run (for a code PR, the
 # plan it executes and that plan's next gate, if any); proceed=false otherwise. Exits 1 when the PR isn't
-# one this stage revises.
+# one this stage revises. stopped writes the issue, plan, next gate and the commit the revision pushed (head),
+# or exits 1.
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -16,9 +20,9 @@ app_id=$(jq -r .app.user_id "$here/factory.json")
 [[ $app_id =~ ^[0-9]+$ ]] || { echo "::error::factory.json has no app.user_id"; exit 1; }
 kind=${1:-}
 case "$kind" in
-  code) pattern='^factory/([0-9]+)-impl$'; what="factory code PR" ;;
+  code|stopped) pattern='^factory/([0-9]+)-impl$'; what="factory code PR" ;;
   doc) pattern='^factory/([0-9]+)-(spec|plan)$'; what="factory spec or plan PR" ;;
-  *) echo "usage: revise_gate.sh code|doc" >&2; exit 2 ;;
+  *) echo "usage: revise_gate.sh code|doc|stopped" >&2; exit 2 ;;
 esac
 
 # REST issue endpoints: the App token is issues-only, and gh pr uses GraphQL, which needs more.
@@ -34,8 +38,11 @@ if [[ ! $head =~ $pattern ]] || [ "$(jq -r .state "$pr")" != open ] \
 fi
 issue=${BASH_REMATCH[1]}
 stage=${BASH_REMATCH[2]:-code}
-perm=$(gh api "repos/$GH_REPO/collaborators/$REQUESTER/permission" --jq .permission 2> /dev/null || echo none)
-case "$perm" in admin|maintain|write) ;; *) unlabel; say "Revisions need a reviewer with write access."; exit 0 ;; esac
+# stopped has no requester: dispatching factory-gate-stop.yml takes write access.
+if [ "$kind" != stopped ]; then
+  perm=$(gh api "repos/$GH_REPO/collaborators/$REQUESTER/permission" --jq .permission 2> /dev/null || echo none)
+  case "$perm" in admin|maintain|write) ;; *) unlabel; say "Revisions need a reviewer with write access."; exit 0 ;; esac
+fi
 
 if [ "$kind" = doc ]; then
   # The PR's document, and the planning skill that wrote it.
@@ -96,6 +103,30 @@ PY
 ) || { echo "::warning::couldn't read the gates of $plan: no production gate for this revision"; next_gate=""; }
     fi
   fi
+fi
+
+if [ "$kind" = stopped ]; then
+  # What the revision's stop-at-gate job was given, from what its run left on GitHub: the App's last revision
+  # comment says it stopped before this plan's next gate (a line that starts so is the guard's own: the agent's
+  # text there is one escaped line after a fixed prefix), and the branch's last push, by GitHub's record of it,
+  # is the App's push of the PR's head, from before that comment.
+  [ -n "$next_gate" ] || { echo "::error::PR #$PR has no production gate left for a revision to stop before"; exit 1; }
+  last=$(jq -sc --argjson app "$app_id" \
+         '[.[] | select(.user.type == "Bot" and .user.id == $app and (.body | test("\\A<!-- factory-revise: [0-9]+ -->")))] | last' \
+         "$RUNNER_TEMP/comments.ndjson")
+  if ! jq -e --arg line "**Stopped before production gate $next_gate.**" '.body // "" | split("\n") | any(startswith($line))' <<< "$last" > /dev/null; then
+    echo "::error::PR #$PR's last revision didn't stop before $next_gate"; exit 1
+  fi
+  sha=$(jq -r .head.sha "$pr")
+  push=$(gh api "repos/$GH_REPO/activity?ref=refs/heads/$head&direction=desc&per_page=1" --jq '.[0]')
+  if ! jq -e --argjson app "$app_id" --arg sha "$sha" --arg at "$(jq -r .created_at <<< "$last")" \
+       '.activity_type == "push" and .actor.id == $app and .after == $sha
+        and (.timestamp | fromdateiso8601) <= ($at | fromdateiso8601)' <<< "${push:-null}" > /dev/null; then
+    echo "::error::PR #$PR's head isn't the commit its last revision pushed: the branch moved after it"; exit 1
+  fi
+  { echo "issue=$issue"; echo "plan=$plan"; echo "next_gate=$next_gate"; echo "head=$sha"; echo "proceed=true"; } >> "$GITHUB_OUTPUT"
+  echo "PR #$PR's last revision stopped before $next_gate at ${sha:0:12} (issue #$issue, executing $plan)" >> "$GITHUB_STEP_SUMMARY"
+  exit 0
 fi
 
 # Earlier revisions: the App's factory-revise markers on the PR (matched by the App's user ID).

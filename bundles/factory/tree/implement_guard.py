@@ -21,7 +21,7 @@ the agent touched runs here: a bundle carries objects and refs only, never confi
   discipline parking lots, which agents write);
 - symlinks and submodules; a file version over the size cap, in any commit (unless the file was
   already over it on the base: the SDLC changelog); patches over the size cap; token-shaped strings
-  in any file version's bytes, any path, or any commit's message or author;
+  in any file version's bytes, any path, or any commit's message or author; a file name that isn't UTF-8;
 - a result that breaks the output rules, or carries token-shaped strings, images or embeds;
 - a PR brief that doesn't match its schema's caps, leaves a required section empty, names an unsafe
   path, or runs far past its word budget.
@@ -34,6 +34,12 @@ result's `brief` fields in a fixed order, and agent text is literal: one line pe
 punctuation mark escaped outside `code spans`, so only this script makes headings, lists and the
 collapsed agent record. <stats.json> is the run's cost, turns and models, read from the runtime's
 record in the agent job; without it the record says they weren't recorded.
+
+Where to look (ops/sdlc/process/factory.md § Where to look): factory.json's `review.focus` rules, read from
+the factory.json beside this script (the default branch's), flag changed files. A code PR's body lists them
+over the whole PR, from where it leaves the checkout; a continued execution's segment also gets its own
+list in <out-dir>/focus.md for the gate stop's comment, and a revision's comment lists its own. Rules that
+don't load turn the lists off with a line saying so, rather than costing the run.
 """
 
 import json
@@ -50,7 +56,7 @@ import catalog  # noqa: E402
 
 MAX_COMMITS = 20
 MAX_FILES = 40
-MAX_DIFF_BYTES = 400_000
+MAX_DIFF_BYTES = 550_000
 MAX_BLOB_BYTES = 200_000
 TOKEN = re.compile(r"sk-ant-|gh[pousr]_[A-Za-z0-9_]{20}|github_pat_|ctx7sk|-----BEGIN [A-Z ]*PRIVATE KEY-----")
 EMBED = re.compile(r"!\[|<\s*(img|picture|source|video|audio|svg|iframe|object|embed)\b", re.I)
@@ -77,6 +83,19 @@ GOVERNING_KNOWLEDGE = tuple("ops/sdlc/knowledge/" + name for name in (
     "architecture/token-economics.yaml",
     "architecture/security-review-taxonomy.yaml",
 ))
+
+# Where to look (factory.json review.focus). Line patterns read whole lines: the patch cap bounds them, and
+# the patterns are CD's. A shown path is cut to MAX_SHOWN_PATH characters, and a body or comment over
+# MAX_POST bytes is refused before anything is pushed (GitHub's cap is 65,536 characters; bytes, because
+# a revision's comment and a segment's list travel base64-encoded in one environment variable).
+FOCUS_SETTINGS = pathlib.Path(__file__).resolve().parent / "factory.json"
+MAX_SHOWN_PATH = 300
+MAX_POST = 60_000
+FOCUS_PATH_KEYS = ("paths", "except")
+FOCUS_LINE_KEYS = ("added", "removed", "changed")
+FOCUS_KEYS = {"name", "why", "tier", *FOCUS_PATH_KEYS, *FOCUS_LINE_KEYS}
+FOCUS_TIERS = ("medium", "high")
+MAX_FOCUS_RULES = 30
 
 
 def fold(path):
@@ -194,30 +213,33 @@ def codeowners_patterns(text):
         pattern, *owners = line.split()
         if any(c in pattern for c in "[]\\!"):
             raise Refused(f"CODEOWNERS pattern this check can't evaluate: {pattern}")
-        anchored = pattern.startswith("/") or "/" in pattern.strip("/")
-        suffix = "(?:/.*)?$" if owners else "$"
-
-        def compiled(body):
-            regex, i = "", 0
-            while i < len(body):
-                if body.startswith("**/", i):
-                    regex, i = regex + "(?:.*/)?", i + 3
-                elif body.startswith("**", i):
-                    regex, i = regex + ".*", i + 2
-                elif body[i] == "*":
-                    regex, i = regex + "[^/]*", i + 1
-                elif body[i] == "?":
-                    regex, i = regex + "[^/]", i + 1
-                else:
-                    regex, i = regex + re.escape(body[i]), i + 1
-            return re.compile(("^" if anchored else "^(?:.*/)?") + regex + suffix)
-
         # The guard's form (an owned line folded) and GitHub's (every line exactly as written).
-        exact = compiled(pattern.strip("/"))
-        patterns.append((pattern, compiled(fold(pattern.strip("/"))) if owners else exact, bool(owners), exact))
+        exact = path_regex(pattern, bool(owners))
+        patterns.append((pattern, path_regex(fold(pattern)) if owners else exact, bool(owners), exact))
     if not patterns:
         raise Refused("CODEOWNERS has no patterns")
     return patterns
+
+
+def path_regex(pattern, beneath=True):
+    """A CODEOWNERS path pattern as a regex: `beneath` also covers everything under a directory, as an
+    owned line does."""
+    anchored = pattern.startswith("/") or "/" in pattern.strip("/")
+    body = pattern.strip("/")
+    regex, i = "", 0
+    while i < len(body):
+        if body.startswith("**/", i):
+            regex, i = regex + "(?:.*/)?", i + 3
+        elif body.startswith("**", i):
+            regex, i = regex + ".*", i + 2
+        elif body[i] == "*":
+            regex, i = regex + "[^/]*", i + 1
+        elif body[i] == "?":
+            regex, i = regex + "[^/]", i + 1
+        else:
+            regex, i = regex + re.escape(body[i]), i + 1
+    suffix = "(?:/.*)?$" if beneath else "$"
+    return re.compile(("^" if anchored else "^(?:.*/)?") + regex + suffix)
 
 
 def protected(path, patterns):
@@ -405,8 +427,9 @@ def check_revise_result(result, plan="", next_gate=""):
         raise Refused("only a revision stopped at a production gate names a gate")
 
 
-def revise_comment(result, revision, limit, run_url, paths, stats=None):
-    """The revision comment on the PR. The writer's marker opens it; factory-revise.yml counts them."""
+def revise_comment(result, revision, limit, run_url, paths, stats=None, flags=(), focus_error=""):
+    """The revision comment on the PR. The writer's marker opens it; factory-revise.yml counts them.
+    `flags` is focus_flags() over this revision's commits; `focus_error` says why the rules didn't load."""
     lines = [f"<!-- factory-revise: {revision} -->", "",
              f"**Revision {revision} of {limit}:** {literal(result['summary'])}", ""]
     if result["status"] == "escalated":
@@ -418,6 +441,12 @@ def revise_comment(result, revision, limit, run_url, paths, stats=None):
     lines += ["### What you asked for", ""]
     for i, r in enumerate(result["responses"], 1):
         lines.append(f"{i}. **{literal(r['request'])}**: {REVISE_ACTIONS[r['action']]}. {literal(r['note'])}")
+    if focus_error:
+        lines += ["", "### Where to look", ""] + focus_off(focus_error)
+    elif flags:
+        lines += ["", "### Where to look", "",
+                  "The files this revision changes that the project's review rules flag (found by the factory, "
+                  "not the agent):", ""] + focus_bullets(flags)
     if result["verification"]:
         lines += ["", "### How it was verified", ""] + bullets(result["verification"])
     serious = [f for f in result["findings"] if f["severity"] in ("critical", "major")]
@@ -431,7 +460,7 @@ def revise_comment(result, revision, limit, run_url, paths, stats=None):
     orch = result["orchestrator"]
     record = [f"- **Review rounds:** {orch['review_rounds']}; agents: {literal(', '.join(orch['agents'])) or 'none'}",
               f"- **Models and cost:** {run_stats(stats) or 'not recorded'}",
-              f"- **Files changed in this revision:** {len(paths)}"] + [f"  - `{p}`" for p in paths[:20]]
+              f"- **Files changed in this revision:** {len(paths)}"] + [f"  - {path_text(p)}" for p in paths[:20]]
     if minor:
         record += ["", "**Open minor findings**", ""] + [f"- {literal(f['location'])}: {literal(f['summary'])}" for f in minor]
     lines += ["", "<details><summary>Agent record</summary>", ""] + record + ["", "</details>", "",
@@ -574,7 +603,10 @@ def check_commits(bundle, base, patterns, allowed_prefix=None):
             if not meta:
                 continue
             new_mode = meta.decode().split()[1]
-            name = path.decode("utf-8", errors="replace")
+            try:
+                name = path.decode()
+            except UnicodeDecodeError:
+                raise Refused("a changed file's name isn't UTF-8")
             if new_mode in (SYMLINK, GITLINK):
                 raise Refused(f"{name}: symlinks and submodules aren't allowed")
             paths.add(name)
@@ -628,6 +660,158 @@ def check_commits(bundle, base, patterns, allowed_prefix=None):
     return head, sorted(paths)
 
 
+def focus_rules(settings):
+    """factory.json's review.focus, checked and compiled; [] when the project has none. A rule flags a
+    changed file that matches one of its `paths` (CODEOWNERS patterns; a directory covers everything
+    beneath it) and none of its `except` patterns, and, when it has line regexes, whose diff adds
+    (`added`), removes (`removed`) or does either to (`changed`) a matching line. A rule with paths and
+    line regexes needs both to match; it needs at least one of them."""
+    review = settings.get("review", {})
+    if not isinstance(review, dict) or any(k != "focus" and not k.startswith("_") for k in review):
+        raise Refused("factory.json review may hold only focus (and _ notes)")
+    rules = review.get("focus", [])
+    if not isinstance(rules, list) or len(rules) > MAX_FOCUS_RULES:
+        raise Refused(f"factory.json review.focus must be a list of at most {MAX_FOCUS_RULES} rules")
+    out = []
+    for n, rule in enumerate(rules, 1):
+        where = f"factory.json review.focus rule {n}"
+        if not isinstance(rule, dict) or not set(rule) <= FOCUS_KEYS:
+            raise Refused(f"{where}: an object with only {', '.join(sorted(FOCUS_KEYS))}")
+        name, why, tier = rule.get("name"), rule.get("why"), rule.get("tier", "")
+        if not isinstance(name, str) or not 0 < len(name.strip()) <= 40:
+            raise Refused(f"{where}: name must be 1 to 40 characters")
+        if not isinstance(why, str) or not 0 < len(why.strip()) <= 160:
+            raise Refused(f"{where}: why must be 1 to 160 characters")
+        if tier not in ("",) + FOCUS_TIERS:
+            raise Refused(f"{where}: tier must be {' or '.join(FOCUS_TIERS)}, or left out")
+        compiled = {"name": name.strip(), "why": why.strip(), "tier": tier}
+        for key in FOCUS_PATH_KEYS:
+            patterns = rule.get(key, [])
+            if not isinstance(patterns, list) or not all(
+                    isinstance(p, str) and re.fullmatch(r"[^\s#\[\]\\!]{1,200}", p) for p in patterns):
+                raise Refused(f"{where}: {key} must be CODEOWNERS patterns, without spaces, #, [, ], \\ or !")
+            # An except pattern covers what's beneath it only when it says so (a trailing / or /**): `tests.py`
+            # must not leave out a directory of that name.
+            compiled[key] = [path_regex(p, key == "paths" or p.endswith("/")) for p in patterns]
+        for key in FOCUS_LINE_KEYS:
+            pattern = rule.get(key, "")
+            if not isinstance(pattern, str) or len(pattern) > 500:
+                raise Refused(f"{where}: {key} must be a regex of at most 500 characters")
+            if pattern:
+                try:
+                    compiled[key] = re.compile(pattern)
+                except (re.error, OverflowError, RecursionError) as e:
+                    raise Refused(f"{where}: {key} isn't a regex ({e})")
+        if not compiled["paths"] and not any(k in compiled for k in FOCUS_LINE_KEYS):
+            raise Refused(f"{where}: needs paths, or one of added, removed and changed")
+        out.append(compiled)
+    return out
+
+
+def read_focus_rules():
+    """review.focus from FOCUS_SETTINGS: the default branch's, in every publish job."""
+    return focus_rules(json.loads(FOCUS_SETTINGS.read_text()))
+
+
+def git_names(raw):
+    """NUL-separated file names from git. The agent's are UTF-8 (check_commits refuses others); a name from
+    an earlier commit that isn't shows with replacement characters."""
+    return [name.decode("utf-8", errors="replace") for name in raw.split(b"\0") if name]
+
+
+def diff_changes(start, head):
+    """(net, touched, moved): the files the net diff from <start> to <head> changes (a move as both its
+    names), every file a commit in start..head touched, and each moved file's new name -> old name."""
+    net = git_names(git("diff", "--name-only", "-z", "--no-renames", start, head, binary=True))
+    touched = git_names(git("log", "--no-merges", "--no-renames", "--name-only", "-z", "--format=",
+                            f"{start}..{head}", binary=True))
+    fields = git("diff", "--raw", "-z", "-M", "--no-abbrev", start, head, binary=True).split(b"\0")
+    moved, i = {}, 0
+    while i < len(fields):
+        status = fields[i].split()[-1:] if fields[i].startswith(b":") else []
+        if status and status[0].startswith(b"R"):
+            old, new = git_names(fields[i + 1] + b"\0" + fields[i + 2])
+            moved[new] = old
+            i += 3
+        else:
+            i += 2 if status else 1
+    return net, touched, moved
+
+
+def changed_lines(start, head, path, old=None):
+    """The lines one file's diff adds and removes from <start> to <head>. For a move (its old name given)
+    the two versions are compared directly, so only what the move changed counts. --text, so a NUL byte
+    can't hide a file's lines; literal pathspecs, because the agent chose the names."""
+    which = [f"{start}:{old}", f"{head}:{path}"] if old else [start, head, "--", path]
+    patch = git("--literal-pathspecs", "diff", "-U0", "--text", "--no-color", "--no-ext-diff", "--no-textconv",
+                "--no-renames", *which, binary=True).decode("utf-8", errors="replace")
+    added, removed, files, hunks = [], [], 0, False
+    for line in patch.split("\n"):
+        if line.startswith("diff "):
+            # The file's own section only: a directory replaced by a file brings the directory's entries after it.
+            files, hunks = files + 1, False
+            if files > 1:
+                break
+        elif line.startswith("@@"):
+            hunks = True
+        elif hunks and line.startswith("+"):
+            added.append(line[1:])
+        elif hunks and line.startswith("-"):
+            removed.append(line[1:])
+    return added, removed
+
+
+def selects(rule, path):
+    """Whether a path is in a rule's scope: one of its paths (any, when it has none) and none of its excepts."""
+    return ((not rule["paths"] or any(rx.match(path) for rx in rule["paths"]))
+            and not any(rx.match(path) for rx in rule["except"]))
+
+
+def look_here(rules, net, lines, touched=(), moved=None):
+    """[(rule, [(path, note)])] in the rules' order, files in diff order. `lines(path, as_move)` gives the
+    file's (added, removed) in the net diff, for a moved file's new name with as_move only what the move
+    changed. A rule reads a move as one when both its names are in the rule's scope; otherwise the new name's
+    lines count as added and the old name's as removed, so code moved into or out of a scope is read in full.
+    A file a commit touched that the net diff doesn't change has no lines, so only rules without line
+    regexes flag it, noted as changed and changed back."""
+    moved = moved or {}
+    origin = {old: new for new, old in moved.items()}
+    back = sorted(set(touched) - set(net))
+    seen, flags = {}, []
+    for rule in rules:
+        hits = []
+        for path in list(net) + back:
+            if not selects(rule, path):
+                continue
+            if any(k in rule for k in FOCUS_LINE_KEYS):
+                if path in back:
+                    continue
+                partner = moved.get(path) or origin.get(path)
+                as_move = partner is not None and selects(rule, partner)
+                if as_move and path in origin:
+                    continue  # the move is read under its new name
+                if (path, as_move) not in seen:
+                    seen[path, as_move] = lines(path, as_move)
+                added, removed = seen[path, as_move]
+                if not any(rule[k].search(line) for k, side in (("added", added), ("removed", removed),
+                                                                ("changed", added + removed))
+                           if k in rule for line in side):
+                    continue
+            hits.append((path, "changed and changed back" if path in back else ""))
+        if hits:
+            flags.append((rule, hits))
+    return flags
+
+
+def focus_flags(rules, start, head):
+    """The files from <start> to <head> the rules flag."""
+    if not rules:
+        return []
+    net, touched, moved = diff_changes(start, head)
+    return look_here(rules, net, lambda path, as_move: changed_lines(start, head, path, as_move and moved[path]),
+                     touched, moved)
+
+
 def escape(text):
     """Agent text in a PR body: no markers, no @mentions, and no #refs (a closing keyword before one
     would close that issue on merge). The guard adds the one `Fixes #<issue>` itself."""
@@ -654,6 +838,41 @@ def bullets(items, prefix="- "):
     return [prefix + literal(x) for x in items if x.strip()]
 
 
+def path_text(path):
+    """A changed file's path: a code span when it's plain; otherwise every punctuation mark escaped (the
+    agent chose the name, and a backtick would open or end a span) and every character outside printable
+    ASCII shown as its code point (an invisible or lookalike one would make it read as another file). A long
+    one is cut in the middle."""
+    if len(path) > MAX_SHOWN_PATH:
+        path = path[:MAX_SHOWN_PATH // 2] + "[...]" + path[-(MAX_SHOWN_PATH // 2):]
+    if SAFE_PATH.match(path):
+        return f"`{path}`"
+    text = "".join(c if " " <= c <= "~" else f"[U+{ord(c):04X}]" for c in path)
+    return PUNCT.sub(r"\\\1", escape(text))
+
+
+def focus_bullets(flags, prefix="- "):
+    """One line per flagging rule: its name, tier, why it matters and every file it flags."""
+    out = []
+    for rule, hits in flags:
+        why = f"{rule['tier']} risk: {literal(rule['why'])}" if rule["tier"] else literal(rule["why"])
+        files = ", ".join(path_text(path) + (f" ({note})" if note else "") for path, note in hits)
+        out.append(f"{prefix}**{literal(rule['name'])}** ({why}): {files}")
+    return out
+
+
+def focus_off(error, prefix="- "):
+    """The line that says the project's rules didn't load, so nothing was checked."""
+    return [f"{prefix}**Where to look is off:** the project's review rules didn't load ({literal(error)}). "
+            "Fix `factory.json`'s `review.focus` on the default branch; nothing here was checked against them."]
+
+
+def focus_tier(flags):
+    """The highest tier among the rules that flag a file the net diff changes, or ''."""
+    tiers = [rule["tier"] for rule, hits in flags if rule["tier"] and any(not note for _, note in hits)]
+    return max(tiers, key=TIERS.index) if tiers else ""
+
+
 def run_stats(stats):
     """Cost, turns and models from the agent job's record of the run, or None."""
     if not isinstance(stats, dict):
@@ -666,10 +885,12 @@ def run_stats(stats):
     return f"{', '.join(models)}; ${cost:.2f} at API rates{turns}"
 
 
-def pr_body(result, issue, run_url, paths, stage="implement", stats=None, exists=None, present=None, plan_gates=None):
+def pr_body(result, issue, run_url, paths, stage="implement", stats=None, exists=None, present=None, plan_gates=None,
+            flags=(), focus_error=""):
     """The PR description in the template's fixed order. `exists` says whether a path is in the base
     checkout (the default branch), to mark a key file new or not found. `present` is the changed paths
-    that still exist at the head (a moved file counts once, at its new path); defaults to `paths`."""
+    that still exist at the head (a moved file counts once, at its new path); defaults to `paths`.
+    `flags` is focus_flags() over the whole PR; `focus_error` says why the rules didn't load."""
     present = paths if present is None else present
     exists = exists or (lambda path: pathlib.Path(path).exists())
     brief, code = result["brief"], stage in CODE_STAGES
@@ -723,7 +944,7 @@ def pr_body(result, issue, run_url, paths, stage="implement", stats=None, exists
     if code and result["add_ons"]:
         lines += ["", "## Add-ons beyond the plan" if stage == "execute" else "## Add-ons beyond the issue", ""]
         for a in result["add_ons"]:
-            files = ", ".join(f"`{p}`" for p in a["paths"])
+            files = ", ".join(path_text(p) for p in a["paths"])
             lines.append(f"- **{literal(a['what'])}**: {literal(a['why'])} Files: {files}. Verified: {literal(a['verified'])}")
     if code and result["follow_ups"]:
         if stage == "execute":
@@ -742,12 +963,25 @@ def pr_body(result, issue, run_url, paths, stage="implement", stats=None, exists
     if code:
         lines += ["", "## Scope integrity", "", literal(brief["scope_integrity"])]
     risk = brief["risk"]
-    lines += ["", "## Risk", "", f"**{risk['tier'].capitalize()}**: {literal(risk['why'])}", ""]
+    rated = f"**{risk['tier'].capitalize()}**"
+    raised = focus_tier(flags)
+    if raised and TIERS.index(raised) > TIERS.index(risk["tier"]):
+        names = ", ".join(literal(rule["name"]) for rule, hits in flags
+                          if rule["tier"] == raised and any(not note for _, note in hits))
+        rated = f"**{raised.capitalize()}** by the project's review rules ({names}); the agent rated it {rated}"
+    lines += ["", "## Risk", "", f"{rated}: {literal(risk['why'])}", ""]
     lines += bullets(risk["items"]) + [f"- **Undo:** {literal(risk['undo'])}"]
-    lines += ["", "## Review focus", ""] + bullets(brief["review_focus"])
+    lines += ["", "## Review focus", ""]
+    if focus_error:
+        lines += focus_off(focus_error)
+    elif flags:
+        lines.append("- **Where to look:** the files the project's review rules flag (found by the factory, "
+                     "not the agent)")
+        lines += focus_bullets(flags, "  - ")
+    lines += bullets(brief["review_focus"])
     hygiene = [p for p in paths if p.startswith(SDLC_HYGIENE)]
     if hygiene:
-        lines.append("- **SDLC knowledge changed** (future agents read these): " + ", ".join(f"`{p}`" for p in hygiene))
+        lines.append("- **SDLC knowledge changed** (future agents read these): " + ", ".join(path_text(p) for p in hygiene))
     lines += [f"- **Open {f['severity']} finding** at {literal(f['location'])}: {literal(f['summary'])}" for f in serious]
     lines += ["", "## How it was verified" if code else "## How it will be verified", ""] + bullets(brief["verification"])
     lines += ["", "## How it works", "", literal(brief["how_it_works"])]
@@ -806,6 +1040,12 @@ def main():
         else:
             check_result(result, stage)
         patterns = codeowners_patterns(pathlib.Path(".github/CODEOWNERS").read_text())
+        rules, focus_error = [], ""
+        if stage in CODE_STAGES + ("revise",):
+            try:
+                rules = read_focus_rules()
+            except (Refused, OSError, ValueError) as e:
+                focus_error = str(e)
         head, paths = check_commits(bundle, base, patterns, DOC_STAGE_PATHS if stage in DOC_STAGES else None)
         if stage == "split":
             check_split_docs(result, lambda path: git("show", f"{head}:{path}"))
@@ -822,11 +1062,31 @@ def main():
             revision, limit = int(os.environ["REVISION"]), int(os.environ["REVISION_LIMIT"])
             if not 1 <= revision <= limit:
                 raise Refused(f"revision {revision} is outside 1..{limit}")
-            body = revise_comment(result, revision, limit, run_url, paths, stats)
+            body = revise_comment(result, revision, limit, run_url, paths, stats, focus_flags(rules, base, head),
+                                  focus_error)
         else:
             # Changed paths that exist at the head: a move is one file, at its new path.
             present = git("diff", "--name-only", "-M", "--diff-filter=d", base, head).split()
-            body = pr_body(result, issue, run_url, paths, stage, stats, present=present, plan_gates=plan_gates)
+            # Where to look covers the whole PR: from where it leaves the checkout (the default branch). For a
+            # continued execution <base> is the PR's head before this segment, so base..head would miss the rest.
+            start = git("merge-base", "HEAD", head).strip() if rules else base
+            body = pr_body(result, issue, run_url, paths, stage, stats, present=present, plan_gates=plan_gates,
+                           flags=focus_flags(rules, start, head), focus_error=focus_error)
+            # A continued execution's body is rewritten only when it's done, so its gate stop's comment lists
+            # what this segment changed.
+            if focus_error and stage in CODE_STAGES:
+                segment = focus_off(focus_error)
+            elif start != base:
+                segment = focus_bullets(focus_flags(rules, base, head)) or [
+                    "- Nothing this segment changed matches the project's review rules."]
+            else:
+                segment = []
+            size = len("\n".join(segment).encode())
+            if size > MAX_POST // 2:
+                raise Refused(f"this segment's Where to look is {size} bytes (cap {MAX_POST // 2})")
+        if len(body.encode()) > MAX_POST:
+            raise Refused(f"the {'comment' if stage == 'revise' else 'description'} would be {len(body.encode())} "
+                          f"bytes (cap {MAX_POST})")
     except (Refused, ValueError, OSError, KeyError, TypeError, AttributeError, subprocess.CalledProcessError) as e:
         print(f"::error::{stage} output refused: {e}")
         return 1
@@ -841,6 +1101,8 @@ def main():
         title = f"{result['deliverable']}: {title}"
     (out / "title").write_text(title + "\n")
     (out / "pr-body.md").write_text(body)
+    if stage in CODE_STAGES:
+        (out / "focus.md").write_text("\n".join(segment) + ("\n" if segment else ""))
     print(f"{stage} output accepted: {head[:12]}, {len(paths)} files")
     return 0
 
