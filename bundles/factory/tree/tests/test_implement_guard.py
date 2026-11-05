@@ -488,6 +488,27 @@ class Result(unittest.TestCase):
         body = guard.pr_body(self.plan(), "7", "https://r", ["a"], "plan", None, lambda p: True, plan_gates=lines)
         self.assertIn("This plan touches production", body)
 
+    def test_a_plan_that_releases(self):
+        plan = "### Phase 1: Code\n\n### Release\n\n**Why:** users need the new endpoint.\n\n### Phase 2: Records\n"
+        self.assertEqual(guard.release_line(plan, "release/production"),
+                         ("release/production", "users need the new endpoint."))
+        self.assertIsNone(guard.release_line("### Phase 1: Code\n", "release/production"))
+        # Without a release branch, production steps are gates.
+        with self.assertRaisesRegex(guard.Refused, "release branch"):
+            guard.release_line(plan, "")
+        with self.assertRaisesRegex(guard.Refused, "Why"):
+            guard.release_line("### Release\n\nsoon\n", "release/production")
+        release = ("release/production", "users need the new endpoint.")
+        body = guard.pr_body(self.plan(), "7", "https://r", ["a"], "plan", None, lambda p: True, release=release)
+        self.assertIn("**This plan releases.**", body)
+        self.assertNotIn("<!-- factory-release v1 -->", body)
+        # The execution PR carries the marker factory-advance looks for.
+        body = guard.pr_body(self.ok(), "7", "https://r", ["a"], "execute", None, lambda p: True, release=release)
+        self.assertIn("<!-- factory-release v1 -->", body.splitlines())
+        self.assertIn("**Merging this releases.**", body)
+        self.assertNotIn("<!-- factory-release v1 -->", guard.pr_body(self.ok(), "7", "https://r", ["a"], "execute",
+                                                                      None, lambda p: True))
+
     def test_no_production_tier_means_no_gates(self):
         """Without an operations catalog (the project has no production tier), a plan may have no gates: CD
         gates go through the production broker too."""

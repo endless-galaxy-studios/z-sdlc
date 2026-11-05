@@ -71,6 +71,18 @@ A project with a production runner (in the software factory, a runner that runs 
 
 Without a catalog, the runbook is the whole gate, and CD does it.
 
+## With a Release Branch
+
+A project whose production follows a release branch (`factory.json`'s `release.branch`, `[sdlc-root]/process/factory.md` D4 rule 13) deploys only when CD merges a PR into that branch: every host serving production deploys it by itself. A plan there never deploys mid-execution. Its gates hold only what isn't a deploy (a backup, a live check), and a plan whose changes must reach production says so in a Release section, after its phases:
+
+````markdown
+### Release
+
+**Why:** [what production needs from this deliverable, in one line]
+````
+
+The plan's PR shows the release. When CD merges the plan's execution PR, the factory opens a release PR from the default branch into the release branch, or comments on the one already open, and merging that PR is the deploy. Work that needs production between two of its own phases is two deliverables: the first releases, the second depends on it. A plan with a Release section in a project without a release branch is refused: there, production steps are gates.
+
 ## Red Flags
 
 | Thought | Reality |

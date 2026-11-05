@@ -34,7 +34,8 @@
       "ci",
       "fixtures",
       "policy",
-      "runners.ci"
+      "runners.ci",
+      "release"
     ],
     "planning.json": [
       "database.sslmode"

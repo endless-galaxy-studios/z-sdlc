@@ -70,6 +70,57 @@ Each entry contains:
 
 ---
 
+## 2026-11-05: A release-branch production model, beside the execution-PR gates
+
+**Origin:** CD's release model for a third project (2026-11-05): "branch release/production; when i make changes i'll merge into release/production to get them to deploy. when the factory wants to deploy to prod, it'll make a PR to release/production."
+- CD chose that the branch deploys itself, so CD's merge is the approval, rather than a merge that triggers a broker gate.
+- The factory opens a release PR only when a plan calls for one.
+- A plan never deploys mid-execution.
+
+**What happened:** D4 had one release model: a deploy gate deploys the execution PR's head through the broker, before CD merges it. Rules 2, 13 and 14 and the plan skills assumed it. The project wanted every deploy, CD's own included, to be a merge into one protected branch that its hosts deploy by themselves.
+
+**Changes made:**
+
+1. **`bundles/factory/seed/factory.json`**: a `release` block, `branch` empty by default (today's model). **`.claude/skills/zsdlc-import-factory/import.json`**: the incubator may leave it out.
+2. **`bundles/factory/tree/gates.py`**: `parse_release()`, a plan's `### Release` section and its `**Why:**` line.
+3. **`bundles/factory/tree/implement_guard.py`**:
+   - `read_release_branch()` and `release_line()`;
+   - a plan with a Release section is refused without a release branch;
+   - the plan PR's body shows the release;
+   - the execution PR's body carries `<!-- factory-release v1 -->` and says merging it releases.
+   **`tests/test_implement_guard.py`** covers it.
+4. **`bundles/factory/tree/templates/factory-advance.yml`**: a `release` job. A merged factory code PR carrying the marker, in a project with a release branch, dispatches **`factory-release-pr.yml`** (new). That workflow, as the factory App in the writer environment:
+   - checks the PR merged into the default branch, is the App's, and carries the marker;
+   - opens a release PR from the default branch into the release branch, or comments on the one already open;
+   - says so on the merged PR, or that there's nothing to release.
+   **`tests/test_render.py`**: the workflow counts.
+5. **`bundles/factory/tree/bootstrap.py`**: with a release branch, it checks that the branch exists and that its ruleset requires a PR with code-owner review and forbids force pushes and deletion. It also checks that no bypass actor may bypass it always: in that mode an admin credential skips every rule, which the project's security review found and fixed live. The default branch's merge-method check then doesn't apply. **`tests/test_bootstrap.py`** covers it.
+6. **`process/factory.md`**:
+   - D4 rule 13 now names two models:
+     - **execution-PR gates,** unchanged;
+     - **a release branch:** every host serving production deploys it by itself; CD's merge is the deploy and its approval; plans release through a Release section and never deploy mid-execution; the broker keeps non-deploy operations; a rollback is CD's, followed by a revert PR; rule 7's expected commit is the branch's head, with a provenance check that every first-parent commit since the last record is the merge commit of a PR an approver merged (from the project's broker design); no infrastructure refusal; the default branch's merge method doesn't matter.
+   - Rules 2 and 14 note the model.
+   - Enablement step 9's merge-commit line is scoped to execution-PR gates.
+7. **`process/production-gates.md`**: § With a Release Branch, with the Release section's format. Work that needs production between its own phases is two deliverables.
+8. **`skills/sdlc-plan/SKILL.md`**, **`skills/sdlc-lite-plan/SKILL.md`**, **`templates/planning_template.md`**, **`templates/sdlc_lite_plan_template.md`**: with a release branch, a deploy never goes in a gate, and a plan that must reach production ends with a Release section.
+
+**Upgrading:**
+- Nothing changes without `release.branch`.
+- To use it:
+  - create the branch at what production runs;
+  - give it a ruleset (a PR with code-owner review, no force push, no deletion, merges by CD);
+  - point every host that serves production at it, with auto-deploy on and every other branch off;
+  - set `release.branch` and render.
+
+**Rationale:**
+- A project that wants every deploy to be one reviewed merge into one branch gets it, with the factory's part kept to opening the PR.
+- The broker keeps what it's for: operations that aren't deploys.
+- The execution-PR model stays as it was for projects that run it.
+
+Release type: minor (a new setting and workflow).
+
+---
+
 ## 2026-11-05: With a production tier, the default branch merges with merge commits only
 
 **Origin:** Designing a third project's production tier (2026-11-05). Its repository allows squash and rebase merges.

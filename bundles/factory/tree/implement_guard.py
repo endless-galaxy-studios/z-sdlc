@@ -708,6 +708,29 @@ def focus_rules(settings):
     return out
 
 
+def read_release_branch():
+    """factory.json's release.branch from the default branch's settings: the branch production deploys from,
+    or "" when production follows the execution PRs' gates (D4 rule 13)."""
+    branch = ((json.loads(FOCUS_SETTINGS.read_text()).get("release") or {}).get("branch") or "").strip()
+    if branch and not re.fullmatch(r"[A-Za-z0-9._/-]{1,100}", branch):
+        raise Refused(f"factory.json's release.branch isn't a branch name: {branch!r}")
+    return branch
+
+
+def release_line(plan_text, branch):
+    """A plan's release, as (branch, why) for the PR body, or None. A Release section in a project whose
+    production doesn't follow a release branch is refused: there, production steps are gates."""
+    import gates  # noqa: E402 (beside this file)
+    try:
+        why = gates.parse_release(plan_text)
+    except gates.Invalid as e:
+        raise Refused(f"the plan's Release section: {e}") from None
+    if why and not branch:
+        raise Refused("the plan has a Release section, but this project's production doesn't follow a release "
+                      "branch (factory.json's release.branch): its production steps are gates")
+    return (branch, why) if why else None
+
+
 def read_focus_rules():
     """review.focus from FOCUS_SETTINGS: the default branch's, in every publish job."""
     return focus_rules(json.loads(FOCUS_SETTINGS.read_text()))
@@ -886,7 +909,7 @@ def run_stats(stats):
 
 
 def pr_body(result, issue, run_url, paths, stage="implement", stats=None, exists=None, present=None, plan_gates=None,
-            flags=(), focus_error=""):
+            flags=(), focus_error="", release=None):
     """The PR description in the template's fixed order. `exists` says whether a path is in the base
     checkout (the default branch), to mark a key file new or not found. `present` is the changed paths
     that still exist at the head (a moved file counts once, at its new path); defaults to `paths`.
@@ -918,6 +941,14 @@ def pr_body(result, issue, run_url, paths, stage="implement", stats=None, exists
         lines += ["**This plan touches production.** Merging it approves what each gate below may do; each gate "
                   "still runs only after you approve its gate run (environment `factory-production`).", ""]
         lines += plan_gates + [""]
+    if release and stage == "plan":
+        lines += [f"**This plan releases.** When its execution PR merges, the factory opens a release PR into "
+                  f"`{escape(release[0])}`; merging that one deploys. Why: {literal(release[1])}", ""]
+    if release and stage == "execute":
+        # Writer marker: factory-advance dispatches factory-release-pr.yml for a merged PR that carries it.
+        lines += ["<!-- factory-release v1 -->",
+                  f"**Merging this releases.** The factory then opens a release PR into `{escape(release[0])}`, "
+                  f"and merging that one deploys. The plan's Release section: {literal(release[1])}", ""]
 
     lines += ["## The problem", "", literal(brief["problem"])]
     lines += ["", "## What changes for users", ""] + (bullets(brief["user_changes"]) or ["Nothing visible."])
@@ -1049,9 +1080,13 @@ def main():
         head, paths = check_commits(bundle, base, patterns, DOC_STAGE_PATHS if stage in DOC_STAGES else None)
         if stage == "split":
             check_split_docs(result, lambda path: git("show", f"{head}:{path}"))
-        plan_gates = None
+        plan_gates, release = None, None
         if stage == "plan" and result["document"].endswith("_plan.md"):
-            plan_gates = plan_gate_lines(git("show", f"{head}:{result['document']}"), read_catalog()) or None
+            plan_text = git("show", f"{head}:{result['document']}")
+            plan_gates = plan_gate_lines(plan_text, read_catalog()) or None
+            release = release_line(plan_text, read_release_branch())
+        if stage == "execute" and os.environ.get("PLAN"):
+            release = release_line(git("show", f"{head}:{os.environ['PLAN']}"), read_release_branch())
         if stage != "revise":
             check_add_on_paths(result, paths, stage)
         try:
@@ -1071,7 +1106,7 @@ def main():
             # continued execution <base> is the PR's head before this segment, so base..head would miss the rest.
             start = git("merge-base", "HEAD", head).strip() if rules else base
             body = pr_body(result, issue, run_url, paths, stage, stats, present=present, plan_gates=plan_gates,
-                           flags=focus_flags(rules, start, head), focus_error=focus_error)
+                           flags=focus_flags(rules, start, head), focus_error=focus_error, release=release)
             # A continued execution's body is rewritten only when it's done, so its gate stop's comment lists
             # what this segment changed.
             if focus_error and stage in CODE_STAGES:

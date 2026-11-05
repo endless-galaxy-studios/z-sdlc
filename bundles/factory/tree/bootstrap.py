@@ -500,8 +500,48 @@ class Bootstrap:
         else:
             self.note("problem", "branch rules", f"{self.default} has no required status check: CI must run "
                       "render.py --check, workflow_policy.py and the factory's tests")
-        if self.production:
+        release = ((self.cfg.get("release") or {}).get("branch") or "").strip()
+        if release:
+            self.check_release_branch(release)
+        elif self.production:
             self.check_merge_methods(merge_methods)
+
+    def check_release_branch(self, branch):
+        """Production follows a release branch (D4 rule 13): every host serving production deploys it by itself, so
+        CD's merge into it is the deploy's approval. Its ruleset must make that merge the only way in: a PR with
+        code-owner review, no force push, no deletion."""
+        status, _ = self.api("GET", f"repos/{self.repo}/branches/{urllib.parse.quote(branch, safe='')}")
+        if status != 200:
+            self.note("problem", "release branch", f"no branch {branch} (factory.json's release.branch)")
+            return
+        found, always = set(), []
+        for rs in self.list_all(f"repos/{self.repo}/rulesets?includes_parents=true", None) or []:
+            status, full = self.api("GET", f"repos/{self.repo}/rulesets/{rs['id']}")
+            if status != 200 or full.get("enforcement") != "active" or full.get("target") != "branch":
+                continue
+            include = ((full.get("conditions") or {}).get("ref_name") or {}).get("include") or []
+            if not {"~ALL", f"refs/heads/{branch}"} & set(include):
+                continue
+            # A bypass actor in mode "always" skips every rule here: it could push, force-push or delete.
+            always += [f"{a.get('actor_type', '?')} {a.get('actor_id', '')}".strip()
+                       for a in full.get("bypass_actors") or [] if a.get("bypass_mode", "always") == "always"]
+            for rule in full.get("rules") or []:
+                params = rule.get("parameters") or {}
+                if rule.get("type") == "pull_request" and params.get("require_code_owner_review"):
+                    found.add("code-owner review")
+                if rule.get("type") in ("non_fast_forward", "deletion"):
+                    found.add(rule["type"])
+        wanted = {"code-owner review": "a PR with code-owner review", "non_fast_forward": "no force push",
+                  "deletion": "no deletion"}
+        missing = [text for key, text in wanted.items() if key not in found]
+        if missing:
+            self.note("problem", "release branch", f"{branch}'s ruleset lacks {', '.join(missing)}: merging into it "
+                      "deploys, so CD's merge must be the only way in (D4 rule 13)")
+        if always:
+            self.note("problem", "release branch", f"{branch}'s ruleset lets {', '.join(always)} bypass it always: "
+                      "set their bypass mode to pull requests only, or they can push, force-push or delete it")
+        if not missing and not always:
+            self.note("ok", "release branch", f"{branch} takes changes only through a PR with code-owner review")
 
     def check_merge_methods(self, ruleset_methods):
         """With a production tier, an execution PR merges with a merge commit (D4 rule 13): the broker deploys

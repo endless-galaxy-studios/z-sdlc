@@ -133,3 +133,32 @@ jobs:
           [ "${#b64}" -lt 60000 ] || { echo "::error::PR #$PR's body is too large to pass; file its follow-ups by hand"; exit 1; }
           gh workflow run factory-follow-ups.yml --ref "$DEFAULT_BRANCH" -f pr="$PR" -f body_b64="$b64"
 
+
+  release:
+    # A merged factory code PR whose plan has a Release section (its body carries the publish guard's
+    # <!-- factory-release v1 --> marker), in a project whose production follows a release branch (D4 rule
+    # 13): factory-release-pr.yml opens the release PR as the factory App (this pull_request event can't use
+    # %{environments.writer}). CD's merge of that PR is the deploy.
+    if: >-
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.event.pull_request.head.ref, 'factory/') &&
+      endsWith(github.event.pull_request.head.ref, '-impl') &&
+      '%{release.branch?}' != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Dispatch the release PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          BODY: ${{ github.event.pull_request.body }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          grep -qF '<!-- factory-release v1 -->' <<< "$BODY" || { echo "PR #$PR's plan doesn't release."; exit 0; }
+          gh workflow run factory-release-pr.yml --ref "$DEFAULT_BRANCH" -f pr="$PR"
+          echo "Opening the release PR for #$PR" >> "$GITHUB_STEP_SUMMARY"

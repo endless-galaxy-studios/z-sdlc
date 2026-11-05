@@ -5,6 +5,7 @@ import contextlib
 import copy
 import io
 import json
+import urllib.parse
 import pathlib
 import re
 import sys
@@ -40,6 +41,7 @@ class FakeGitHub:
                                      "parameters": {"required_status_checks": [{"context": "ci-ok"}]}}]}]
         self.admin = True
         self.writes = []
+        self.branches = set()
 
     def env(self, name):
         return self.envs.setdefault(name, {"policy": None, "branches": [], "reviewers": [], "secrets": set(),
@@ -140,6 +142,9 @@ class FakeGitHub:
             return 200, next(rs for rs in self.rulesets if rs["id"] == int(g.group(1)))
         if path == f"{r}/branches/main/protection":
             return 404, {"message": "Branch not protected"}
+        if g := m(rf"{r}/branches/([^/]+)"):
+            return (200, {"name": urllib.parse.unquote(g.group(1))}) if urllib.parse.unquote(g.group(1)) in self.branches \
+                else (404, {"message": "Branch not found"})
         raise AssertionError(f"unexpected call {method} {path}")
 
     @staticmethod
@@ -275,6 +280,35 @@ class Bootstrap(unittest.TestCase):
         self.gh.repo.update(allow_merge_commit=False)
         code, out = self.run_it()
         self.assertIn("main allows no merge commit", out)
+
+    def test_a_release_branch_needs_its_ruleset(self):
+        factory = self.root / ".github" / "factory"
+        cfg = json.loads((factory / "factory.json").read_text())
+        cfg["release"] = {"branch": "release/production"}
+        (factory / "factory.json").write_text(json.dumps(cfg))
+        self.production_tier()
+        self.gh.repo.update(allow_merge_commit=True, allow_squash_merge=True, allow_rebase_merge=True)
+        self.gh.branches = {"release/production"}
+        code, out = self.run_it()
+        self.assertIn("release/production's ruleset lacks a PR with code-owner review, no force push, no deletion", out)
+        # The default branch's merge methods don't matter: deploys follow the release branch.
+        self.assertNotIn("also allows", out)
+        self.gh.rulesets.append({"id": 2, "enforcement": "active", "target": "branch",
+                                 "conditions": {"ref_name": {"include": ["refs/heads/release/production"]}},
+                                 "rules": [{"type": "pull_request", "parameters": {"require_code_owner_review": True}},
+                                           {"type": "non_fast_forward"}, {"type": "deletion"}]})
+        code, out = self.run_it()
+        self.assertIn("release/production takes changes only through a PR with code-owner review", out)
+        # A bypass actor in mode "always" skips every rule: admins could push, force-push or delete.
+        self.gh.rulesets[-1]["bypass_actors"] = [{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always"}]
+        code, out = self.run_it()
+        self.assertIn("lets RepositoryRole 5 bypass it always", out)
+        self.gh.rulesets[-1]["bypass_actors"][0]["bypass_mode"] = "pull_request"
+        code, out = self.run_it()
+        self.assertIn("release/production takes changes only through a PR with code-owner review", out)
+        self.gh.branches = set()
+        code, out = self.run_it()
+        self.assertIn("no branch release/production", out)
 
     def test_merge_settings_matter_only_with_a_production_tier(self):
         self.gh.repo.update(allow_merge_commit=True, allow_squash_merge=True, allow_rebase_merge=True)

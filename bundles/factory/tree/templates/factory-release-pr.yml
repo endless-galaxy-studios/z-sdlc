@@ -1,0 +1,82 @@
+# Factory release PR (D4 rule 13, for a project whose production follows a release branch, factory.json's
+# release.branch). When CD merges an execution PR whose plan has a Release section, factory-advance
+# dispatches this. As the factory App, it opens a PR from the default branch into the release branch, or
+# comments on the one already open. CD's merge of that PR is the deploy: every host serving production
+# deploys the release branch by itself, and the factory never deploys or merges.
+name: factory-release-pr
+run-name: "factory-release-pr: PR #${{ inputs.pr }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: The merged execution PR whose plan releases
+        type: number
+        required: true
+
+permissions: {}
+
+# One at a time: two merges in quick succession share one release PR.
+concurrency:
+  group: factory-release-pr
+
+jobs:
+  open:
+    runs-on: ubuntu-latest
+    # The App key is in this environment, which only the default branch may use.
+    environment: %{environments.writer}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      # Pull requests only, scoped to this repository: the release PR and its comments show as the factory App.
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: app
+        with:
+          client-id: ${{ vars.FACTORY_APP_CLIENT_ID }}
+          private-key: ${{ secrets.FACTORY_APP_PRIVATE_KEY }}
+          permission-pull-requests: write
+
+      - name: Open or update the release PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APP_TOKEN: ${{ steps.app.outputs.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ inputs.pr }}
+          RELEASE: "%{release.branch?}"
+          APP_LOGIN: "%{app.login}"
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          [ -n "$RELEASE" ] || { echo "::error::factory.json names no release branch (release.branch)"; exit 1; }
+          # The merged PR: into the default branch, opened by the factory App, with the publish guard's marker
+          # for a plan that releases. Its body is editable, but a release PR deploys nothing until CD merges it.
+          info=$(gh api "repos/$GH_REPO/pulls/$PR")
+          [ "$(jq -r .merged <<< "$info")" = true ] || { echo "::error::PR #$PR isn't merged"; exit 1; }
+          [ "$(jq -r .base.ref <<< "$info")" = "$DEFAULT_BRANCH" ] || { echo "::error::PR #$PR didn't merge into $DEFAULT_BRANCH"; exit 1; }
+          [ "$(jq -r .user.login <<< "$info")" = "$APP_LOGIN" ] || { echo "::error::PR #$PR isn't the factory's"; exit 1; }
+          jq -r '.body // ""' <<< "$info" | grep -qF '<!-- factory-release v1 -->' || { echo "PR #$PR's plan doesn't release."; exit 0; }
+          gh api "repos/$GH_REPO/branches/$RELEASE" > /dev/null || { echo "::error::no branch $RELEASE"; exit 1; }
+          title=$(jq -r .title <<< "$info")
+          sub="<sub>factory release · [run]($RUN_URL)</sub>"
+          ahead=$(gh api "repos/$GH_REPO/compare/$RELEASE...$DEFAULT_BRANCH" --jq .ahead_by)
+          if [ "$ahead" = 0 ]; then
+            GH_TOKEN=$APP_TOKEN gh pr comment "$PR" --body "Nothing to release: \`$RELEASE\` already has everything on \`$DEFAULT_BRANCH\`. $sub"
+            exit 0
+          fi
+          open=$(gh pr list --base "$RELEASE" --head "$DEFAULT_BRANCH" --state open --json number --jq '.[0].number // empty')
+          if [ -n "$open" ]; then
+            GH_TOKEN=$APP_TOKEN gh pr comment "$open" --body "Also releases #$PR ($title), merged into \`$DEFAULT_BRANCH\`. $sub"
+            GH_TOKEN=$APP_TOKEN gh pr comment "$PR" --body "Release PR: #$open. Merging it deploys. $sub"
+            echo "Release PR #$open now also releases #$PR" >> "$GITHUB_STEP_SUMMARY"
+          else
+            body=$(printf '%s\n\n%s\n\n%s\n' \
+              "<!-- factory-release-pr v1 -->" \
+              "**Merging this deploys.** It brings \`$RELEASE\` up to \`$DEFAULT_BRANCH\`: $ahead commits, among them #$PR ($title), whose plan has a Release section. Every host serving production deploys \`$RELEASE\` by itself (process/factory.md, D4 rule 13)." \
+              "GitHub lists the commits as of when you merge: a later merge into \`$DEFAULT_BRANCH\` joins this release. $sub")
+            url=$(GH_TOKEN=$APP_TOKEN gh pr create --base "$RELEASE" --head "$DEFAULT_BRANCH" --title "Release: #$PR $title" --body "$body")
+            GH_TOKEN=$APP_TOKEN gh pr comment "$PR" --body "Release PR: $url. Merging it deploys. $sub"
+            echo "Opened $url" >> "$GITHUB_STEP_SUMMARY"
+          fi

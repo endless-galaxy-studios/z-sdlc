@@ -183,6 +183,33 @@ def parse_gates(plan):
     return gates
 
 
+RELEASE_HEAD = re.compile(r"^###\s+Release\s*$")
+RELEASE_WHY = re.compile(r"^\*\*Why:\*\*\s*(\S.*?)\s*$")
+
+
+def parse_release(plan):
+    """A plan's release declaration, for a project whose production follows a release branch (D4 rule 13,
+    factory.json's release.branch): a `### Release` section whose `**Why:**` line says what production needs
+    from this deliverable. When CD merges the plan's execution PR, the factory opens a release PR into the
+    branch. Returns the reason, or None without the section. Raises Invalid for a section with no reason, or
+    more than one."""
+    found, why, section = 0, None, False
+    for line in plan.splitlines():
+        if RELEASE_HEAD.match(line):
+            found += 1
+            section = True
+            continue
+        if section and SECTION_END.match(line):
+            section = False
+        if section and why is None and (m := RELEASE_WHY.match(line)):
+            why = m.group(1)
+    if found > 1:
+        raise Invalid("the plan has more than one Release section")
+    if found and why is None:
+        raise Invalid("the plan's Release section needs a **Why:** line (what production needs from it)")
+    return why
+
+
 def gate(plan, gate_id):
     for g in parse_gates(plan):
         if g["id"] == gate_id:
