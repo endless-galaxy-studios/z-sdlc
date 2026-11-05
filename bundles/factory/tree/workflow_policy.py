@@ -43,6 +43,9 @@ Allowlists, not blocklists:
 - Agent jobs: an explicit read-only permissions block; the tool policy set only by
   `tr ... < .github/factory/*-tools.args`; no env (workflow, job or agent step) that sets
   FACTORY_TOOL_ARGS, an Anthropic variable or a token, or references any secret but CONTEXT7_API_KEY.
+  The services' credential slots are the exception, in an agent step whose job builds its settings with
+  services.py: FACTORY_SVC_1..4 in a planning job only, FACTORY_EXEC_SVC_1..2 in an implement or
+  revise job only, each exactly its own secret (process/factory.md, D2 rule 8 and D3 rule 4).
 - The OAuth secret appears only as an agent step's claude_code_oauth_token, or in the step env of
   a run step in an agent job (the probes and scans that compare against it).
 - The factory App's key appears only as the private-key input of actions/create-github-app-token,
@@ -138,6 +141,9 @@ DIRECT_CLAUDE = re.compile(r"@anthropic-ai/|claude-agent-sdk|(^|[\s;&|(/])claude
 
 
 SERVICE_SLOTS = {f"FACTORY_SVC_{n}" for n in range(1, 5)}
+EXEC_SERVICE_SLOTS = {f"FACTORY_EXEC_SVC_{n}" for n in range(1, 3)}
+# The execution stages' workflows (implement and execute share factory-implement.yml), on the strict tier.
+EXECUTION_WORKFLOWS = {"factory-implement.yml", "factory-revise.yml"}
 SERVICES_RUN = re.compile(r"python3 -I \.github/factory/services\.py \.github/factory/services\.json ")
 PLANNING_WORKFLOWS = {"factory-plan.yml", "factory-spec.yml", "factory-revise-doc.yml"}
 # The planning stages' sandbox probe (D2 rule 5): proven in their tier and job setup, so it runs where they run.
@@ -570,14 +576,17 @@ def agent_failures(name, job, workflow_env, model_input, factory_dir, workflow_n
 
     envs = [("workflow", workflow_env), ("job", job.get("env") or {})]
     envs += [(s.get("name", "agent step"), s.get("env") or {}) for s in steps if str(s.get("uses", "")).startswith(ACTION)]
-    # Service credential slots (README § Services) may reach a planning agent step, each exactly its
-    # own secret, when the job builds its sandbox settings with services.py, which masks all four.
+    # Service credential slots (README § Services) may reach an agent step, each exactly its own secret,
+    # when the job builds its sandbox settings with services.py, which masks every slot: a planning job its
+    # own four, an execution job (strict tier) its own two. A planning slot never reaches a strict-tier job.
     builds_services = any(SERVICES_RUN.search(str(s.get("run", ""))) for s in steps[:first_agent])
     for where, env in envs:
         for key, value in env.items():
             planning = workflow_name in PLANNING_WORKFLOWS or (workflow_name, name) in PLANNING_PROBES
-            if (key in SERVICE_SLOTS and str(value).strip() == f"${{{{ secrets.{key} }}}}"
-                    and where not in ("workflow", "job") and planning and builds_services):
+            execution = workflow_name in EXECUTION_WORKFLOWS and not planning
+            own_secret = str(value).strip() == f"${{{{ secrets.{key} }}}}" and where not in ("workflow", "job")
+            if own_secret and builds_services and ((key in SERVICE_SLOTS and planning)
+                                                   or (key in EXEC_SERVICE_SLOTS and execution)):
                 continue
             refs = set(re.findall(r"secrets\.(\w+)", str(value)))
             if ENV_NAME.search(key) or refs - {"CONTEXT7_API_KEY"}:

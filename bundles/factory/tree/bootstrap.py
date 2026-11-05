@@ -283,8 +283,12 @@ class Bootstrap:
         if ((self.planning.get("database") or {}).get("host") or "").strip():
             planning.append(("FACTORY_DB_READER_PASSWORD", "the planning database's read-only password"))
         for s in self.services.get("services") or []:
-            if s.get("slot"):
-                planning.append((s["slot"], f"service {s.get('name', '?')}'s credential"))
+            slot = s.get("slot") or ""
+            if slot.startswith("FACTORY_EXEC_SVC_"):
+                # An execution stage's service: a repository secret, as implement and revise use no environment.
+                self.secret("repository secret", slot, repo_secrets, f"service {s.get('name', '?')}'s credential")
+            elif slot:
+                planning.append((slot, f"service {s.get('name', '?')}'s credential"))
         wanted[self.envs["planning"]] = (planning, [])
         for env, (secrets, variables) in wanted.items():
             base = f"repos/{self.repo}/environments/{urllib.parse.quote(env, safe='')}"

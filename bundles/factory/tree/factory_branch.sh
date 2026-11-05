@@ -12,10 +12,11 @@
 #                         push to a factory branch, and the job loads its agent configuration and runs
 #                         its dependency manifests (the publish guard refused those paths in every
 #                         factory commit, so a factory branch has none). Prints nothing on success.
-#   switch <head>         detach at <head> with HEAD's agent configuration and CODEOWNERS laid over the
-#                         branch's older copy and hidden from git: the run has current skills and path
-#                         rules, and nothing of them can be committed (tracked copies are
-#                         skip-worktree, new files excluded)
+#   switch <head>         detach at <head> with HEAD's agent configuration, CODEOWNERS and services list
+#                         (services.py and services.json, which the stage's MCP step runs from the
+#                         working tree) laid over the branch's older copy and hidden from git: the run
+#                         has current skills, path rules and services, and nothing of them can be
+#                         committed (tracked copies are skip-worktree, new files excluded)
 #   push <branch> <base>  (writer job) fast-forward <branch> from <base> to $RUNNER_TEMP/out/head
 #                         with GH_TOKEN, refusing if the branch moved since the run started
 # check and switch run in an agent job before its agent, from the frozen copy in $CHECKS; check reads
@@ -61,7 +62,7 @@ sys.exit(1 if bad else 0)' "$here" "$kind"; then :; else
     head=$1
     main=$(git rev-parse HEAD)
     git checkout -q --detach "$head"
-    cfg=(.claude CLAUDE.md CLAUDE.local.md .mcp.json .github/CODEOWNERS)
+    cfg=(.claude CLAUDE.md CLAUDE.local.md .mcp.json .github/CODEOWNERS .github/factory/services.py .github/factory/services.json)
     git ls-files -z -- "${cfg[@]}" | xargs -0 -r git update-index --skip-worktree
     git archive "$main" -- $(git ls-tree --name-only "$main" -- "${cfg[@]}") | tar -x
     git ls-files --others --exclude-standard -- "${cfg[@]}" >> .git/info/exclude

@@ -142,7 +142,16 @@ Agent jobs run on self-hosted runners, and a runner host may also run production
    - **A key the agent can read is removed at the end.** A memory service whose plugin reads its key from a file in the checkout gets the key seeded there before the agent step. The file is deleted before seeding, and again in an always-run step right after the agent step, before any commit, upload or cache save. The file must be git-ignored, and the seed refuses to write otherwise.
    - **Smoke expects a declared key, and nothing else.** It treats the declared key as present by design. Every other credential must still be found nowhere.
 
-   The mechanism is the project tool list, which isn't built yet. Until it is, no project can opt in.
+   The mechanism is the project tool list. Its read-only form exists: rule 9's `tools`. Opting in to a key that writes or spends isn't built yet (`services.py` still requires `read_only`), so no project can opt in.
+9. **The execution stages may use read-only MCP services from the reviewed list** (CD, 2026-11-05; planning-only before, CD 2026-10-10). An entry in `services.json` for implement, execute or revise:
+   - is an MCP server (`attach: mcp`), never an env service: Bash runs agent-written code;
+   - lists its stages from one tier only, so a planning credential never reaches a strict-tier job;
+   - has its own slot, `FACTORY_EXEC_SVC_1` or `_2` (repository secrets), and the workflow policy refuses either outside an implement or revise agent step that builds its settings with `services.py`;
+   - names the tools the agent may call (`tools`). `services.py` allows exactly those in the stage's sandbox settings, and auto mode can't prompt for others;
+   - declares `read_only`: CD's attestation that the credential itself is read-only at its source. The key can't write on the server, a database login has only `SELECT` (D3 rule 3). A service's own read-only mode or a tools list isn't enough.
+
+   The credential goes in the Authorization header and nowhere else (rule 10). A service's results enter the context of an agent that writes and runs code, and a document or memory service reads as trusted knowledge, so one whose content agents or outside sources can write is a lasting prompt injection. Point an execution entry only at content CD's own reviewed sources write.
+10. **An MCP service's credential goes in its Authorization header only.** Node's `fetch` drops `Authorization` on a redirect to another origin but forwards any other header (tested on Node 22, 2026-11-05). The MCP SDK's HTTP client is built on `fetch`, so the same is expected of Claude Code's client: an inference, not an observation, since the stand-in below never redirects. So `services.py` refuses any other header, and the credential reaches no URL but the configured one, which only a code-owned `services.json` and `--strict-mcp-config` set. `factory-smoke`'s `mcp-services` job proves each tier end to end against a stand-in MCP server on the echo host: the credential arrives (the server answers with its digest), sandboxed Bash sees a placeholder, and a tool the entry leaves out is refused. It runs when `services.json` lists an MCP service, or when dispatched with `mcp_probe`. Its summary also says whether each agent tried the left-out tool, since a refusal proves the list only when the agent tried. Until an organization's echo service carries `/mcp` and smoke has run the job, the refusal and the arrival are the design's claims, not observations.
 
 ### Forbids
 
@@ -153,6 +162,7 @@ Agent jobs run on self-hosted runners, and a runner host may also run production
 5. `--security-opt seccomp=unconfined`, `apparmor=unconfined`, `--privileged` or `--cap-add` on factory containers.
 6. Giving the OAuth token to a non-agent job; giving any write-capable token to an agent job, or putting one in a file the agent can read, except a service key a project opted in to under rule 8.
 7. Running an agent step without a tool-policy file, or changing a tool policy without re-running smoke.
+8. An execution-stage service that isn't an MCP server with a tools list and a credential read-only at its source, or any service credential outside the Authorization header of an MCP server.
 
 ### Costs
 
@@ -208,7 +218,7 @@ Spec and plan stages make judgment calls that depend on how the system behaves i
    - **The deadline the role can't lift is the proxy's.** A role's `statement_timeout` is only a default it can `SET` away, so pgbouncer cancels a query after 60 seconds and drops a transaction left idle, or a client left waiting, after 30.
    - **The connection limit covers the proxy's pool,** 4 connections per planning job, times the planning runners.
    - **The same rules hold for a database read through a service** (`services.json`, an MCP server such as pgEdge): the role's privileges are the boundary, never the service's read-only mode.
-4. **Services come from a reviewed list.** `.github/factory/services.json` (CODEOWNERS) names each service: its domains, the GitHub secret with its credential, and how the credential attaches. The planning job turns the list into sandbox settings (`credentials.envVars` with `mode: mask`, `injectHosts` set to the service's domains, `network.tlsTerminate`) or into an MCP server entry. Sandboxed commands see a placeholder; the proxy substitutes the real value only on requests to that service. Adding a service is one entry plus one secret, with no workflow edit.
+4. **Services come from a reviewed list.** `.github/factory/services.json` (CODEOWNERS) names each service: its domains, the GitHub secret with its credential, and how the credential attaches. The planning job turns the list into sandbox settings (`credentials.envVars` with `mode: mask`, `injectHosts` set to the service's domains, `network.tlsTerminate`), or into an MCP server entry with its credential in the Authorization header, its slot masked in the sandbox and its allowed tools (`tools`, or all of the server's) in the settings (D2 rules 9 and 10). Sandboxed commands see a placeholder; the proxy substitutes the real value only on requests to that service. Adding a service is one entry plus one secret, with no workflow edit.
 5. **Open internet for planning.** Planning's sandbox allows general web access for research. What leaks is bounded by what the tier can read: credentials are masked and go only to their own hosts, and the database login can't see personal or secret data.
 6. **Planning never copies raw data into its documents.** Specs and plans state facts and aggregates (counts, ranges, distributions, examples with identifiers removed), not row dumps. The skill says so; the writer job's checks apply as for every stage.
 7. **Planning still writes only documents.** Its output is a spec or plan PR; it never pushes code to run. Rules D1 and D2 otherwise hold unchanged (read-only GitHub token, writer jobs post, frozen code after the agent).
@@ -486,7 +496,9 @@ needs an organization owner's `gh` login (`admin:org`) for the runner groups and
    `workers.dev` address (for example `npx wrangler deploy .github/factory/echo/worker.js --name
    factory-echo --compatibility-date 2025-01-01`), or run `echo/server.py` on any host behind HTTPS,
    and set `smoke.echo_host` to its host name. It stores nothing, and receives only smoke's
-   throwaway values; one serves the whole organization.
+   throwaway values; one serves the whole organization. Its `/mcp` route is the stand-in MCP server
+   smoke's `mcp-services` job calls. A deployment from before that route serves the other jobs, but
+   an organization whose projects list an MCP service redeploys it once.
 5. **The App.** `python3 .github/factory/create_app.py <organization>` creates the factory's GitHub
    App from its manifest (Contents, Issues and Pull requests read and write, Metadata read; no
    webhook, no `workflows` or `actions` permission), writes its bot user into `factory.json` and its

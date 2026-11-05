@@ -297,7 +297,13 @@ jobs:
       - name: Write MCP config
         shell: bash
         run: |
-          "$CHECKS/agent_job.sh" mcp
+          cfg=$("$CHECKS/agent_job.sh" mcp)
+          # Read-only MCP services the execution stages may use (README § Services, process/factory.md D2
+          # rule 8): their servers and allowed tools, every service slot masked in the sandbox, and a
+          # non-secret list for the agent. With none listed for this stage, only the masks change.
+          python3 -I .github/factory/services.py .github/factory/services.json "${{ inputs.plan && 'execute' || 'implement' }}" \
+            "$CHECKS/implement-sandbox.settings.json" "$CHECKS/implement-sandbox.settings.json" \
+            "$GITHUB_WORKSPACE/.factory/services-context.json" "$cfg"
 
       # Tool policy: .github/factory/implement-tools.args. Bash runs in the sandbox (the settings file,
       # loaded with --settings so the repository can't loosen it). Read and Edit run in this process,
@@ -311,6 +317,10 @@ jobs:
       - name: Implement
         id: claude
         timeout-minutes: ${{ fromJSON(env.AGENT_MINUTES) }}
+        # Execution service credential slots (services.py masks them in the sandbox; unused slots are empty).
+        env:
+          FACTORY_EXEC_SVC_1: ${{ secrets.FACTORY_EXEC_SVC_1 }}
+          FACTORY_EXEC_SVC_2: ${{ secrets.FACTORY_EXEC_SVC_2 }}
         uses: anthropics/claude-code-action@58985842b834ed26087302ba27d07bc24ca8697a # v1.0.244
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}

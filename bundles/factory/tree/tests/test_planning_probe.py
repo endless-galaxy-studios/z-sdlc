@@ -89,3 +89,58 @@ class PlanningToolPolicy(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(HAS_YAML, "needs PyYAML")
+class ServiceSlotTiers(unittest.TestCase):
+    """Each tier's service credentials stay in their tier: FACTORY_SVC_n (planning) only in planning agent
+    jobs, FACTORY_EXEC_SVC_n (execution) only in implement and revise agent jobs, and either only where the
+    job builds its settings with services.py, which masks every slot (process/factory.md, D2 rule 8, D3)."""
+
+    def setUp(self):
+        self.assertEqual(policy.configure(FACTORY), [])
+        rendered = render.render_all(FACTORY, FACTORY / "templates")
+        self.flows = {name: yaml.safe_load(rendered[name]) for name in ("factory-implement.yml", "factory-plan.yml")}
+
+    def agent_job(self, workflow):
+        jobs = self.flows[workflow]["jobs"]
+        name = next(n for n, j in jobs.items() if any(str(s.get("uses", "")).startswith(policy.ACTION)
+                                                      for s in j.get("steps", [])))
+        return name, jobs[name]
+
+    def failures(self, workflow, name, job):
+        flow = self.flows[workflow]
+        triggers = flow.get("on", flow.get(True)) or {}  # YAML 1.1 reads a bare `on:` as True
+        dispatch = triggers.get("workflow_dispatch") if isinstance(triggers, dict) else None
+        model_input = ((dispatch or {}).get("inputs") or {}).get("model")
+        return policy.job_failures(name, job, flow.get("env") or {}, model_input, FACTORY, workflow, set())
+
+    def with_agent_env(self, job, env):
+        steps = [dict(s, env={**(s.get("env") or {}), **env}) if str(s.get("uses", "")).startswith(policy.ACTION) else s
+                 for s in job["steps"]]
+        return dict(job, steps=steps)
+
+    def test_the_rendered_workflows_hold(self):
+        for workflow in self.flows:
+            name, job = self.agent_job(workflow)
+            self.assertEqual(self.failures(workflow, name, job), [], workflow)
+            agent = next(s for s in job["steps"] if str(s.get("uses", "")).startswith(policy.ACTION))
+            want = policy.EXEC_SERVICE_SLOTS if workflow == "factory-implement.yml" else policy.SERVICE_SLOTS
+            self.assertEqual(set(agent["env"]), want, workflow)
+
+    def test_a_planning_slot_never_reaches_an_execution_job(self):
+        name, job = self.agent_job("factory-implement.yml")
+        moved = self.with_agent_env(job, {"FACTORY_SVC_1": "${{ secrets.FACTORY_SVC_1 }}"})
+        self.assertIn(f"{name}: Implement env FACTORY_SVC_1 reaches the agent", self.failures("factory-implement.yml", name, moved))
+
+    def test_an_execution_slot_never_reaches_a_planning_job(self):
+        name, job = self.agent_job("factory-plan.yml")
+        moved = self.with_agent_env(job, {"FACTORY_EXEC_SVC_1": "${{ secrets.FACTORY_EXEC_SVC_1 }}"})
+        self.assertTrue(any("FACTORY_EXEC_SVC_1 reaches the agent" in f for f in self.failures("factory-plan.yml", name, moved)))
+
+    def test_an_execution_slot_needs_services_py(self):
+        name, job = self.agent_job("factory-implement.yml")
+        unbuilt = dict(job, steps=[dict(s, run=str(s["run"]).replace("python3 -I .github/factory/services.py", "true"))
+                                   if "services.py" in str(s.get("run", "")) else s for s in job["steps"]])
+        self.assertTrue(any("FACTORY_EXEC_SVC_1 reaches the agent" in f
+                            for f in self.failures("factory-implement.yml", name, unbuilt)))

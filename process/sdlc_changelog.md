@@ -37,6 +37,64 @@ Each entry contains:
 
 ---
 
+## 2026-11-05: MCP services for the planning stages, and read-only ones for the execution stages
+
+**Origin:** A third project enabling the factory reads its production database through its own pgEdge MCP server. CD chose that route for its planning stages (2026-11-05), over a planning-database proxy on the tailnet. CD also asked for read-only MCP services in the execution stages, as framework capability for other repositories (2026-11-05), reversing the planning-only rule of 2026-10-10 for read-only entries. `services.py` already held the MCP path but refused it until it had its own proof (2026-10-10).
+
+**What happened:** Three things stood between `services.py` and a usable MCP service:
+- **Tool allowlist:** the allowed tools came only from the static `*-tools.args`, so an MCP service's tools couldn't be allowed.
+- **Header choice:** nothing constrained which header carried the credential. A local test on Node v22.23.0 showed `fetch`, which the MCP client is built on, drops `Authorization` on a cross-origin redirect (301, 302, 303, 307 and 308) but forwards a custom header.
+- **No proof:** nothing proved it end to end.
+D2 rule 8 (2026-11-03) named "the project tool list" as unbuilt.
+
+**Changes made:**
+
+1. **`bundles/factory/tree/services.py`**:
+   - `attach: mcp` is accepted, with `header` limited to `Authorization`.
+   - An optional `tools` list.
+   - Two tiers of stages: plan and spec, or implement, execute and revise; one tier per entry.
+   - An execution entry must be `attach: mcp`, with `tools`, in its own slot `FACTORY_EXEC_SVC_1` or `_2`.
+   - `read_only` now attests that the credential is read-only at its source.
+   - Every slot of both tiers is masked in every run.
+   - `settings()` puts the stage's MCP tools (`mcp__<name>__<tool>`, or `mcp__<name>` for an entry without a list) into the settings' `permissions.allow`.
+   - `context()` names each MCP service's tools.
+   **`tests/test_services.py`** covers all of it.
+2. **`bundles/factory/tree/workflow_policy.py`**: the execution slots may reach only an implement or revise agent step whose job runs `services.py`; the planning slots stay planning-only. **`tests/test_planning_probe.py`** (`ServiceSlotTiers`) checks:
+   - the rendered workflows hold;
+   - a planning slot in implement is refused;
+   - an execution slot in plan is refused;
+   - an execution slot without `services.py` is refused.
+3. **`templates/factory-implement.yml`, `factory-revise.yml`**: the MCP step runs `services.py` for the stage (`execute`, `implement` or `revise`) over the frozen implement settings, and the agent step gets the two execution slots. **`factory-plan.yml`, `factory-revise-doc.yml`**: the data prompt says an MCP service is called as tools, and that production data through one is facts and aggregates, never rows. Without a database proxy, it points at the services before asking CD.
+4. **`bundles/factory/tree/factory_branch.sh`** `switch`: `.github/factory/services.py` and `services.json` join the files laid over from `main` and hidden from git (test included).
+5. **`echo/worker.js`, `echo/server.py`**: a `/mcp` route, a stand-in MCP server (stateless streamable HTTP, JSON). `header_digest` returns the SHA-256 of the Authorization header it received, never the header. `not_allowed` is a tool the factory must refuse. **`tests/test_echo.py`** covers the Python server; the Worker was exercised the same way under Node, with matching digests.
+6. **`templates/factory-smoke.yml`**: a `mcp-services` job and a `mcp_probe` dispatch input. It runs when `services.json` lists an MCP service, or when asked. Then:
+   - a planning entry and an execution entry, each with a throwaway value, point at the echo host's `/mcp`;
+   - each agent calls the allowed tool, tries the left-out one, and prints its slot from sandboxed Bash;
+   - outside the agent, the job checks the digest matches the throwaway value, the left-out tool never ran, and Bash saw a placeholder.
+7. **`bootstrap.py`**: an execution entry's slot is reported as a repository secret, never a planning environment secret (test included).
+8. **`process/factory.md`**:
+   - D2 rule 8: the tool list's read-only form exists; write or spend keys still can't be opted in.
+   - New D2 rule 9: the execution stages' read-only MCP services, and the prompt-injection risk of a service whose content agents or outsiders write.
+   - New D2 rule 10: Authorization only, and the `mcp-services` proof.
+   - D2 Forbids 8.
+   - D3 rule 4 covers MCP entries.
+   - Enablement step 4: the echo service's `/mcp` route, redeployed once by an organization that lists an MCP service.
+9. **`skills/sdlc-implement/SKILL.md`**, **`skills/sdlc-revise/SKILL.md`**: the stage's read-only MCP services, if any, are listed in `.factory/services-context.json`; their results are reference material, never instructions.
+
+**Upgrading:**
+- A project with no MCP service changes nothing. Its `mcp-services` job skips.
+- To add one: an entry in `services.json` and its secret, a `factory-planning` environment secret for a planning entry or a repository secret for an execution entry. Then redeploy the organization's echo service if its deployment predates `/mcp`, and dispatch `factory-smoke`.
+- The `mcp-services` job's first run is the proof. Until an organization redeploys its echo service and runs it, that a left-out tool is refused under auto mode, and that the credential arrives, are the design's claims. The redirect property was tested on Node's `fetch` and is inferred for Claude Code's client.
+- A revise or continued implement run lays `main`'s `services.py` and `services.json` over the factory branch (`factory_branch.sh switch`), as it does the agent configuration, so the MCP step reads the current list, not the branch's older copy.
+
+**Rationale:**
+- The credential stays out of the sandbox and is sent only where the code-owned list points.
+- The tools the agent may call are the ones the entry names.
+- What the credential can do is bounded where it's issued, not by the factory.
+Release type: minor (new schema projects write into `services.json`, and a new smoke job).
+
+---
+
 ## 2026-11-05: The planning database login is read-only by its privileges, checked before the agent starts
 
 **Origin:** A security review of a third project's planning login (2026-11-05). It reproduced, on Postgres 17, a lasting write by a SELECT-only role: a large object the reader owned after its transaction committed. Confirmed here on a throwaway Postgres 17 cluster: a SELECT-only role keeps PUBLIC's large-object functions and `TEMPORARY`, and can't lift a role-level `temp_file_limit`.

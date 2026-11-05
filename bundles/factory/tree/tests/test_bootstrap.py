@@ -266,12 +266,16 @@ class Bootstrap(unittest.TestCase):
     def test_the_planning_secrets_follow_planning_json_and_services_json(self):
         factory = self.root / ".github" / "factory"
         (factory / "planning.json").write_text(json.dumps({"database": {"host": "db.example", "name": "w"}}))
-        (factory / "services.json").write_text(json.dumps({"services": [{"name": "search", "slot": "FACTORY_SVC_2"}]}))
+        (factory / "services.json").write_text(json.dumps({"services": [{"name": "search", "slot": "FACTORY_SVC_2"},
+                                                                        {"name": "memory", "slot": "FACTORY_EXEC_SVC_1"}]}))
         self.gh.set_up()
         code, out = self.run_it()
         self.assertEqual(code, 1)
         self.assertIn("factory-planning secret FACTORY_DB_READER_PASSWORD", out)
         self.assertIn("factory-planning secret FACTORY_SVC_2 (service search's credential)", out)
+        # An execution stage's service credential is a repository secret, never the planning environment's.
+        self.assertIn("repository secret FACTORY_EXEC_SVC_1 (service memory's credential)", out)
+        self.assertNotIn("factory-planning secret FACTORY_EXEC_SVC_1", out)
 
     def test_an_org_wide_claude_token_is_a_problem(self):
         self.gh.set_up()

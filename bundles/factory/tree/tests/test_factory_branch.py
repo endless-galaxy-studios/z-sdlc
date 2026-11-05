@@ -37,6 +37,7 @@ class FactoryBranch(unittest.TestCase):
         write(src, {
             ".github/CODEOWNERS": "/.github/ @cd\n.claude/ @cd\nCLAUDE.md @cd\n/ops/sdlc/ @cd\n/ops/sdlc/disciplines/*.md\n",
             ".claude/settings.json": '{"v": "old"}\n', "CLAUDE.md": "old\n", "api/a.py": "a\n",
+            ".github/factory/services.json": '{"services": []}\n', ".github/factory/services.py": "old = 1\n",
             "docs/current_work/planning/d1_x_plan.md": "plan\n"})
         git("add", "-A", cwd=src)
         git(*IDENTITY, "commit", "-q", "-m", "base", cwd=src)
@@ -48,7 +49,8 @@ class FactoryBranch(unittest.TestCase):
         self.head = self.work = git("rev-parse", "HEAD", cwd=src)
         # main moves on: newer agent configuration, and a new skill.
         git("checkout", "-q", "main", cwd=src)
-        write(src, {".claude/settings.json": '{"v": "new"}\n', ".claude/skills/s/SKILL.md": "skill\n"})
+        write(src, {".claude/settings.json": '{"v": "new"}\n', ".claude/skills/s/SKILL.md": "skill\n",
+                    ".github/factory/services.json": '{"services": ["new"]}\n', ".github/factory/services.py": "new = 1\n"})
         git("add", "-A", cwd=src)
         git(*IDENTITY, "commit", "-q", "-m", "main moves", cwd=src)
         self.remote = self.root / "remote.git"
@@ -135,6 +137,9 @@ class Switch(FactoryBranch):
         # main's copies, not the branch's.
         self.assertEqual((self.ws / ".claude/settings.json").read_text(), '{"v": "new"}\n')
         self.assertEqual((self.ws / ".claude/skills/s/SKILL.md").read_text(), "skill\n")
+        # The services list the MCP step reads from the working tree is main's current one too.
+        self.assertEqual((self.ws / ".github/factory/services.json").read_text(), '{"services": ["new"]}\n')
+        self.assertEqual((self.ws / ".github/factory/services.py").read_text(), "new = 1\n")
         # Nothing of it shows as a change or can be committed.
         self.assertEqual(git("status", "--porcelain", cwd=self.ws), "")
         self.assertIn("S .claude/settings.json", git("ls-files", "-v", ".claude", cwd=self.ws))

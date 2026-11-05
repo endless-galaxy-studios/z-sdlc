@@ -6,7 +6,10 @@
 # and reports the run's cost. The bash-sandbox job proves sandboxed agent Bash is credential-free
 # (required before any stage gets Bash), and the planning-sandbox job proves it on the planning tier, in
 # the planning stages' job setup. The lost-session job proves an agent step killed at its time limit still
-# leaves its session for session_log.sh. Re-run after every action, image or tool-policy change.
+# leaves its session for session_log.sh. The mcp-services job proves an MCP service's credential reaches its
+# server and never the sandbox, and that a tool off the entry's list is refused, for a planning and an
+# execution entry (when services.json lists an MCP service, or dispatched with mcp_probe). Re-run after
+# every action, image or tool-policy change.
 name: factory-smoke
 
 on:
@@ -17,6 +20,10 @@ on:
         type: choice
         options: [%{models.smoke.options}]
         default: %{models.smoke.default}
+      mcp_probe:
+        description: Run the mcp-services job even though services.json lists no MCP service
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -1152,6 +1159,187 @@ jobs:
             echo "| services: slot $slot | placeholder in sandbox: $placeholder; injected at the echo host: $injected (want $want) |" >> "$GITHUB_STEP_SUMMARY"
             echo "$name: placeholder=$placeholder injected=$injected want=$want"
             if [ "$placeholder" != yes ] || [ "$injected" != "$want" ]; then bad=1; fi
+          done
+          exit $bad
+
+      - name: Remove the agent's repository
+        if: always()
+        shell: bash
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
+
+  # services.py's MCP services end to end, with a stand-in MCP server on the echo host (factory.json's
+  # smoke.echo_host, its /mcp route): one planning entry and one execution entry, each in its own slot with a
+  # throwaway value. Each agent calls the allowed tool, which answers with the SHA-256 of the Authorization
+  # header it received (compared here, outside the agent), tries the tool its entry leaves out (it must be
+  # refused), and prints its slot from sandboxed Bash (it must see a placeholder).
+  mcp-services:
+    runs-on: [self-hosted, %{runners.strict}]
+    permissions:
+      contents: read
+      packages: read
+    timeout-minutes: 20
+    container:
+      image: %{image.repository}@%{image.digest}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      options: >-
+        --security-opt seccomp=/etc/factory-runner/seccomp-bwrap.json
+        --security-opt systempaths=unconfined
+    env:
+      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"
+      CHECKS: /__w/_temp/factory-checks
+    steps:
+      - name: Clean workspace
+        shell: bash
+        run: find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      # The action would write the job token into origin's URL, where the agent can read it.
+      - name: Remove the git remote
+        shell: bash
+        run: git remote remove origin
+
+      - name: Run only for a project with an MCP service, or when asked
+        id: need
+        shell: bash
+        env:
+          MCP_PROBE: ${{ inputs.mcp_probe }}
+        run: |
+          if jq -e '[.services[]? | select(.attach == "mcp")] | length > 0' .github/factory/services.json > /dev/null 2>&1 \
+             || [ "$MCP_PROBE" = true ]; then
+            echo "run=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=no" >> "$GITHUB_OUTPUT"
+            echo "| MCP services | skipped: services.json lists no MCP service (dispatch with mcp_probe to run it anyway) |" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Stand-in MCP services and dummy slot values
+        if: steps.need.outputs.run == 'yes'
+        shell: bash
+        run: |
+          set -euo pipefail
+          install -d -m 700 "$CHECKS"
+          # Not real credentials: random values in one planning slot and one execution slot.
+          echo "FACTORY_SVC_1=mcpplan$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')" >> "$GITHUB_ENV"
+          echo "FACTORY_EXEC_SVC_1=mcpexec$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')" >> "$GITHUB_ENV"
+          jq -n '{services: [
+            {name: "standin", stages: ["plan"], slot: "FACTORY_SVC_1", attach: "mcp", read_only: true,
+             url: "https://%{smoke.echo_host}/mcp", header: "Authorization", prefix: "Bearer ", tools: ["header_digest"]},
+            {name: "standin-exec", stages: ["implement"], slot: "FACTORY_EXEC_SVC_1", attach: "mcp", read_only: true,
+             url: "https://%{smoke.echo_host}/mcp", header: "Authorization", prefix: "Bearer ", tools: ["header_digest"]}]}' \
+            > "$RUNNER_TEMP/services.json"
+          cfg=$(.github/factory/agent_job.sh mcp)
+          for stage in plan implement; do
+            cp "$cfg" "$RUNNER_TEMP/mcp-$stage.json"
+            python3 -I .github/factory/services.py "$RUNNER_TEMP/services.json" "$stage" \
+              .github/factory/bash-sandbox.settings.json "$CHECKS/mcp-$stage.settings.json" \
+              "$RUNNER_TEMP/services-context-$stage.json" "$RUNNER_TEMP/mcp-$stage.json"
+          done
+          echo "FACTORY_MCP_CONFIG=$RUNNER_TEMP/mcp-plan.json" >> "$GITHUB_ENV"
+          echo "FACTORY_TOOL_ARGS=$(tr '\n' ' ' < .github/factory/bash-probe-tools.args)" >> "$GITHUB_ENV"
+
+      - name: Agent probe, planning entry
+        id: plan
+        if: steps.need.outputs.run == 'yes'
+        timeout-minutes: 8
+        uses: anthropics/claude-code-action@58985842b834ed26087302ba27d07bc24ca8697a # v1.0.244
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          settings: ${{ env.CHECKS }}/mcp-plan.settings.json
+          prompt: |
+            Do exactly these three things, in order, then stop:
+            1. Call the MCP tool header_digest of the standin server once, and report its text verbatim.
+            2. Call the MCP tool not_allowed of the standin server once, and report whether the call was allowed.
+            3. Run this command once with the Bash tool and report its output verbatim: printf 'slot=%s\n' "${FACTORY_SVC_1:-unset}"
+          claude_args: >-
+            --model %{models.probe}
+            --settings ${{ env.CHECKS }}/mcp-plan.settings.json
+            ${{ env.FACTORY_TOOL_ARGS }}
+            --mcp-config ${{ env.FACTORY_MCP_CONFIG }} --strict-mcp-config
+            --setting-sources user
+            --permission-mode auto --permission-prompts none
+            --max-turns 8
+
+      - name: Switch to the execution entry's MCP config
+        if: steps.need.outputs.run == 'yes'
+        shell: bash
+        run: echo "FACTORY_MCP_CONFIG=$RUNNER_TEMP/mcp-implement.json" >> "$GITHUB_ENV"
+
+      - name: Agent probe, execution entry
+        id: exec
+        if: steps.need.outputs.run == 'yes'
+        timeout-minutes: 8
+        uses: anthropics/claude-code-action@58985842b834ed26087302ba27d07bc24ca8697a # v1.0.244
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          settings: ${{ env.CHECKS }}/mcp-implement.settings.json
+          prompt: |
+            Do exactly these three things, in order, then stop:
+            1. Call the MCP tool header_digest of the standin-exec server once, and report its text verbatim.
+            2. Call the MCP tool not_allowed of the standin-exec server once, and report whether the call was allowed.
+            3. Run this command once with the Bash tool and report its output verbatim: printf 'slot=%s\n' "${FACTORY_EXEC_SVC_1:-unset}"
+          claude_args: >-
+            --model %{models.probe}
+            --settings ${{ env.CHECKS }}/mcp-implement.settings.json
+            ${{ env.FACTORY_TOOL_ARGS }}
+            --mcp-config ${{ env.FACTORY_MCP_CONFIG }} --strict-mcp-config
+            --setting-sources user
+            --permission-mode auto --permission-prompts none
+            --max-turns 8
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.plan.outputs.execution_file != ''
+        continue-on-error: true
+        with:
+          name: mcp-services-plan-transcript
+          path: ${{ steps.plan.outputs.execution_file }}
+          retention-days: 7
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.exec.outputs.execution_file != ''
+        continue-on-error: true
+        with:
+          name: mcp-services-exec-transcript
+          path: ${{ steps.exec.outputs.execution_file }}
+          retention-days: 7
+
+      - name: Assert each credential reached its server, the left-out tool was refused, and Bash saw a placeholder
+        if: always() && steps.need.outputs.run == 'yes'
+        shell: bash
+        env:
+          PLAN_EXEC: ${{ steps.plan.outputs.execution_file }}
+          EXEC_EXEC: ${{ steps.exec.outputs.execution_file }}
+        run: |
+          bad=0
+          for entry in "plan FACTORY_SVC_1 $PLAN_EXEC" "exec FACTORY_EXEC_SVC_1 $EXEC_EXEC"; do
+            read -r label slot file <<< "$entry"
+            if [ -z "$file" ] || [ ! -f "$file" ]; then echo "::error::$label: the agent step left no execution file"; bad=1; continue; fi
+            out=$(jq -r '[.[] | .message?.content? | select(type == "array") | .[] | select(.type == "tool_result")
+                         | (.content | if type == "string" then . else (map(.text // "") | join("\n")) end)] | join("\n")' "$file")
+            # Dummy values only, so the output is safe to show.
+            printf '%s\n' "$out" | head -30
+            real=${!slot}
+            want=$(printf 'Bearer %s' "$real" | sha256sum | cut -d' ' -f1)
+            arrived=$(grep -qF "authorization-sha256=$want" <<< "$out" && echo yes || echo no)
+            refused=$(grep -qF "not_allowed ran" <<< "$out" && echo no || echo yes)
+            # Whether the agent tried it at all: refused=yes proves the list only when it did (informational, since a
+            # harness that hides a disallowed tool makes trying impossible).
+            attempted=$(jq -r '[.[] | .message?.content? | select(type == "array") | .[] | select(.type == "tool_use")
+                               | .name | select(endswith("__not_allowed"))] | if length > 0 then "yes" else "no" end' "$file")
+            seen=$(sed -n 's/.*slot=\([^ ]*\).*/\1/p' <<< "$out" | head -1)
+            if [ -z "$seen" ] || [ "$seen" = unset ]; then masked=missing
+            elif [ "$seen" = "$real" ]; then masked="real value"
+            else masked=yes; fi
+            echo "| MCP services: $label entry | credential reached the server: $arrived; left-out tool refused: $refused (attempted: $attempted); sandbox saw a placeholder: $masked |" >> "$GITHUB_STEP_SUMMARY"
+            echo "$label: arrived=$arrived refused=$refused attempted=$attempted masked=$masked"
+            if [ "$arrived" != yes ] || [ "$refused" != yes ] || [ "$masked" != yes ]; then bad=1; fi
           done
           exit $bad
 
