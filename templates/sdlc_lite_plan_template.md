@@ -44,7 +44,7 @@ Depends On may also name another deliverable (`Phase 5, D11a`): that phase waits
 **Guidance:** [Optional — approach hints, key files/functions, non-obvious context that helps the executing agent]
 
 ### Gate G1: [production work between phases; delete when the plan touches no production]
-> Deploys, migrations on a shared database, restarts, backups and live checks happen only in gates, never in a phase. Gates don't count toward the 4-phase limit, and the last item is always a phase. Rules: `[sdlc-root]/process/production-gates.md`. With a release branch (`release.branch` in `.github/factory/factory.json`), a deploy is a release PR CD merges: partway through, a release gate (a gate with a `**Release:**` line); at the end, a `### Release` section with a `**Why:**` line.
+> Deploys, migrations on a shared database, restarts, backups and live checks happen only in gates, never in a phase. Gates don't count toward the 4-phase limit, and the last item is always a phase. Rules: `[sdlc-root]/process/production-gates.md`. In a factory project, production follows a release branch by default (`release.branch` in `.github/factory/factory.json`), and a deploy is a release PR CD merges: partway through, a release gate (a gate with a `**Release:**` line); at the end, a `### Release` section with a `**Why:**` line. With `release.branch` empty (the fallback), a deploy is a gate's operation.
 
 **After:** Phase 1. **Changes production:** yes | no (read-only).
 **Why here:** [why this happens between these phases]

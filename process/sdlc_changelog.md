@@ -37,6 +37,45 @@ Each entry contains:
 
 ---
 
+## 2026-11-06: Production deploys from a release branch by default
+
+**Origin:** CD (2026-11-06): "release/production deploys should be the primary way of deployments", then "yes all 3": the rules lead with it, new projects get it, and a Compose host's broker follows the branch (designed now, built when the incubator is un-parked).
+
+**What happened:** Since 2026-11-05 each project chose its own release model. The default, with `release.branch` empty, was execution-PR gates: the broker deploys an execution PR's head at a gate, before CD merges it. A project on Railway took the release branch, and release gates let a plan deploy partway through there too, so choosing it gave nothing up.
+
+**Changes made:**
+1. **`process/factory.md`:**
+   - **D4 rule 13** leads with the release branch as the model. Execution-PR gates become the fallback, for a production host that can't follow a branch yet. A `factory.json` with no `release` block is on the fallback, and migrating changes nothing for it.
+   - **A host that can't deploy a branch by itself** (a Compose host) follows it through its broker. This is designed, not built.
+     - **Trigger:** `factory-advance`, on a PR merged into the branch, dispatches `factory-follow.yml` on `main`. A `push` trigger would run the release branch's own copy of the workflow. CD can also dispatch it by hand, and it does nothing when the head is already deployed.
+     - **Approval:** no environment approval. CD's merge is the approval, and the broker reads it from GitHub.
+     - **What the broker checks:** the run, the release branch's provenance, that the head descends from the deployed commit, the ledger, and that no nightly backup is running.
+     - **What stays CD's:** the fallback's infrastructure refusal, since a Compose restart doesn't rebuild.
+     - **The deploy itself** follows rule 14's settings check and rule 15's evidence. It rolls back by itself to the recorded commit, never past a migration, and then blocks until CD reverts in the branch or records a `baseline`.
+     - **The record:** a ledger entry and a signed receipt posted on the merged PR.
+     - **Release gates** wait for the follow deploy under the broker's lock.
+     - **A missed dispatch** shows at the next gate.
+   - **Rule 2:** a deploy is a release PR, and gates hold what isn't a deploy, or the deploys too on the fallback.
+   - **Rules 10, 14 and Forbids 4** allow for `factory-follow.yml`.
+   - **Rule 16:** a release-branch project without a tier releases through a Release section, and its plans can have no gates, release gates included.
+   - **Enablement step 2** gains the release model. Create the branch at `main`'s tip, add its rulesets and point every production host at it, all before the first plan that releases. It also names the three cases: a host that follows a branch, nothing in production yet, and a Compose host, which sets `release.branch` to `""`.
+   - **Step 9** lists the two release rulesets first. Merge-commits-only on `main` becomes the fallback's requirement.
+2. **`bundles/factory/seed/factory.json`:** `release.branch` is `release/production`, and its note says why and how. Only that value and its `_doc` changed, and the file's layout is untouched.
+3. **`process/production-gates.md`, `skills/sdlc-plan`, `skills/sdlc-lite-plan` and both plan templates:** a factory project's production follows a release branch by default, and empty is the fallback. Without a production tier, a Release section still releases.
+4. **`bundles/factory/tree/bootstrap.py`:** a missing release branch's problem says how to fix it.
+5. **Tests:**
+   - `tests/test_bootstrap.py` starts from a project with no release block, whatever the project's own model is.
+   - `tests/test_release_model.py` (new) checks that a `factory.json` with no `release` block is the fallback for the guard, the rendered workflows and the release refusals. It also covers what a release-branch project without a production tier can do.
+   - The bundle's suite passes in an empty project with the new default (549 tests), and again with its `release` block removed, as an older project has it.
+
+**Installed projects:** nothing changes on migrating. A seed is never rewritten, and every reader of `release.branch` treats a missing block as the fallback. A project already on a release branch keeps it. A project on the fallback switches by setting `release.branch` and following Enablement step 2. A project on a Compose host stays on the fallback until its broker follows the branch.
+
+**Versioning:** a new default for new installs is a minor release under this repository's rules (v2.4.0). CD has chosen patches before, so it's CD's call.
+
+**Rationale:** CD's merge as the deploy is the simplest approval there is, and release gates already cover mid-plan deploys. So the model where no agent and no broker decides what deploys becomes the one every new project starts on. The broker deploying stays only where a host can't follow a branch, until its broker can.
+
+---
+
 ## 2026-11-06: Testing knowledge: run the mutant for every claimed protection
 
 **Origin:** Neuroloom's production broker reviews, passed upstream by its enablement session as knowledge feedback. Round 2 of its security audit found a test whose fixture made a moved check indistinguishable from the check in place. CD (2026-11-05): "do 1, 3, 4 and 7".

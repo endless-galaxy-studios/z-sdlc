@@ -562,7 +562,9 @@ class Bootstrap:
         restricted to bypass actors who are only organization or repository admins, in pull-request mode."""
         status, _ = self.api("GET", f"repos/{self.repo}/branches/{urllib.parse.quote(branch, safe='')}")
         if status != 200:
-            self.note("problem", "release branch", f"no branch {branch} (factory.json's release.branch)")
+            self.note("problem", "release branch", f"no branch {branch} (factory.json's release.branch): create it at "
+                      f"{self.default}'s tip and point production's hosts at it (Enablement step 2), or set release.branch "
+                      "to \"\" for the fallback, execution-PR gates (D4 rule 13)")
             return
         found, methods, problems = set(), None, []
         for full in self.covering_rulesets(f"refs/heads/{branch}"):

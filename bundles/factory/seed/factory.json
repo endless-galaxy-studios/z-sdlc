@@ -20,8 +20,8 @@
     "production": "factory-production"
   },
   "release": {
-    "_doc": "How production gets this project's code (process/factory.md, D4 rule 13). Empty branch: production runs an execution PR's head, deployed by the broker in a gate, before CD merges it. A branch (for example release/production): every host that serves production deploys that branch by itself, CD's merge of a PR into it is the deploy's approval, and a plan with a Release section gets a release PR into it, from the default branch, when CD merges the plan's execution PR (factory-release-pr.yml). Its ruleset needs a PR, code-owner review, no force push and no deletion.",
-    "branch": ""
+    "_doc": "How production gets this project's code (process/factory.md, D4 rule 13). The default, a release branch: every host that serves production deploys it, and CD's merge of a PR into it is the deploy. A release gate deploys partway through a plan, and a plan's Release section gets a release PR into it when CD merges the plan's execution PR (factory-release-pr.yml). Create it at main's tip, with its two rulesets, before the first plan that releases (Enablement steps 2 and 9). Empty is the fallback, for a production host that can't follow a branch yet: the broker deploys an execution PR's head in a gate, before CD merges it.",
+    "branch": "release/production"
   },
   "models": {
     "triage": {

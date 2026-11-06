@@ -1,6 +1,6 @@
 # Production Gates
 
-How a plan handles work that touches production: deploys, migrations on a shared database, restarts, backups, and checks against a live system. That work happens only in **gates**, stops between phases that CD approves. Phases never touch production.
+How a plan handles work that touches production: deploys, migrations on a shared database, restarts, backups, and checks against a live system. That work happens only in **gates**, stops between phases that CD approves. Phases never touch production. In a software factory project, production follows a release branch by default, and a deploy is a release PR CD merges (§ With a Release Branch).
 
 The rule exists so that production work is always visible, approved and reversible. In one project, a plan mixed a deploy into a phase ("Phase 3: code + Deploy step 1"), and nothing that runs plans unattended could tell which steps needed production.
 
@@ -73,7 +73,7 @@ Without a catalog, the runbook is the whole gate, and CD does it.
 
 ## With a Release Branch
 
-A project whose production follows a release branch (`factory.json`'s `release.branch`, `[sdlc-root]/process/factory.md` D4 rule 13) deploys only when CD merges a PR into that branch: every host serving production deploys it by itself. A plan there deploys in either of two ways, or both.
+In the software factory, production follows a release branch by default (`factory.json`'s `release.branch`, `release/production`; `[sdlc-root]/process/factory.md` D4 rule 13). It deploys only when CD merges a PR into that branch: every host serving production deploys it, by itself or, on a host that can't, through its broker following the branch (designed, not built yet). A plan there deploys in either of two ways, or both.
 
 **Partway through, in a release gate.** A gate with a `**Release:**` line deploys the work up to it. When execution reaches it, the factory pins that commit and opens a release PR from it into the release branch, and CD's merge is the deploy. The gate then checks production as any gate does, and the next phase starts once it's done:
 
@@ -108,7 +108,7 @@ A project whose production follows a release branch (`factory.json`'s `release.b
 
 The plan's PR shows the release. When CD merges the plan's execution PR, the factory opens a release PR from the default branch into the release branch, or comments on the one already open, and merging that PR is the deploy. It carries only what the plan's release gates haven't.
 
-The plan's other gates hold only what isn't a deploy (a backup, a live check). A release gate or a Release section in a project without a release branch is refused: there, a deploy is a gate's operation.
+The plan's other gates hold only what isn't a deploy (a backup, a live check). A release gate or a Release section in a project without a release branch (the fallback, `release.branch` empty, for a production host that can't follow a branch yet) is refused: there, a deploy is a gate's operation. A project without a production tier can have no gates at all, release gates included, since every gate's check runs through its broker. A Release section still releases there: CD's merge of its release PR is the deploy, and nothing in the factory checks production afterward.
 
 ## Red Flags
 

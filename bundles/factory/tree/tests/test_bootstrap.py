@@ -185,6 +185,9 @@ class Bootstrap(unittest.TestCase):
         workflows.mkdir()
         cfg = json.loads((FACTORY / "factory.json").read_text())
         cfg.update(FIXTURE_SETTINGS)  # a set-up project's own App, image and echo host, whatever this one's are
+        # No release block, as in a project that enabled the factory before the release branch existed: the fallback,
+        # whatever this project's own release model is. release_project() sets one.
+        cfg.pop("release", None)
         (factory / "factory.json").write_text(json.dumps(cfg))
         (factory / "planning.json").write_text(json.dumps({"database": {"host": "", "name": ""}}))
         (factory / "services.json").write_text(json.dumps({"services": []}))
