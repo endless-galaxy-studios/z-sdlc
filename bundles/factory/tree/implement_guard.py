@@ -134,15 +134,21 @@ def plan_gate_lines(plan_text, catalog_text, release_branch=""):
                           f"has no production tier ({CATALOG}), which every gate runs through, CD's included")
         return []
     catalog = gates.load_catalog(catalog_text)
+    # A release gate without a release branch first: the broker's own support (check_plan) comes after it.
+    try:
+        found = gates.parse_gates(plan_text)
+    except gates.Invalid:
+        found = []  # check_plan says why
+    for g in found:
+        if g["release"] and not release_branch:
+            raise Refused(f"{g['id']} is a release gate, but this project's production doesn't follow a release "
+                          "branch (factory.json's release.branch): there, a deploy is a gate's operation")
     errors = gates.check_plan(plan_text, catalog)
     if errors:
         raise Refused("the plan's production gates break the rules: " + "; ".join(errors)[:600])
     lines = []
     for g in gates.parse_gates(plan_text):
         if g["release"]:
-            if not release_branch:
-                raise Refused(f"{g['id']} is a release gate, but this project's production doesn't follow a release "
-                              "branch (factory.json's release.branch): there, a deploy is a gate's operation")
             checks = ", ".join(f"`{s['op']}`" for s in (g["block"] or {}).get("steps", []))
             lines.append(f"- **{g['id']}: {literal(g['title'])}.** A release: the factory opens a release PR into "
                          f"`{escape(release_branch)}` at this gate, and merging it deploys. The production runner then "

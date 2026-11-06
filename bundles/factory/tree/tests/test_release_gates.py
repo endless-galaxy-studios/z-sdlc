@@ -21,7 +21,7 @@ import gates  # noqa: E402
 import implement_guard as guard  # noqa: E402
 import render  # noqa: E402
 
-CATALOG_TEXT = json.dumps({"version": 1, "operations": {
+CATALOG_TEXT = json.dumps({"version": 1, "release_gates": True, "operations": {
     "health": {"kind": "read", "summary": "Production's health", "timeout_s": 60, "outputs": {"status": "^(ok|down)$"}},
     "deploy": {"kind": "change", "summary": "Deploy a commit", "timeout_s": 600, "params": {"sha": "^[0-9a-f]{40}$"},
                "outputs": {"previous_sha": "^[0-9a-f]{40}$"}},
@@ -323,6 +323,10 @@ FAKE_GH = textwrap.dedent("""\
         if path == os.environ.get("FAKE_GH_REFUSE"):
             print("gh: Reference already exists (HTTP 422)", file=sys.stderr)
             sys.exit(1)
+        if path.endswith("/git/refs") and fields.get("ref", "").startswith("refs/heads/"):
+            data = json.load(open(os.environ["FAKE_GH_FIXTURE"]))
+            data[path[: -len("refs")] + "ref/heads/" + fields["ref"][len("refs/heads/"):]] = {"object": {"sha": fields["sha"]}}
+            json.dump(data, open(os.environ["FAKE_GH_FIXTURE"], "w"))
         print("{}")
         sys.exit(0)
     data = json.load(open(os.environ["FAKE_GH_FIXTURE"]))
@@ -360,9 +364,14 @@ class FakeGhCase(unittest.TestCase):
         (factory / "factory.json").write_text(json.dumps(values))
         import yaml
         workflow = yaml.safe_load(render.render((FACTORY / "templates" / "factory-gate-request.yml").read_text(), values))
-        step = next(st for st in workflow["jobs"]["request"]["steps"] if st.get("name", "").startswith("Build the request"))
-        self.assertEqual(step["env"]["RELEASE_BRANCH"], "release/production")
-        (root / "step.sh").write_text(step["run"])
+        steps = workflow["jobs"]["request"]["steps"]
+        self.steps = {name: next(st for st in steps if st.get("name", "").startswith(name))
+                      for name in ("Find a release gate", "Pin the release gate", "Build the request")}
+        self.assertEqual(self.steps["Build the request"]["env"]["RELEASE_BRANCH"], "release/production")
+        for name, st in self.steps.items():
+            (root / f"{name.split()[0].lower()}.sh").write_text(st["run"])
+        self.runner_temp = root / "runner-temp"
+        self.runner_temp.mkdir()
         bin_dir = root / "bin"
         bin_dir.mkdir()
         (bin_dir / "gh").write_text(FAKE_GH)
@@ -370,7 +379,7 @@ class FakeGhCase(unittest.TestCase):
         self.log, self.fixture = root / "gh.log", root / "fixture.json"
         self.env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "FAKE_GH_LOG": str(self.log),
                     "FAKE_GH_FIXTURE": str(self.fixture), "PR": str(PR), "APP_ID": str(APP), "RUN_URL": "https://x/run",
-                    "GH_REPO": REPO, "GH_TOKEN": "read-token", "APP_TOKEN": "app-token", "PIN_TOKEN": "pin-token",
+                    "GH_REPO": REPO, "GH_TOKEN": "read-token", "APP_TOKEN": "app-token",
                     "RELEASE_BRANCH": "release/production", "REQUESTER": "", "STOPPED_HEAD": HEAD,
                     "DEFAULT_BRANCH": "main", "GITHUB_STEP_SUMMARY": str(root / "summary")}
         tracker = gates.marker(gates.TRACKER, {"v": 1, "issue": 7, "plan": PLAN_PATH, "stopped_at": "G3"})
@@ -386,18 +395,37 @@ class FakeGhCase(unittest.TestCase):
             f"repos/{REPO}/compare/release/production...{HEAD}": {"total_commits": 1, "commits": [
                 {"sha": HEAD, "commit": {"message": "The work"}}]},
             f"repos/{REPO}/compare/main...{HEAD}": {"commits": [{"sha": HEAD}]},
+            # The pinned branches' ruleset (factory/release/**), as GitHub lists the rules covering one.
+            f"repos/{REPO}/rules/branches/{self.PIN}": [{"type": "update"}, {"type": "non_fast_forward"},
+                                                         {"type": "deletion"}],
         }
         for status in ("waiting", "queued", "in_progress", "pending", "requested"):
             self.data[f"repos/{REPO}/actions/workflows/factory-gate.yml/runs?status={status}&per_page=100"] = {
                 "workflow_runs": []}
 
     def run_step(self):
+        """The job's three steps in order, as Actions runs them: the pin step only for a release gate, and only it
+        with the contents token."""
         self.log.write_text("")
         self.fixture.write_text(json.dumps(self.data))
-        r = subprocess.run(["bash", "-e", "-o", "pipefail", str(self.root / "step.sh")], cwd=self.root, env=self.env,
-                           capture_output=True, text=True)
-        calls = [json.loads(line) for line in self.log.read_text().splitlines()]
-        return r.returncode, calls, r.stderr
+        (self.runner_temp / "pin-result.txt").unlink(missing_ok=True)
+        output = self.root / "github-output"
+        output.write_text("")
+        env = {**self.env, "GITHUB_OUTPUT": str(output), "RUNNER_TEMP": str(self.runner_temp)}
+        def run(script, **more):
+            return subprocess.run(["bash", "-e", "-o", "pipefail", str(self.root / script)], cwd=self.root,
+                                  env={**env, **more}, capture_output=True, text=True)
+        calls = lambda: [json.loads(line) for line in self.log.read_text().splitlines()]
+        r = run("find.sh")
+        if r.returncode:
+            return r.returncode, calls(), r.stderr
+        self.outputs = dict(line.split("=", 1) for line in output.read_text().splitlines() if "=" in line)
+        if self.outputs.get("pin"):
+            r = run("pin.sh", PIN_TOKEN="pin-token", PIN=self.outputs["pin"], PIN_HEAD=self.outputs["head"])
+            if r.returncode:
+                return r.returncode, calls(), r.stderr
+        r = run("build.sh", PINNED=self.outputs.get("pin", ""))
+        return r.returncode, calls(), r.stderr
 
     def said(self, calls):
         return " ".join(c["fields"].get("body", "") for c in calls if c.get("path", "").endswith("/comments"))
@@ -445,6 +473,8 @@ class ReleaseGateRequest(FakeGhCase):
                     request = json.loads((self.root / "request.json").read_text())
                     self.assertEqual(request["kind"], kind)
                     self.assertNotIn("release", request)
+                    self.assertEqual(self.outputs.get("pin"), "")  # so no contents token is minted
+                    self.assertFalse([c for c in calls if c.get("token") == "pin-token"])
 
     def test_a_pinned_name_at_another_commit_is_never_used(self):
         self.data[f"repos/{REPO}/git/ref/heads/{self.PIN}"] = {"object": {"sha": "f" * 40}}
@@ -549,6 +579,47 @@ class ReleaseGateRequest(FakeGhCase):
         self.assertIn("GitHub refused the pinned branch", self.said(calls))
         self.assertFalse([c for c in calls if "call" in c])
 
+    def test_without_the_pinned_branches_ruleset_nothing_is_pinned(self):
+        # Without it the pinned branch could move after CD reviewed it, and CD would merge another commit.
+        for rules in ([], [{"type": "non_fast_forward"}, {"type": "deletion"}], None):
+            with self.subTest(rules=rules):
+                if rules is None:
+                    del self.data[f"repos/{REPO}/rules/branches/{self.PIN}"]  # GitHub didn't answer
+                else:
+                    self.data[f"repos/{REPO}/rules/branches/{self.PIN}"] = rules
+                code, calls, err = self.run_step()
+                self.assertEqual(code, 1)
+                self.assertIn("No release PR opened:", self.said(calls))
+                self.assertIn("no ruleset keeps" if rules is not None else "didn't say which rules", self.said(calls))
+                self.assertFalse([c for c in calls if c.get("path") == f"repos/{REPO}/git/refs" or "call" in c])
+
+    def test_a_broker_that_doesn_t_take_release_gates_pins_nothing(self):
+        catalog = json.loads(CATALOG_TEXT)
+        del catalog["release_gates"]
+        (self.root / ".github" / "factory" / "production" / "ops.json").write_text(json.dumps(catalog))
+        code, calls, err = self.run_step()
+        self.assertEqual(code, 1)
+        self.assertEqual(self.outputs["pin"], "")
+        self.assertIn("the production broker doesn't take release gates", self.said(calls))
+        self.assertFalse([c for c in calls if c.get("path") == f"repos/{REPO}/git/refs" or "call" in c])
+
+    def test_the_contents_token_is_the_pin_step_s_alone(self):
+        token_step = next(st for st in self.steps_all() if st.get("id") == "pin")
+        self.assertEqual(token_step["if"], "steps.release.outputs.pin != ''")
+        self.assertEqual(self.steps["Pin the release gate"]["if"], "steps.release.outputs.pin != ''")
+        for name in ("Find a release gate", "Build the request"):
+            self.assertNotIn("PIN_TOKEN", self.steps[name]["env"])
+            self.assertNotIn("steps.pin.", json.dumps(self.steps[name]))
+        code, calls, err = self.run_step()
+        self.assertEqual(code, 0, err)
+        self.assertEqual([c["path"] for c in calls if c.get("token") == "pin-token"], [f"repos/{REPO}/git/refs"])
+
+    def steps_all(self):
+        import yaml
+        values = render.settings(self.root / ".github" / "factory")
+        return yaml.safe_load(render.render((FACTORY / "templates" / "factory-gate-request.yml").read_text(),
+                                            values))["jobs"]["request"]["steps"]
+
     def test_the_release_pr_is_announced_before_the_cleanup(self):
         self.data[f"repos/{REPO}/pulls?state=open&base=release/production&per_page=100"] = [
             {"number": 40, "user": {"id": APP}, "head": {"ref": f"factory/release/{PR}-G3-{'f' * 12}",
@@ -634,6 +705,23 @@ class ReleaseMergeAndGateRun(FakeGhCase):
                                                       "DIGEST": forged["digest"]})
         self.assertNotEqual(code, 0)
         self.assertIn("isn't what the plan, the PR and the earlier results give now", out)
+
+class TheBrokerTakesReleaseGates(unittest.TestCase):
+    def test_check_plan_refuses_a_release_gate_the_broker_doesn_t_take(self):
+        self.assertEqual(gates.check_plan(PLAN, CATALOG), [])
+        for declared in (None, False):
+            with self.subTest(release_gates=declared):
+                catalog = json.loads(CATALOG_TEXT)
+                if declared is None:
+                    del catalog["release_gates"]
+                else:
+                    catalog["release_gates"] = declared
+                errors = gates.check_plan(PLAN, gates.load_catalog(json.dumps(catalog)))
+                self.assertEqual(len(errors), 1)
+                self.assertIn("G3: a release gate, but the production broker doesn't take release gates", errors[0])
+        with self.assertRaisesRegex(gates.Invalid, "release_gates must be true or false"):
+            gates.load_catalog(json.dumps({**json.loads(CATALOG_TEXT), "release_gates": "yes"}))
+
 
 class PlanPrBody(unittest.TestCase):
     def test_a_release_gate_needs_a_release_branch(self):

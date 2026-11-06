@@ -111,6 +111,8 @@ if [ "$kind" = stopped ]; then
   # text there is one escaped line after a fixed prefix), and the branch's last push, by GitHub's record of it,
   # is the App's push of the PR's head, from before that comment.
   [ -n "$next_gate" ] || { echo "::error::PR #$PR has no production gate left for a revision to stop before"; exit 1; }
+  # A gate ID and nothing else: it goes into later steps' JSON and comments.
+  [[ $next_gate =~ ^G[1-9][0-9]?$ ]] || { echo "::error::PR #$PR's next gate isn't a gate ID: ${next_gate:0:20}"; exit 1; }
   last=$(jq -sc --argjson app "$app_id" \
          '[.[] | select(.user.type == "Bot" and .user.id == $app and (.body | test("\\A<!-- factory-revise: [0-9]+ -->")))] | last' \
          "$RUNNER_TEMP/comments.ndjson")

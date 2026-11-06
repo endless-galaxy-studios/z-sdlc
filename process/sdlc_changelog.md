@@ -37,6 +37,47 @@ Each entry contains:
 
 ---
 
+## 2026-11-06: A release gate pins only for a broker that takes it, under its ruleset
+
+**Origin:** Neuroloom's review of its own v2.4.0 migration, passed upstream by its enablement session. CD (2026-11-06): "yes, build v2.4.1".
+
+**What happened:** Four gaps around release gates:
+1. Nothing asked whether the project's broker runs release gates' gate runs, which Neuroloom's doesn't yet. A plan with a release gate would still pin its commit and open the release PR. CD's merge would then deploy, the broker would refuse the gate run, and provenance would block later gates until a `baseline`.
+2. `factory-gate-request.yml` pinned without checking that the pinned branches' ruleset existed. Without it, the branch could move after CD reviewed it.
+3. The pin's contents token was minted on every gate request, release gate or not, and sat in the environment of the step that parses the PR, its comments and the plan.
+4. `factory-gate-stop.yml` puts the next gate's ID into JSON unchecked. It wasn't reachable: the ID comes from a reviewed plan's parsed gates.
+
+**Changes made:**
+1. **`bundles/factory/tree/gates.py`:** the catalog takes `release_gates`, true or false, which is the broker's own word that it runs kind `release`.
+   - `check_plan` refuses a release gate without it.
+   - The `release-gate` command refuses to name a pin for one, so nothing is pinned.
+2. **`bundles/factory/tree/implement_guard.py`:** a release gate without a release branch is still refused first, before the broker's support is checked.
+3. **`bundles/factory/tree/templates/factory-gate-request.yml`:** three steps before the request.
+   - **"Find a release gate's pinned branch"** holds only the read token and says nothing. It makes the request step's checks again: the requester's permission, and a head that hasn't moved.
+   - **The contents token** is minted only when there's a pin.
+   - **"Pin the release gate's commit"** holds only that token and the read token. It pins only where GitHub lists `update`, `non_fast_forward` and `deletion` covering the pin's name. It writes its outcome for the request step, which says it on the PR.
+   - **The request step** no longer holds the contents token, and refuses unless the pin exists at the gate's commit.
+4. **`bundles/factory/tree/revise_gate.sh`:** it outputs a gate ID matching `^G[1-9][0-9]?$`, or stops.
+5. **Tests:**
+   - `tests/test_release_gates.py` runs the job's three steps in order against the fake gh, which now records a created ref. New tests cover:
+     - no pin without the ruleset, or when GitHub doesn't answer;
+     - no pin for a broker that doesn't take release gates;
+     - the contents token used for the pin alone.
+   - `check_plan` refuses an undeclared or false `release_gates`, and `load_catalog` refuses a value that isn't true or false.
+   - `tests/test_revise_gate.py` checks the gate-ID guard comes before the output.
+   - The ruleset check and the declaration were each removed on purpose, and their tests failed.
+   - All 554 tests pass in a fresh install.
+6. **`process/factory.md`** D4 rules 3 and 13, and **`process/production-gates.md`** § With a Release Branch, say both refusals and the token's scope.
+
+**Installed projects:**
+- A broker that runs release gates adds `"release_gates": true` to its `production/ops.json`. Until it does, plans with release gates are refused, while a Release section at the end still releases.
+- The pinned branches' ruleset (`factory/release/**`) must exist before the first release gate. `bootstrap.py` already checks it.
+- `ops.json` is in the operations digest, so a production host re-runs its setup after adding the field.
+
+**Rationale:** A release gate deploys on CD's merge, so everything that has to hold afterwards is checked before the pin: that the broker can run the check, and that nothing can move the pinned commit.
+
+---
+
 ## 2026-11-06: The shared runner host's setup lives in a repository of its own
 
 **Origin:** CD (2026-11-06): "we should have a small repo for the host setup and settings". CD had asked why the shared runner tiers need an owner at all. Since v2.3.4 the runner setup runs the tier owner's own default branch, so a project that owns a shared tier holds back the host's upgrades for every project. The incubator, owner of the strict and planning tiers, was parked with the runner upgrade due.

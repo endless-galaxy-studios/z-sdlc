@@ -584,5 +584,14 @@ class Usage(unittest.TestCase):
         self.assertEqual(r.returncode, 2)
 
 
+
+class NextGateIsAGateId(unittest.TestCase):
+    def test_only_a_gate_id_is_output(self):
+        # factory-gate-stop.yml puts next_gate into JSON and comments, so revise_gate.sh outputs a gate ID or stops.
+        text = (FACTORY / "revise_gate.sh").read_text()
+        check = text.index("[[ $next_gate =~ ^G[1-9][0-9]?$ ]] || {")
+        self.assertLess(check, text.index('echo "next_gate=$next_gate"'))
+        self.assertLess(text.index('[ -n "$next_gate" ] || {'), check)
+
 if __name__ == "__main__":
     unittest.main()

@@ -95,6 +95,7 @@ In the software factory, production follows a release branch by default (`factor
 ```
 ````
 
+- **The project's broker must take release gates:** its catalog says `"release_gates": true`. Until it does, the plan guard refuses a release gate, so a plan whose later phases need production waits for the broker, or deploys at the end through a Release section.
 - **Its `gate-ops` block is optional** and holds only read operations, run after the deploy. It has no `rollback`: the broker can't deploy, so a failed release gate is CD's: rolled back through the host and a revert, or, after a migration, fixed forward.
 - **Merging deploys everything behind the gate's commit:** the default branch's commits the release branch doesn't have yet go too. The release PR lists them.
 

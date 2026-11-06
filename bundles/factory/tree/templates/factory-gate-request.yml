@@ -65,21 +65,89 @@ jobs:
           permission-issues: write
           permission-pull-requests: write
 
-      # Contents only: a release gate's pinned branch, created once (its ruleset lets nothing move it after).
+      # A release gate's pinned branch needs a contents token. It's minted only for a release gate, and used only in
+      # the step that pins: no step that parses the PR, its comments or the plan holds it.
+      - name: Find a release gate's pinned branch
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_BRANCH: "%{release.branch?}"
+          REQUESTER: ${{ inputs.requester }}
+          STOPPED_HEAD: ${{ inputs.head }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          # Says nothing: the request step below makes the same checks and says why it stops.
+          pin="" head=""
+          if [ -n "$RELEASE_BRANCH" ]; then
+            allowed=yes
+            if [ -n "$REQUESTER" ]; then
+              perm=$(gh api "repos/$GH_REPO/collaborators/$REQUESTER/permission" --jq .permission 2> /dev/null || echo none)
+              case "$perm" in admin|maintain|write) ;; *) allowed="" ;; esac
+            fi
+            gh api "repos/$GH_REPO/pulls/$PR" > pin-pr.json
+            head=$(jq -r .head.sha pin-pr.json)
+            if [ -n "$STOPPED_HEAD" ] && [ "$head" != "$STOPPED_HEAD" ]; then allowed=""; fi
+            if [ -n "$allowed" ]; then
+              gh api "repos/$GH_REPO/issues/$PR/comments" --paginate --jq '.[]' > pin-comments.ndjson
+              if plan=$(python3 -I .github/factory/gates.py plan-path --comments pin-comments.ndjson --app-id "$APP_ID" 2> /dev/null) &&
+                 gh api "repos/$GH_REPO/contents/$plan?ref=$DEFAULT_BRANCH" > pin-plan.json 2> /dev/null &&
+                 python3 -I .github/factory/gates.py release-gate --repo "$GH_REPO" --app-id "$APP_ID" \
+                   --factory-dir .github/factory --pr-json pin-pr.json --comments pin-comments.ndjson \
+                   --plan-meta pin-plan.json --out pin-gate.json > /dev/null 2>&1; then
+                pin=$(jq -r .pin pin-gate.json)
+              fi
+            fi
+          fi
+          # Only a pinned branch's own name and a commit SHA reach the next steps.
+          [[ $pin =~ ^factory/release/[0-9]+-G[1-9][0-9]?-[0-9a-f]{12}$ && $head =~ ^[0-9a-f]{40}$ ]] || pin=""
+          { echo "pin=$pin"; echo "head=${pin:+$head}"; } >> "$GITHUB_OUTPUT"
+
       - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         id: pin
+        if: steps.release.outputs.pin != ''
         with:
           client-id: ${{ vars.FACTORY_APP_CLIENT_ID }}
           private-key: ${{ secrets.FACTORY_APP_PRIVATE_KEY }}
           permission-contents: write
 
+      # The pin: created once, at the exact commit the factory checked, and only where a ruleset keeps it there (D4
+      # rule 13). Without one, the pinned branch could move after CD reviewed it, and CD would merge another commit.
+      # It writes its outcome for the request step, which says it on the PR: this step holds no token that comments.
+      - name: Pin the release gate's commit
+        if: steps.release.outputs.pin != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PIN_TOKEN: ${{ steps.pin.outputs.token }}
+          GH_REPO: ${{ github.repository }}
+          PIN: ${{ steps.release.outputs.pin }}
+          PIN_HEAD: ${{ steps.release.outputs.head }}
+        run: |
+          set -euo pipefail
+          result="$RUNNER_TEMP/pin-result.txt"
+          if ! rules=$(gh api "repos/$GH_REPO/rules/branches/$PIN" --jq '[.[].type]' 2> /dev/null); then
+            echo "GitHub didn't say which rules cover \`$PIN\`, so the factory can't tell it's kept from moving. Add \`factory:gate-retry\` to try again." > "$result"; exit 0
+          fi
+          missing=$(jq -rn --argjson have "$rules" '["update", "non_fast_forward", "deletion"] - $have | join(", ")')
+          if [ -n "$missing" ]; then
+            echo "no ruleset keeps \`$PIN\` from moving (rules missing: $missing). Add the pinned branches' ruleset (\`factory/release/**\`, process/factory.md Enablement step 9; \`bootstrap.py\` checks it), then add \`factory:gate-retry\`." > "$result"; exit 0
+          fi
+          if gh api "repos/$GH_REPO/git/ref/heads/$PIN" > /dev/null 2>&1; then
+            echo ok > "$result"; exit 0  # the request step checks its commit
+          fi
+          if ! GH_TOKEN="$PIN_TOKEN" gh api "repos/$GH_REPO/git/refs" -f ref="refs/heads/$PIN" -f sha="$PIN_HEAD" > /dev/null 2> pin.err; then
+            echo "GitHub refused the pinned branch \`$PIN\` ($(head -c 300 pin.err | tr '\n' ' ')). Add \`factory:gate-retry\` once that's resolved." > "$result"; exit 0
+          fi
+          echo ok > "$result"
+
       - name: Build the request and dispatch the gate run
         env:
           GH_TOKEN: ${{ github.token }}
           APP_TOKEN: ${{ steps.app.outputs.token }}
-          PIN_TOKEN: ${{ steps.pin.outputs.token }}
           GH_REPO: ${{ github.repository }}
           RELEASE_BRANCH: "%{release.branch?}"
+          PINNED: ${{ steps.release.outputs.pin }}
           REQUESTER: ${{ inputs.requester }}
           STOPPED_HEAD: ${{ inputs.head }}
           RELEASED: ${{ inputs.released }}
@@ -123,16 +191,21 @@ jobs:
             if [ -z "$RELEASE_BRANCH" ]; then
               say "No gate run started: $rgate is a release gate, but factory.json names no release branch (\`release.branch\`)."; exit 1
             fi
-            # The pin first: created once, at the exact commit the factory checked. A branch of that name at any
-            # other commit was made by something else, and is never used: CD deletes it with its ruleset off.
-            if at=$(gh api "repos/$GH_REPO/git/ref/heads/$pin" --jq .object.sha 2> /dev/null); then
-              if [ "$at" != "$head" ]; then
-                say "No gate run started: \`$pin\` already exists, at \`${at:0:12}\`, not the gate's commit \`${head:0:12}\`. The factory never uses a pinned branch it didn't create at its commit: delete it (with its ruleset off), then add \`factory:gate-retry\`."; exit 1
-              fi
-            else
-              if ! GH_TOKEN="$PIN_TOKEN" gh api "repos/$GH_REPO/git/refs" -f ref="refs/heads/$pin" -f sha="$head" > /dev/null 2> pin.err; then
-                say "No release PR opened: GitHub refused the pinned branch \`$pin\` ($(head -c 300 pin.err | tr '\n' ' ')). Add \`factory:gate-retry\` once that's resolved."; exit 1
-              fi
+            # The pin, from the step before, which created it once at the exact commit the factory checked, and only
+            # under its ruleset. A branch of that name at any other commit was made by something else, and is never
+            # used: CD deletes it with its ruleset off.
+            if [ "$PINNED" != "$pin" ]; then
+              say "No release PR opened: the pinning step saw a different gate. Add \`factory:gate-retry\` to try again."; exit 1
+            fi
+            why=$(cat "$RUNNER_TEMP/pin-result.txt" 2> /dev/null || echo "the pinning step didn't finish.")
+            if [ "$why" != ok ]; then
+              say "No release PR opened: $why"; exit 1
+            fi
+            if ! at=$(gh api "repos/$GH_REPO/git/ref/heads/$pin" --jq .object.sha 2> /dev/null); then
+              say "No release PR opened: the pinned branch \`$pin\` isn't there. Add \`factory:gate-retry\` to try again."; exit 1
+            fi
+            if [ "$at" != "$head" ]; then
+              say "No gate run started: \`$pin\` already exists, at \`${at:0:12}\`, not the gate's commit \`${head:0:12}\`. The factory never uses a pinned branch it didn't create at its commit: delete it (with its ruleset off), then add \`factory:gate-retry\`."; exit 1
             fi
             # Only the App's own release PRs from the pin, in this repository, at this commit: any other PR from a
             # branch of that name is someone else's, and merging it would deploy their code.

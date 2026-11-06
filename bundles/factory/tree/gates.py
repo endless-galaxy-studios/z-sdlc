@@ -108,7 +108,21 @@ def load_catalog(text):
             raise Invalid(f"catalog: {name}.requires must name operations in the catalog")
         if not isinstance(op.get("rollback_only", False), bool):
             raise Invalid(f"catalog: {name}.rollback_only must be true or false")
+    # The broker's own word that it runs release gates' gate runs (kind release, D4 rule 13). Without it a release
+    # gate would pin, open its release PR and deploy on CD's merge, and only then find the broker refusing its run.
+    if not isinstance(cat.get("release_gates", False), bool):
+        raise Invalid("catalog: release_gates must be true or false")
     return cat
+
+
+def takes_release_gates(catalog):
+    """Whether the project's broker runs release gates' gate runs (its catalog's `release_gates`)."""
+    return catalog.get("release_gates") is True
+
+
+RELEASE_GATES_REFUSED = ("a release gate, but the production broker doesn't take release gates (production/ops.json's "
+                         "release_gates isn't true): merging its release PR would deploy, then the broker would refuse "
+                         "its gate run")
 
 
 def ops_digest(files):
@@ -321,6 +335,8 @@ def check_plan(plan, catalog):
             outputs_of[g["id"]] = {}
             continue
         errors += check_block(g["id"], g["block"], catalog, outputs_of)
+        if g["release"] and not takes_release_gates(catalog):
+            errors.append(f"{g['id']}: {RELEASE_GATES_REFUSED}")
         if g["release"] and isinstance(g["block"], dict):
             # The release PR's merge is the deploy: the broker only checks production after it, and can't
             # deploy, so it can't roll a release back either (D4 rule 13).
@@ -916,6 +932,9 @@ def cli(argv):
         if gate_status(state, gate_id)[0] == "done":
             raise Invalid(f"{gate_id} is already done")
         if args.cmd == "release-gate":
+            # Nothing is pinned for a broker that would refuse the gate run after the release PR's merge.
+            if g["release"] and not takes_release_gates(catalog):
+                raise Invalid(f"{gate_id}: {RELEASE_GATES_REFUSED}")
             out(canonical({"gate": gate_id, "release": bool(g["release"]),
                            "pin": pin_branch(pr["number"], gate_id, head) if g["release"] else ""}))
             return 0
