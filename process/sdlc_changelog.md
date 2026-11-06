@@ -37,6 +37,33 @@ Each entry contains:
 
 ---
 
+## 2026-11-06: Receipts are signed in constant time, by OpenSSL
+
+**Origin:** Neuroloom's production broker reviews, passed upstream by its enablement session. CD (2026-11-05): "do 1, 3, 4 and 7".
+
+**What happened:** `ed25519.py` signed the broker's receipts in plain Python. Its scalar multiplication branches on the secret's bits, and its loop runs as long as the nonce is long. Its docstring accepted that "on a host where the signer is root", but an unprivileged local user can make the broker sign, since a refusal is signed too. Timing many signatures leaks nonce bits, and enough of those recover the key.
+
+**Changes made:**
+1. **`bundles/factory/tree/ed25519.py`:**
+   - `sign` and `public_key` run OpenSSL 3's Ed25519, which is constant-time. The key goes to OpenSSL as PKCS #8 DER on a pipe (`/dev/fd/<n>`), never in a file. The message, which is public, goes in a temp file, since a one-shot signature needs its input's size.
+   - Each signature must verify under the key's public half, which catches a key-format mistake. An empty message is refused: OpenSSL 3.0 to 3.5 can't sign one, and a receipt never is one.
+   - A host whose OpenSSL can't sign gets an error, such as an older OpenSSL or LibreSSL, which has no `-rawin`. Nothing falls back to plain Python.
+   - `verify` stays plain Python: it handles only public values, and it runs on GitHub's runners. The plain-Python signer stays as `_reference_sign`, for the tests.
+2. **`bundles/factory/tree/tests/test_ed25519.py`** (new):
+   - OpenSSL's output equals RFC 8032's test vectors and the reference signer's, byte for byte.
+   - With the secret's plain-Python expansion made to fail, signing still works, so it never runs.
+   - The secret is never written to a file.
+   - Without OpenSSL 3, or with LibreSSL's refusal, nothing is signed.
+   - A signature from another key is refused.
+
+   With the plain-Python signer put back, 4 of its tests fail. It passes against OpenSSL 3.0.2 (Ubuntu 22.04), 3.0.13 (Ubuntu 24.04), 3.0.22 (Debian 12), 3.5.7 (python:3.12-slim) and 4.0.3.
+
+**Installed projects:** each production host's broker signs with the host's `openssl`, so the host needs OpenSSL 3 (Debian 12 and Ubuntu 22.04 or later ship it), reachable on the broker's `PATH`. The broker's sandbox must let it run `openssl` and write a temp file. `ed25519.py` is in the operations digest, so the host re-runs its setup before its next gate. A developer machine that runs the projects' gate tests needs an OpenSSL 3 as well; macOS's own `/usr/bin/openssl` is LibreSSL, so install OpenSSL 3 (Homebrew's `openssl@3`), which the module also looks for.
+
+**Rationale:** The signer's time mustn't depend on the secret when someone who isn't root can ask for signatures. OpenSSL is on every Debian and Ubuntu host already, so no new dependency comes with the fix.
+
+---
+
 ## 2026-11-06: Gate values match whole, and a step that times out says so
 
 **Origin:** Neuroloom's production broker reviews, passed upstream by its enablement session. CD (2026-11-05): "do 1, 3, 4 and 7".

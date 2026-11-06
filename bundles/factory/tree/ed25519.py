@@ -1,13 +1,22 @@
-"""Ed25519 signatures (RFC 8032 § 5.1), in plain Python, for the production broker's receipts.
+"""Ed25519 signatures (RFC 8032 § 5.1) for the production broker's receipts.
 
 The broker signs each gate result with a root-only key on the host; the hosted report job and the
-continuing execution verify it with the public key committed at production/receipt.pub. Pure Python so
-the same code runs on the host, on GitHub's runners and in the tests, with no OpenSSL version to match.
-Slow (milliseconds per operation) and not constant-time: fine for one receipt per gate, on a host where
-the signer is root. Follows the RFC's reference implementation (§ 6).
+continuing execution verify it with the public key committed at production/receipt.pub.
+
+Verifying is plain Python, so it runs on the host, on GitHub's runners and in the tests with nothing to
+install: it handles only public values. Signing, and deriving the public key, handle the secret, and an
+unprivileged user on the host can make the broker sign (a refusal is signed too), so they never run the
+plain-Python scalar multiplication, whose time depends on the secret's bits: they run OpenSSL 3's, which is
+constant-time, with the key on a pipe and never in a file. A host without OpenSSL 3 fails loudly rather than
+sign another way. The plain-Python signer stays, as _reference_sign, for the tests to check OpenSSL's
+signatures against (Ed25519 is deterministic: the same key and message give the same bytes).
 """
 
 import hashlib
+import os
+import shutil
+import subprocess
+import tempfile
 
 P = 2 ** 255 - 19
 L = 2 ** 252 + 27742317777372353535851937790883648493
@@ -94,18 +103,82 @@ def _expand(secret):
     return a, h[32:]
 
 
-def public_key(secret):
+def _reference_public_key(secret):
+    """The RFC's reference derivation. Not constant-time: the tests' check, never the broker's signer."""
     a, _ = _expand(secret)
     return _compress(_mul(a, G))
 
 
-def sign(secret, message):
+def _reference_sign(secret, message):
+    """The RFC's reference signer. Not constant-time: the tests' check, never the broker's signer."""
     a, prefix = _expand(secret)
     pub = _compress(_mul(a, G))
     r = int.from_bytes(_sha512(prefix + message), "little") % L
     rs = _compress(_mul(r, G))
     h = int.from_bytes(_sha512(rs + pub + message), "little") % L
     return rs + int.to_bytes((r + h * a) % L, 32, "little")
+
+
+# A 32-byte Ed25519 secret as PKCS #8 DER, and the SubjectPublicKeyInfo DER a public key comes back in (RFC 8410).
+_PKCS8 = bytes.fromhex("302e020100300506032b657004220420")
+_SPKI = bytes.fromhex("302a300506032b6570032100")
+
+
+def _openssls():
+    """The openssl programs to try, in order: PATH's, then the usual places (one may be LibreSSL, which can't)."""
+    found = []
+    for exe in (shutil.which("openssl"), "/usr/bin/openssl", "/usr/local/bin/openssl", "/opt/homebrew/bin/openssl"):
+        if exe and exe not in found and os.path.isfile(exe) and os.access(exe, os.X_OK):
+            found.append(exe)
+    return found
+
+
+def _openssl(secret, args, data):
+    """Run openssl with the secret key as DER on a pipe it reads as /dev/fd/<n> ({key} in args), and the data
+    (public: the receipt) in a file of its own ({data}), since a one-shot signature needs its input's size:
+    stdout of the first openssl that can, or RuntimeError."""
+    if not isinstance(secret, (bytes, bytearray)) or len(secret) != 32:
+        raise ValueError("an Ed25519 secret key is 32 bytes")
+    tried = []
+    with tempfile.NamedTemporaryFile() as f:
+        f.write(data)
+        f.flush()
+        for exe in _openssls():
+            r, w = os.pipe()
+            try:
+                os.write(w, _PKCS8 + bytes(secret))
+                os.close(w)
+                w = None
+                p = subprocess.run([exe, *(a.replace("{key}", f"/dev/fd/{r}").replace("{data}", f.name) for a in args)],
+                                   stdin=subprocess.DEVNULL, capture_output=True, pass_fds=(r,), timeout=30)
+            finally:
+                os.close(r)
+                if w is not None:
+                    os.close(w)
+            if p.returncode == 0 and p.stdout:
+                return p.stdout
+            tried.append(f"{exe}: {(p.stderr.decode(errors='replace').strip().splitlines() or ['exit %d' % p.returncode])[0]}")
+    raise RuntimeError("no OpenSSL 3 to sign with in constant time (" + ("; ".join(tried) or "no openssl found")
+                       + "): install OpenSSL 3 (Debian and Ubuntu: the openssl package)")
+
+
+def public_key(secret):
+    out = _openssl(secret, ["pkey", "-inform", "DER", "-in", "{key}", "-pubout", "-outform", "DER"], b"")
+    if len(out) != 44 or not out.startswith(_SPKI):
+        raise RuntimeError("openssl returned no Ed25519 public key")
+    return out[12:]
+
+
+def sign(secret, message):
+    # OpenSSL 3.0 to 3.5 can't sign an empty message one-shot ("Could not allocate 0 bytes"); a receipt never is one.
+    if not message:
+        raise ValueError("sign: the message is empty (a receipt never is)")
+    sig = _openssl(secret, ["pkeyutl", "-sign", "-rawin", "-keyform", "DER", "-inkey", "{key}", "-in", "{data}"],
+                  bytes(message))
+    # A key-format mistake would sign with another key: the signature must verify under this key's public half.
+    if len(sig) != 64 or not verify(public_key(secret), bytes(message), sig):
+        raise RuntimeError("openssl's signature doesn't verify under the key's public half")
+    return sig
 
 
 def verify(public, message, signature):
