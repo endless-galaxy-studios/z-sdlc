@@ -37,6 +37,24 @@ Each entry contains:
 
 ---
 
+## 2026-11-06: Gate values match whole, and a step that times out says so
+
+**Origin:** Neuroloom's production broker reviews, passed upstream by its enablement session. CD (2026-11-05): "do 1, 3, 4 and 7".
+
+**What happened:** `gates.py` checked values with `re.match` and with compiled patterns' `.match`, all ending in `$`. `$` also matches just before a trailing newline, so `"<sha>\n"` passed as a commit, a digest, a plan path, a run title, a release branch, a plan's catalog parameter and a receipt's output, and the newline went on to whatever read the value next. The release gates' new branch check had the same flaw. Separately, a receipt's status had no `timed-out`, so a broker reported a step stopped at its catalog `timeout_s` as `failed`.
+
+**Changes made:**
+1. **`bundles/factory/tree/gates.py`:**
+   - Every value check uses `fullmatch`. Plan lines, which come from `splitlines`, keep their prefix patterns, and so does the comment marker, matched from `\A` to its own newline.
+   - `RECEIPT_STATUSES` takes `timed-out`. The tracker shows it as "timed out", and its result comment says what the step changed is unknown, so inspect production before `factory:gate-retry`. It isn't done, so execution doesn't continue, and later gates get no outputs from it.
+2. **`bundles/factory/tree/tests/test_gate_values.py`** (new): a trailing newline is refused in each value. Every fixture is one `.match` accepts and `.fullmatch` doesn't, so the test tells the fix from the flaw: with `.match` put back, 8 of its checks fail. A test also finds any value check left on `.match`. A timed-out receipt is checked, shown and not continued.
+
+**Installed projects:** `gates.py` changed, so a production host re-runs its setup before its next gate, as v2.3.3 already requires. A broker may now report `timed-out` for a step its catalog timeout stopped. One that doesn't still reports `failed`, as before.
+
+**Rationale:** A check that passes the value plus a newline isn't checking the value that gets used.
+
+---
+
 ## 2026-11-05: Runner setup runs root's own copy of the default branch, never the checkout
 
 **Origin:** Neuroloom's production broker reviews (its security audit, round 2), passed upstream by its enablement session. CD (2026-11-05): "do 1, 3, 4 and 7; use the deploy key".

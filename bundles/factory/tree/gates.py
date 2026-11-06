@@ -54,8 +54,9 @@ TITLE = re.compile(r"^factory-gate #([0-9]+) (G[1-9][0-9]?) a([0-9]+) (ops|cd|re
 GATE_RELEASE = re.compile(r"^\*\*Release:\*\*\s*(\S.*?)\s*$")
 BRANCH = re.compile(r"^[A-Za-z0-9._/-]{1,100}$")
 PIN = re.compile(r"^factory/release/([0-9]+)-(G[1-9][0-9]?)-([0-9a-f]{12})$")
-# A broker receipt's status. Only done lets execution continue. refused: nothing ran.
-RECEIPT_STATUSES = ("done", "failed", "rolled-back", "refused")
+# A broker receipt's status. Only done lets execution continue. refused: nothing ran. timed-out: a step ran past its
+# catalog timeout_s and was stopped, so what it changed is unknown.
+RECEIPT_STATUSES = ("done", "failed", "rolled-back", "refused", "timed-out")
 # A result the report job posts without a receipt: CD rejected the run, or the runner returned nothing.
 UNSIGNED_STATUSES = ("rejected", "error")
 # Unsigned results a PR may show: those, and a refusal the broker made before it read the request.
@@ -85,7 +86,7 @@ def load_catalog(text):
         raise Invalid("catalog needs an integer version and an operations object")
     ops = cat["operations"]
     for name, op in ops.items():
-        if not STEP_ID.match(name) or not isinstance(op, dict):
+        if not STEP_ID.fullmatch(name) or not isinstance(op, dict):
             raise Invalid(f"catalog: bad operation {name!r}")
         if op.get("kind") not in KINDS or not isinstance(op.get("summary"), str) or not op["summary"].strip():
             raise Invalid(f"catalog: {name} needs kind (read or change) and a summary")
@@ -96,7 +97,7 @@ def load_catalog(text):
             if not isinstance(fields, dict):
                 raise Invalid(f"catalog: {name}.{key} must be an object")
             for field, pattern in fields.items():
-                if not FIELD.match(field) or not isinstance(pattern, str) or not pattern.startswith("^") or not pattern.endswith("$"):
+                if not FIELD.fullmatch(field) or not isinstance(pattern, str) or not pattern.startswith("^") or not pattern.endswith("$"):
                     raise Invalid(f"catalog: {name}.{key}.{field} needs an anchored pattern")
                 try:
                     re.compile(pattern)
@@ -231,15 +232,15 @@ def _value_errors(where, value, pattern, outputs_of, step_ids, in_rollback):
     """Errors for one parameter value: a literal matching its pattern, or exactly one placeholder."""
     if not isinstance(value, str):
         return [f"{where}: values are strings"]
-    m = PLACEHOLDER.match(value)
+    m = PLACEHOLDER.fullmatch(value)
     if not m:
         if "${" in value:
             return [f"{where}: a placeholder must be the whole value"]
-        return [] if re.match(pattern, value) else [f"{where}: {value!r} doesn't match {pattern}"]
+        return [] if re.fullmatch(pattern, value) else [f"{where}: {value!r} doesn't match {pattern}"]
     ref = m.group(1)
     if ref == "head":
         return []
-    g = GATE_REF.match(ref)
+    g = GATE_REF.fullmatch(ref)
     if g:
         gate_id, step, field = g.groups()
         known = outputs_of.get(gate_id)
@@ -248,7 +249,7 @@ def _value_errors(where, value, pattern, outputs_of, step_ids, in_rollback):
         if field not in known.get(step, ()):
             return [f"{where}: ${{{ref}}}: {gate_id} has no step {step} with output {field}"]
         return []
-    s = STEP_REF.match(ref)
+    s = STEP_REF.fullmatch(ref)
     if s:
         if not in_rollback:
             return [f"{where}: ${{steps...}} is for rollback steps only"]
@@ -283,7 +284,7 @@ def check_block(gate_id, block, catalog, outputs_of):
             if op.get("rollback_only") and key == "steps":
                 errors.append(f"{where}: {name} may only run as a rollback step")
             sid = step.get("id", name)
-            if not isinstance(sid, str) or not STEP_ID.match(sid):
+            if not isinstance(sid, str) or not STEP_ID.fullmatch(sid):
                 errors.append(f"{where}: bad step id {sid!r}")
             elif key == "steps":
                 if sid in step_ids:
@@ -300,7 +301,7 @@ def check_block(gate_id, block, catalog, outputs_of):
                 continue
             for field, pattern in params.items():
                 errors += _value_errors(f"{where}.{field}", given[field], pattern, outputs_of, step_ids, key == "rollback")
-            if key == "rollback" and not any(STEP_REF.match((PLACEHOLDER.match(v) or [None, ""])[1] or "")
+            if key == "rollback" and not any(STEP_REF.fullmatch((PLACEHOLDER.fullmatch(v) or [None, ""])[1] or "")
                                              for v in given.values() if isinstance(v, str)):
                 # A rollback step runs only when the step it undoes was reached: it must name that
                 # step's output, which exists only once the step got that far.
@@ -345,7 +346,7 @@ def resolve(block, catalog, head, gate_outputs):
     """The block's steps and rollback with ${head} and ${G<n>.<step>.<field>} filled in.
     gate_outputs: {gate ID: {step id: {field: value}}} from earlier gates' results. ${steps...} stays
     for the broker to fill at run time. Every filled value must match its pattern."""
-    if not SHA.match(head or ""):
+    if not SHA.fullmatch(head or ""):
         raise Invalid(f"head isn't a commit SHA: {head!r}")
     ops = catalog["operations"]
 
@@ -353,22 +354,22 @@ def resolve(block, catalog, head, gate_outputs):
         op = ops[step["op"]]
         out = {"id": step.get("id", step["op"]), "op": step["op"], "with": {}}
         for field, value in step.get("with", {}).items():
-            m = PLACEHOLDER.match(value)
+            m = PLACEHOLDER.fullmatch(value)
             ref = m.group(1) if m else None
             if ref == "head":
                 value = head
-            elif ref and GATE_REF.match(ref):
-                gate_id, sid, f = GATE_REF.match(ref).groups()
+            elif ref and GATE_REF.fullmatch(ref):
+                gate_id, sid, f = GATE_REF.fullmatch(ref).groups()
                 try:
                     value = gate_outputs[gate_id][sid][f]
                 except KeyError:
                     raise Invalid(f"{step['op']}.{field}: no result for ${{{ref}}}") from None
-            elif ref and STEP_REF.match(ref) and in_rollback:
+            elif ref and STEP_REF.fullmatch(ref) and in_rollback:
                 out["with"][field] = value
                 continue
             elif ref:
                 raise Invalid(f"{step['op']}.{field}: unknown placeholder ${{{ref}}}")
-            if not isinstance(value, str) or not re.match(op["params"][field], value):
+            if not isinstance(value, str) or not re.fullmatch(op["params"][field], value):
                 raise Invalid(f"{step['op']}.{field}: {value!r} doesn't match {op['params'][field]}")
             out["with"][field] = value
         return out
@@ -386,7 +387,7 @@ def digest(request):
 
 def pin_branch(pr, gate_id, head):
     """The branch a release gate's commit is pinned on: one per PR, gate and commit."""
-    if not GATE_ID.match(gate_id or "") or not SHA.match(head or ""):
+    if not GATE_ID.fullmatch(gate_id or "") or not SHA.fullmatch(head or ""):
         raise Invalid(f"no pinned branch for {gate_id!r} at {head!r}")
     return f"factory/release/{int(pr)}-{gate_id}-{head[:12]}"
 
@@ -395,7 +396,7 @@ def release_binding(release_pr, *, repo, app_id, branch, pr, gate_id, head):
     """What a release gate's request binds: {branch, pr, merge}, from the release PR's record (GitHub's
     pulls API). The PR must be the App's, from the gate's pinned branch at the request's head, merged into the
     release branch. The broker checks it all again for itself, with who merged it."""
-    if not BRANCH.match(branch or "") or ".." in branch:
+    if not BRANCH.fullmatch(branch or "") or ".." in branch:
         raise Invalid(f"not a release branch: {branch!r}")
     pin = pin_branch(pr, gate_id, head)
     h, b = release_pr.get("head") or {}, release_pr.get("base") or {}
@@ -404,7 +405,7 @@ def release_binding(release_pr, *, repo, app_id, branch, pr, gate_id, head):
     if b.get("ref") != branch or (release_pr.get("user") or {}).get("id") != app_id:
         raise Invalid(f"release PR #{release_pr.get('number')} isn't the factory's into {branch}")
     merge = release_pr.get("merge_commit_sha") or ""
-    if release_pr.get("merged") is not True or not SHA.match(merge):
+    if release_pr.get("merged") is not True or not SHA.fullmatch(merge):
         raise Invalid(f"release PR #{release_pr.get('number')} isn't merged")
     return {"branch": branch, "pr": int(release_pr["number"]), "merge": merge}
 
@@ -415,24 +416,24 @@ def build_request(*, repo, issue, pr, plan, plan_blob, plan_text, gate_id, attem
     `cd` (no block: CD does the runbook, then approves to continue) or `release` (a release gate: its
     release PR is merged, and the broker checks production serves it, then runs the block's read steps).
     release: a release gate's binding (release_binding), required for one and refused for any other."""
-    if not PLAN_PATH.match(plan or ""):
+    if not PLAN_PATH.fullmatch(plan or ""):
         raise Invalid(f"not a plan path: {plan!r}")
-    if not SHA.match(plan_blob or ""):
+    if not SHA.fullmatch(plan_blob or ""):
         raise Invalid(f"plan_blob isn't a SHA: {plan_blob!r}")
-    if not DIGEST.match(ops_digest or ""):
+    if not DIGEST.fullmatch(ops_digest or ""):
         raise Invalid("ops_digest isn't a sha256")
     if not isinstance(attempt, int) or not 1 <= attempt <= 99:
         raise Invalid(f"attempt must be 1-99: {attempt!r}")
     g = gate(plan_text, gate_id)
     if g["release"]:
         if not isinstance(release, dict) or set(release) != {"branch", "pr", "merge"} \
-                or not BRANCH.match(str(release["branch"])) or not isinstance(release["pr"], int) \
-                or not SHA.match(str(release["merge"])):
+                or not BRANCH.fullmatch(str(release["branch"])) or not isinstance(release["pr"], int) \
+                or not SHA.fullmatch(str(release["merge"])):
             raise Invalid(f"{gate_id} is a release gate: its request needs its merged release PR")
         errors = check_plan(plan_text, catalog)
         if errors:
             raise Invalid("; ".join(errors))
-        if not SHA.match(head or ""):
+        if not SHA.fullmatch(head or ""):
             raise Invalid(f"head isn't a commit SHA: {head!r}")
         steps, rollback = resolve(g["block"], catalog, head, gate_outputs) if g["block"] else ([], [])
         kind = "release"
@@ -440,7 +441,7 @@ def build_request(*, repo, issue, pr, plan, plan_blob, plan_text, gate_id, attem
         raise Invalid(f"{gate_id} isn't a release gate")
     elif g["block"] is None:
         steps, rollback, kind = [], [], "cd"
-        if not SHA.match(head or ""):
+        if not SHA.fullmatch(head or ""):
             raise Invalid(f"head isn't a commit SHA: {head!r}")
     else:
         errors = check_plan(plan_text, catalog)
@@ -463,7 +464,7 @@ def run_title(request):
 
 
 def parse_title(title):
-    m = TITLE.match(title or "")
+    m = TITLE.fullmatch(title or "")
     if not m:
         raise Invalid(f"not a gate run title: {title!r}")
     pr, gate_id, attempt, kind, dig = m.groups()
@@ -504,7 +505,7 @@ def check_receipt(receipt, request, catalog):
         for r in ran:
             allowed = ops[r["op"]].get("outputs", {})
             for field, value in (r.get("outputs") or {}).items():
-                if field not in allowed or not isinstance(value, str) or not re.match(allowed[field], value):
+                if field not in allowed or not isinstance(value, str) or not re.fullmatch(allowed[field], value):
                     raise Invalid(f"the receipt's {r['op']}.{field} isn't an allowed output")
     if receipt["status"] == "done" and len(receipt.get("steps") or []) != len(request["steps"]):
         raise Invalid("a done receipt must cover every step")
@@ -594,7 +595,7 @@ def result_for(state, req):
 
 
 def gate_status(state, gate_id):
-    """(status, latest request entry) of one gate on this PR: done, failed, rolled-back, refused,
+    """(status, latest request entry) of one gate on this PR: done, failed, rolled-back, refused, timed-out,
     rejected, error, waiting (a request without a result), or not-started."""
     latest = None
     for entry in state["requests"]:
@@ -640,7 +641,7 @@ def render_tracker(tracker, plan_text, state):
              "| Gate | What | Kind | Status |", "|---|---|---|---|"]
     labels = {"done": "done", "waiting": "**awaiting your approval**", "not-started": "not reached",
               "failed": "failed", "rolled-back": "failed, rolled back", "refused": "refused (nothing ran)",
-              "rejected": "rejected"}
+              "timed-out": "timed out", "rejected": "rejected"}
     for g in parse_gates(plan_text):
         status, entry = gate_status(state, g["id"])
         if status == "not-started" and tracker.get("stopped_at") == g["id"]:
@@ -747,7 +748,8 @@ def render_result(payload, request, run_url):
     rec = payload if payload.get("unsigned") else payload["receipt"]
     status = rec["status"]
     words = {"done": "done", "failed": "**failed**", "rolled-back": "**failed and rolled back**",
-             "refused": "**refused: nothing ran**", "rejected": "**rejected**"}.get(status, status)
+             "refused": "**refused: nothing ran**", "timed-out": "**timed out**",
+             "rejected": "**rejected**"}.get(status, status)
     lines = [marker(RESULT, payload).rstrip("\n"), "",
              f"### Gate {request['gate']} (attempt {request['attempt']}): {words}", ""]
     if rec.get("reason"):
@@ -774,6 +776,10 @@ def render_result(payload, request, run_url):
     elif status == "error":
         lines.append("Re-run this run's failed jobs and approve again: if the gate finished on the host, its recorded "
                      "result comes back without running anything; if it was interrupted, the broker says how to resolve it.")
+    elif status == "timed-out":
+        lines.append("A step ran past its timeout and was stopped, so what it changed is unknown. Inspect production "
+                     "first; then, to try again, add `factory:gate-retry` to this PR. To fix the code first, request "
+                     "changes; to stop, close the PR.")
     elif status == "refused" and "interrupted" in (rec.get("reason") or ""):
         lines.append("An earlier gate run was interrupted, so its outcome is unknown. Inspect production, then "
                      "resolve it on the host (`sudo factory-op resolve`), and add `factory:gate-retry` here.")
@@ -797,7 +803,7 @@ def _context(args):
     catalog = load_catalog((factory / "production" / "ops.json").read_text())
     public = (factory / "production" / "receipt.pub").read_text().strip()
     pr = json.loads(pathlib.Path(args.pr_json).read_text())
-    m = re.match(r"^factory/([0-9]+)-impl$", (pr.get("head") or {}).get("ref", ""))
+    m = re.fullmatch(r"^factory/([0-9]+)-impl$", (pr.get("head") or {}).get("ref", ""))
     if not m or pr.get("state") != "open" or (pr.get("user") or {}).get("id") != args.app_id \
             or (pr.get("head") or {}).get("repo", {}).get("full_name") != args.repo:
         raise Invalid(f"PR #{pr.get('number')} isn't an open factory execution PR")
@@ -868,7 +874,7 @@ def cli(argv):
             parsed = parse_marker(c.get("body"))
             if (c.get("user") or {}).get("id") == args.app_id and parsed and parsed[0] == TRACKER:
                 gate_id = parsed[1].get("stopped_at") or ""
-                print(gate_id if GATE_ID.match(gate_id) else "")
+                print(gate_id if GATE_ID.fullmatch(gate_id) else "")
                 return 0
         print("")
         return 0
@@ -878,7 +884,7 @@ def cli(argv):
             parsed = parse_marker(c.get("body"))
             if (c.get("user") or {}).get("id") == args.app_id and parsed and parsed[0] == TRACKER:
                 plan = parsed[1].get("plan", "")
-                if PLAN_PATH.match(plan):
+                if PLAN_PATH.fullmatch(plan):
                     print(plan)
                     return 0
         raise Invalid("no gate tracker naming a plan on this PR")
@@ -891,7 +897,7 @@ def cli(argv):
         if args.stopped_at is not None:
             tracker["stopped_at"] = args.stopped_at
         tracker.setdefault("stopped_at", "")
-        if not PLAN_PATH.match(tracker.get("plan", "")) or (tracker["stopped_at"] and not GATE_ID.match(tracker["stopped_at"])):
+        if not PLAN_PATH.fullmatch(tracker.get("plan", "")) or (tracker["stopped_at"] and not GATE_ID.fullmatch(tracker["stopped_at"])):
             raise Invalid("the tracker needs a plan path and, if stopped, a gate ID")
         _, plan_text = _plan(args)
         out(render_tracker(tracker, plan_text, state))
