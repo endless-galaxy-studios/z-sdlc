@@ -1,7 +1,7 @@
 # Testing Paradigm — Code Structure & Test Type Selection
 # The "grug brain" approach: structure code so tests are obvious and mocks are unnecessary.
 # Source: https://grugbrain.dev/ + practical experience
-# Last updated: 2026-10-23
+# Last updated: 2026-11-06
 
 id: testing-paradigm
 name: "Testing Paradigm"
@@ -15,7 +15,7 @@ spec_relevant: false
 project_applicability:
   relevant_when: "Always relevant — all projects test"
   action_if_irrelevant: keep
-last_updated: 2026-10-23
+last_updated: 2026-11-06
 
 # ─────────────────────────────────────────────
 # Functional Core, Imperative Shell
@@ -228,6 +228,39 @@ two_edit_check:
     Drive the code through the interface its users use, with a concrete input. Derive
     the expected value from the requirement, not from a run of the code. Assert what
     the contract promises, no less and no more.
+
+# ─────────────────────────────────────────────
+# Test Quality — Run the Mutant for Every Claimed Protection
+# ─────────────────────────────────────────────
+
+protection_mutants:
+  rule: >
+    For every protection a test claims to prove (a check, a refusal, a guard, an
+    isolation), make the mutant and run it: remove the protection, weaken it, or move it
+    to where it runs too late. The test must fail on each mutant. Imagining the edit, as
+    two_edit_check does, isn't enough here: the test is the only evidence the protection
+    exists.
+  why: >
+    A missing protection fails silently. A test whose fixture the mutant handles the same
+    way passes with or without the protection, and the claim it backs is false. A
+    security audit of a production broker found one: the fixture's state made a check
+    moved to after the action look the same as the check in place.
+  the_fixture_must_tell_them_apart: >
+    Pick an input the unprotected code mishandles. For a pattern check, a value the loose
+    form accepts and the strict form refuses: re.match(r"^[0-9a-f]{40}$", sha + "\n")
+    passes and re.fullmatch doesn't. For an ordering check, state that differs before and
+    after the action. Assert that property of the fixture too, so a later edit can't
+    quietly make it harmless.
+  how: >
+    Keep the mutant in the test when it's cheap: build the mutated copy (a string replace
+    on the function's source, a patched helper or module), run the same check, and assert
+    that it now fails. Otherwise run the mutant once by hand and say so in the commit.
+  example: >
+    A setup script that runs as root stages files from its own git clone with replace
+    objects turned off. Its test plants a replace ref in the clone and asserts the staged
+    file is the original. Then it runs a copy of the stager without GIT_NO_REPLACE_OBJECTS
+    and asserts that copy stages the replacement, so the fixture tells the protection
+    from its absence.
 
 # ─────────────────────────────────────────────
 # When to Write Tests

@@ -37,6 +37,23 @@ Each entry contains:
 
 ---
 
+## 2026-11-06: Testing knowledge: run the mutant for every claimed protection
+
+**Origin:** Neuroloom's production broker reviews, passed upstream by its enablement session as knowledge feedback. Round 2 of its security audit found a test whose fixture made a moved check indistinguishable from the check in place. CD (2026-11-05): "do 1, 3, 4 and 7".
+
+**What happened:** `two_edit_check` asks for a test to be judged by imagining a breaking edit. For a protection, such as a check, a refusal, a guard or an isolation, imagining the edit wasn't enough. The test passed with the protection moved, and nothing showed it.
+
+**Changes made:**
+1. **`knowledge/testing/testing-paradigm.yaml`:** a new entry, `protection_mutants`, beside `two_edit_check`.
+   - For every protection a test claims, make the mutant (removed, weakened, moved too late) and run it, and the test must fail.
+   - The fixture must be an input the unprotected code mishandles, and the test asserts that property too.
+   - Keep the mutant in the test when it's cheap; otherwise run it once by hand and say so in the commit.
+   - Its example is the root setup's replace-ref test from this release.
+
+**Rationale:** A missing protection fails silently, so the test is the only evidence it exists, and it's evidence only when the test fails without it. The other three fixes in this batch apply it: `test_host_setup.py`, `test_gate_values.py` and `test_ed25519.py` each run the broken copy and show it fails.
+
+---
+
 ## 2026-11-06: Receipts are signed in constant time, by OpenSSL
 
 **Origin:** Neuroloom's production broker reviews, passed upstream by its enablement session. CD (2026-11-05): "do 1, 3, 4 and 7".
