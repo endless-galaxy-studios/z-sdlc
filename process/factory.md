@@ -649,7 +649,32 @@ needs an organization owner's `gh` login (`admin:org`) for the runner groups and
    would re-cap or re-label a tier it doesn't own. The record is made only when the operator names
    the repository and the tier, so the first checkout to run doesn't claim a tier by default: the
    first run for a tier is `sudo TIER=<tier> TIER_OWNER=<owner>/<repository> bash
-   .github/factory/host/setup.sh`, from that repository's checkout. Each tier's firewall table is loaded again whenever
+   .github/factory/host/setup.sh`, from that repository's checkout.
+
+   **The shared host's own repository** (CD, 2026-11-06). The strict and planning tiers serve every
+   project in the organization, so their setup and settings live in a repository of their own, never
+   a project's, and that repository owns them. It holds:
+   - `.github/factory/host/`;
+   - a minimal `.github/factory/factory.json` with only the runner labels and groups setup reads
+     (`runners.strict`, `runners.planning`, `runners.ci` and `runners.groups`);
+   - the host's committed `host.conf`.
+
+   A tier's owner is only the source of the host's settings. But setup runs the owner's own default
+   branch, so a project that owned a shared tier would hold back the host's upgrades for every project
+   until it migrated. The CI tier is the exception: the project whose CI it runs owns it, because its
+   job image is built from that project's toolchain (`factory.json`'s `ci` block). The host repository:
+   - **runs nothing:** it's in no runner group and runs no workflows, with Actions off;
+   - **has the organization's strongest protection on its default branch,** since whoever can merge
+     there gets root on the runner host at the next setup run: a PR with code-owner review, updates
+     restricted to admins in pull-request bypass mode, and no force push or deletion;
+   - **takes each z-sdlc release** by copying the bundle's `host/` files at the release's tag, never
+     `host.conf`. Its tiers' setup then runs again from a fresh clone of it.
+
+   A new project in an organization that already has a host needs nothing here. To move a tier to
+   another owner, remove its record (`/etc/factory-runner/tiers/<unit>`), then claim it again with
+   `TIER_OWNER`, from a fresh clone of the new owner.
+
+   Each tier's firewall table is loaded again whenever
    `nftables.service` starts or reloads, since its stock ruleset begins with `flush ruleset`, and after it stops,
    since its stock `ExecStop` flushes it. On a host running Tailscale, each runner user is denied
    `/run/tailscale` by an ACL that `tailscaled` reapplies on every start: its local API dials tailnet peers as
@@ -657,8 +682,10 @@ needs an organization owner's `gh` login (`admin:org`) for the runner groups and
    LAN's global prefix would otherwise be reachable), and the isolation test probes IPv6 too. Runners
    never update themselves (`--disableupdate`): they stay at `setup.sh`'s `RUNNER_VERSION`, whose
    checksum it verifies. z-sdlc bumps it within 30 days of each actions/runner release, because GitHub
-   stops sending jobs to older runners. After the migration that brings a bump, run each tier's setup
-   again from its checkout: it upgrades each idle runner in place. Put `RUNNER_HOME_BASE` where root
+   stops sending jobs to older runners. After the release that brings a bump reaches each tier's owner
+   (the host repository's copy of `host/` for the shared tiers, a migration for the CI tier's
+   project), run that tier's setup again from a fresh clone of the owner: it upgrades each idle runner
+   in place. Put `RUNNER_HOME_BASE` where root
    owns every directory from it up to `/`, writable by no one else: whoever owns or can write a
    directory above a runner's home can move the home aside and put another in its place. Setup warns
    when that isn't so (a base under a person's own directory works, but trusts that person).

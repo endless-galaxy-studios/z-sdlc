@@ -37,6 +37,29 @@ Each entry contains:
 
 ---
 
+## 2026-11-06: The shared runner host's setup lives in a repository of its own
+
+**Origin:** CD (2026-11-06): "we should have a small repo for the host setup and settings". CD had asked why the shared runner tiers need an owner at all. Since v2.3.4 the runner setup runs the tier owner's own default branch, so a project that owns a shared tier holds back the host's upgrades for every project. The incubator, owner of the strict and planning tiers, was parked with the runner upgrade due.
+
+**What happened:** The runners are shared by every project, but the host's setup script and settings were only in project repositories, so one project per tier was designated as their source (v2.1.0). That was bookkeeping until v2.3.4 made setup run the owner's default branch.
+
+**Changes made:**
+1. **`process/factory.md`** Enablement step 8, the shared host's own repository:
+   - **What it holds:** `.github/factory/host/`, a minimal `factory.json` with the runner labels and groups setup reads, and the host's committed `host.conf`.
+   - **What it owns:** the strict and planning tiers. A project never owns a shared tier. The CI tier stays its project's, because its job image is built from that project's toolchain.
+   - **What it runs:** nothing. It's in no runner group, with Actions off.
+   - **Its protection:** the organization's strongest on its default branch, since a merge there is root on the runner host at the next setup run.
+   - **How it takes a release:** by copying the bundle's `host/` files at each release's tag, never `host.conf`.
+   - **Moving a tier:** remove its record, then claim it again with `TIER_OWNER` from a fresh clone of the new owner.
+   - The runner-upgrade paragraph says each tier's setup runs again once the release reaches its owner.
+2. **`bundles/factory/tree/host/setup.sh`** (its header) and **`bundles/factory/seed/host/host.conf`** (its header): say the same in a line each.
+
+**Installed projects:** nothing changes until a host's operator moves its shared tiers to the host's repository: remove each tier's record, then run setup once with `TIER_OWNER` from a fresh clone of it. Its first run prints that repository's deploy key to add.
+
+**Rationale:** The shared tiers belong to the organization, not to any project. Their setup should move at the framework's pace, not wait for whichever product happened to set them up first.
+
+---
+
 ## 2026-11-06: Production deploys from a release branch by default
 
 **Origin:** CD (2026-11-06): "release/production deploys should be the primary way of deployments", then "yes all 3": the rules lead with it, new projects get it, and a Compose host's broker follows the branch (designed now, built when the incubator is un-parked).

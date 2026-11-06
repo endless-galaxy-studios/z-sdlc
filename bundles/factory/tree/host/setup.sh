@@ -36,6 +36,9 @@
 #   bash setup.sh --print-settings              (show the resolved settings and stop; never as root)
 # The first run for a tier (every tier, strict too) names it and the repository whose default branch sets it up:
 #   sudo TIER=<strict|planning|ci> TIER_OWNER=<owner>/<repository> bash setup.sh
+# The shared tiers (strict, planning) belong to a repository of their own that holds only the host's setup and
+# settings, never to a project; the CI tier belongs to the project whose CI it runs (process/factory.md, Enablement
+# step 8).
 # Idempotent: safe to re-run. Runner registration happens only when a registration token file exists
 # (default: <this dir>/reg-token, mode 600). One token registers every new instance (it stays valid for
 # an hour); the file is deleted after use.
