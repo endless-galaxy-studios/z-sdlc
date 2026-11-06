@@ -37,6 +37,46 @@ Each entry contains:
 
 ---
 
+## 2026-11-05: Runner setup runs root's own copy of the default branch, never the checkout
+
+**Origin:** Neuroloom's production broker reviews (its security audit, round 2), passed upstream by its enablement session. CD (2026-11-05): "do 1, 3, 4 and 7; use the deploy key".
+
+**What happened:** The audit found that a root setup script trusting a user-owned checkout gives that user root. The user is also the agent sessions' login. A replace ref (`git replace <blob> <evil>`) leaves `git status`, `ls-files -v` and the tip comparison clean while `git show` returns the evil bytes, and `url.insteadOf` and `objects/info/alternates` are other routes. The bundle's runner setup was worse than the script the audit read. Run as root from the tier owner's checkout, it sourced the checkout's `host.conf` and ran its helpers, `setup-ci.sh` included, with no check at all. It also took the tier's repository from the checkout's `origin` remote, and copied the CI tier's build context from the working tree.
+
+**Changes made:**
+1. **`bundles/factory/tree/host/setup.sh`:** two stages, after Neuroloom's fix.
+   - **The bootstrap** runs from the checkout and reads nothing there but `host.conf`'s `RUNNER_INSTANCE`, as text, and the registration token. It:
+     - takes the tier's repository from its root-owned record, or from `TIER_OWNER` on the first run;
+     - fetches that repository's default branch, as GitHub names it, into a root-owned clone. The fetch uses root's own read-only deploy key, one per repository at `/etc/factory-runner/deploy-keys/<owner>/<repository>`, GitHub's host keys from its API, and a git with no system or global config, no replace objects and literal pathspecs. The first run prints the key and stops.
+     - stages every file setup reads from that clone, each checked against the blob id its tree names;
+     - refuses a checkout whose `setup.sh` or `host.conf` isn't the default branch's;
+     - takes the host's setup lock before the fetch;
+     - copies the token after checking it on one open file: no link, owned by root or the sudo user, mode 0600, only a token;
+     - re-executes the staged copy with a clean environment and the operator's settings by name.
+   - **The staged copy** checks it is the bootstrap's (a root-only stage, root's clone at the tip it names, the lock held). It checks the default branch's `host.conf` sets the instance the bootstrap read. It claims the tier for the repository root fetched, never the checkout's remote.
+   - `--print-settings` is refused as root, since it would source the checkout's `host.conf`. The header states the residual: the bootstrap is still the checkout's script, so run setup from a checkout no agent session can write.
+2. **`bundles/factory/tree/host/setup-ci.sh`:** the CI job image's context and Dockerfile are staged from root's clone at the same tip, with links kept as links, not copied from the checkout.
+3. **`bundles/factory/tree/tests/test_host_setup.py`:** the claim reads the fetched repository, and a new `RootsOwnCopy` class covers:
+   - the default branch;
+   - the fetch;
+   - a replace ref;
+   - a loose object whose bytes don't hash to its id;
+   - file and directory staging;
+   - the token file;
+   - reading the instance;
+   - the tier's repository;
+   - the bootstrap's order.
+
+   Each protection is also broken on purpose and the broken copy shown to fail the same check: `clean_git` without `env -i`, the stager without `GIT_NO_REPLACE_OBJECTS`, and the stager without the hash check. The bootstrap also ran as root in an Ubuntu 24.04 container against a local stand-in for GitHub: all 24 checks passed, including a replace ref plus an assume-unchanged working file in the agent's checkout, which the staged run ignored.
+4. **`bundles/factory/seed/host/host.conf`:** its header says setup runs the default branch's copy, and to write `RUNNER_INSTANCE` plainly.
+5. **`process/factory.md`** Enablement step 8: commit `host.conf` to `main`. Root never runs the checkout's files. Add the printed deploy key, then run again. The residual. Each tier has a designated repository rather than a checkout.
+
+**Installed projects:** the next setup run on each runner host prints a deploy key per repository that owns a tier. Add it to that repository (Settings, Deploy keys, write access off) and run setup again. A `host.conf` with uncommitted settings is refused until they are committed to the default branch. The incubator's own production setup (`setup-production.sh`, the incubator's code, not the bundle's) has the same flaw and is parked with the rest of the incubator work (CD, 2026-11-05).
+
+**Rationale:** Root can't learn from the checkout what the checkout's owner can change, so it gets the code itself: from GitHub, with its own key, through a git that ignores everyone's config. What it can't get that way, the bootstrap script, is kept short and named as the residual it is.
+
+---
+
 ## 2026-11-05: A plan can deploy partway through, in a release gate
 
 **Origin:** CD (2026-11-05): "i need any project able to execute deploys mid-work as part of plans. gating to release/production shouldn't stop work that needs to execute that way". The release-branch model in v2.3.3 forbade it: "A plan never deploys mid-execution", and work that needed production between its own phases had to be split into two deliverables. Neuroloom's enablement and broker sessions reviewed the design; their security audit's provenance rule and ruleset checks are folded in.

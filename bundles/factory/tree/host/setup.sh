@@ -28,28 +28,345 @@
 # (factory-runner-acme, factory-planner-acme), firewall tables, services and runners, isolated from the
 # others' as from the host. Setup refuses to touch runners registered to another organization.
 #
-# This host's settings are host.conf beside this script (each has a default; see the file). Run from a
-# checkout of the project's default branch, as root:
+# This host's settings are host.conf beside this script, committed to the default branch (each has a default; see
+# the file). Run as root, from a checkout of that repository:
 #   sudo bash setup.sh                          (strict tier)
 #   sudo TIER=planning bash setup.sh            (planning tier)
 #   sudo TIER=ci bash setup.sh                  (CI tier)
-#   bash setup.sh --print-settings              (show the resolved settings and stop; no root needed)
-# The first run for a tier (every tier, strict too) names it and the repository whose checkout owns it, which must be
-# this one's:
+#   bash setup.sh --print-settings              (show the resolved settings and stop; never as root)
+# The first run for a tier (every tier, strict too) names it and the repository whose default branch sets it up:
 #   sudo TIER=<strict|planning|ci> TIER_OWNER=<owner>/<repository> bash setup.sh
 # Idempotent: safe to re-run. Runner registration happens only when a registration token file exists
 # (default: <this dir>/reg-token, mode 600). One token registers every new instance (it stays valid for
 # an hour); the file is deleted after use.
+#
+# WHAT ROOT RUNS. Nothing in the checkout is trusted for content: its owner, and any agent session running as that
+# login, can change its files, its git metadata and its config (a replace ref makes `git show` return other bytes
+# than the commit holds while every check of the same copy stays clean). So setup runs in two stages:
+#   BOOTSTRAP (from the checkout; as short as it can be, and it ends in exec or die): reads the tier's repository from
+#     its root-owned record (/etc/factory-runner/tiers/<unit>), or from TIER_OWNER on its first run, never from the
+#     checkout's remote; fetches that repository's default branch into a root-owned clone with root's own read-only
+#     deploy key and a git that reads no config and no replace refs (the first run prints the key to add, and stops);
+#     stages every file setup reads from that clone, each checked against the blob id its tree names; refuses a
+#     checkout whose setup.sh or host.conf isn't the default branch's; then re-executes the staged copy, with a clean
+#     environment.
+#   STAGED COPY (everything with an effect): reads only the staged files and root's clone, and nothing from the
+#     checkout but the registration token, which the bootstrap checked and copied.
+# RESIDUAL. The bootstrap itself is the checkout's script: whoever can change that file before you run it gets root.
+# Run setup from a checkout no agent session can write, such as a fresh clone made just before by a login no agent
+# session uses.
 set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+
+log() { printf '\n==> %s\n' "$*"; }
+die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
+
+# ---- what root trusts: its own fetch of the default branch (WHAT ROOT RUNS, above) --------------------------------
+SETUP_PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+TIERS_DIR=/etc/factory-runner/tiers
+KEYS_DIR=/etc/factory-runner/deploy-keys
+KNOWN_HOSTS=/etc/factory-runner/github-known-hosts
+CLONES_DIR=/var/lib/factory-runner/setup
+SETUP_REF=refs/factory/setup-tip
+# What setup reads, staged from the tip ("?": the tip may lack it; the checks that need it say so later).
+STAGED=(.github/factory/host/setup.sh .github/factory/host/seccomp-bwrap.json .github/factory/factory.json
+        ?.github/factory/host/host.conf ?.github/factory/host/setup-ci.sh ?.github/factory/host/ci_launcher.py
+        ?.github/factory/host/ci-runner.Dockerfile)
+
+# git as root: no system or global config, no replace objects, literal paths, no prompts, the pinned ssh command,
+# nothing inherited.
+clean_git() {
+  env -i "PATH=$SETUP_PATH" HOME=/nonexistent LANG=C.UTF-8 GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
+    GIT_NO_REPLACE_OBJECTS=1 GIT_LITERAL_PATHSPECS=1 GIT_TERMINAL_PROMPT=0 "GIT_SSH_COMMAND=${SETUP_SSH:-false}" git "$@"
+}
+
+# Files of the tip ($3) in the root clone ($2), written under $4. Mode ($1) "files": each path after it (a "?" before
+# it if the tip may lack it) must be a regular file, written at its own path. Mode "dir": the one path after it is a
+# directory (or "." for all of it), and its files and links are written relative to it. Each file's bytes must hash
+# to the blob id its tree names, and nothing but files and links is staged.
+stage_tree() {
+  python3 -I - "$SETUP_PATH" "$@" <<'PY'
+import hashlib, os, subprocess, sys
+setup_path, mode, clone, tip, root, *paths = sys.argv[1:]
+env = {"PATH": setup_path, "HOME": "/nonexistent", "LANG": "C.UTF-8", "GIT_CONFIG_NOSYSTEM": "1",
+       "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_NO_REPLACE_OBJECTS": "1", "GIT_LITERAL_PATHSPECS": "1",
+       "GIT_TERMINAL_PROMPT": "0"}
+def git(*args, data=None):
+    r = subprocess.run(["git", "-C", clone, *args], env=env, input=data, capture_output=True)
+    if r.returncode:
+        sys.exit(f"git {args[0]}: {r.stderr.decode(errors='replace').strip()}")
+    return r.stdout
+if mode not in ("files", "dir") or (mode == "dir" and len(paths) != 1):
+    sys.exit("stage_tree: files <path>... or dir <path>")
+entries = []  # (file mode, blob id, repository path, staged path)
+for spec in paths:
+    optional = spec.startswith("?")
+    path = spec[1:] if optional else spec
+    whole = mode == "dir" and path in (".", "")
+    listing = git("ls-tree", "-r", "-z", "--full-tree", tip, *([] if whole else ["--", path]))
+    found = []
+    for line in filter(None, listing.split(b"\0")):
+        meta, name = line.split(b"\t", 1)
+        fmode, kind, oid = meta.decode().split(" ")
+        name = name.decode("utf-8", "surrogateescape")
+        if not whole and name != path and not name.startswith(path + "/"):
+            continue
+        if kind == "commit":  # a submodule: another repository's content, never part of this one's
+            continue
+        parts = name.split("/")
+        if kind != "blob" or any(p in ("", ".", "..") for p in parts):
+            sys.exit(f"{name!r}: not a file setup stages")
+        if mode == "files":
+            if name != path or fmode not in ("100644", "100755"):
+                sys.exit(f"{path} isn't a file in the tip {tip[:7]}")
+            found.append((fmode, oid, name, name))
+        else:
+            if name == path:
+                sys.exit(f"{path} isn't a directory in the tip {tip[:7]}")
+            found.append((fmode, oid, name, name if whole else name[len(path) + 1:]))
+    if not found and not optional:
+        sys.exit(f"the tip {tip[:7]} has no {path}")
+    entries += found
+blobs = {}
+ids = sorted({oid for _, oid, _, _ in entries})
+if ids:
+    out, pos = git("cat-file", "--batch", data="".join(i + "\n" for i in ids).encode()), 0
+    for oid in ids:
+        end = out.index(b"\n", pos)
+        head = out[pos:end].decode().split(" ")
+        if len(head) != 3 or head[0] != oid or head[1] != "blob":
+            sys.exit(f"{oid}: the clone's object isn't that blob")
+        size = int(head[2])
+        content = out[end + 1:end + 1 + size]
+        pos = end + 1 + size + 1
+        # The bytes must be the ones the id names: whatever the clone holds, the tree's id is the commit's.
+        if hashlib.sha1(b"blob %d\0" % size + content).hexdigest() != oid:
+            sys.exit(f"{oid}: the bytes the clone holds don't hash to the blob id the tree names")
+        blobs[oid] = content
+for fmode, oid, name, rel in entries:
+    dest = os.path.join(root, rel)
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    if fmode == "120000":
+        os.symlink(blobs[oid], dest)
+    elif fmode in ("100644", "100755"):
+        fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, "wb") as f:
+            f.write(blobs[oid])
+            os.fchmod(f.fileno(), 0o755 if fmode == "100755" else 0o644)
+    else:
+        sys.exit(f"{name}: mode {fmode} isn't a file or a link")
+PY
+}
+
+# The default branch GitHub names for the repository at $1 (never the checkout's).
+default_branch() {
+  local line branch=
+  while IFS= read -r line; do
+    if [[ $line =~ ^ref:\ refs/heads/([^[:space:]]+)[[:space:]]+HEAD$ ]]; then branch=${BASH_REMATCH[1]}; fi
+  done < <(clean_git ls-remote --symref "$1" HEAD)
+  [[ $branch =~ ^[A-Za-z0-9._/-]+$ && $branch != *..* ]] || return 1
+  printf '%s\n' "$branch"
+}
+
+# The tip of branch $3 of the repository at $2, fetched into the root clone $1: sets TIP.
+fetch_tip() {
+  clean_git -C "$1" fetch --no-tags --quiet "$2" "+refs/heads/$3:$SETUP_REF" || return 1
+  TIP=$(clean_git -C "$1" rev-parse --verify "$SETUP_REF^{commit}") && [[ $TIP =~ ^[0-9a-f]{40}$ ]]
+}
+
+# The tier's unit name, for its tier ($1) and organization instance ($2).
+tier_unit() {
+  case $1 in
+    strict) echo "factory-runner${2:+-$2}" ;;
+    planning) echo "factory-planner${2:+-$2}" ;;
+    ci) echo "factory-ci${2:+-$2}" ;;
+    *) return 1 ;;
+  esac
+}
+
+# RUNNER_INSTANCE as the checkout's host.conf ($1) sets it, read as text and never run, else the command line's. It
+# only picks which tier's record to read: the staged copy runs the default branch's host.conf, and checks it sets the
+# same.
+conf_instance() {
+  python3 -I - "$1" "${RUNNER_INSTANCE:-}" <<'PY'
+import re, sys
+value = sys.argv[2]
+try:
+    lines = open(sys.argv[1], encoding="utf-8").read().splitlines()
+except FileNotFoundError:
+    lines = []
+for line in lines:
+    m = re.fullmatch(r"""\s*(?:export\s+)?RUNNER_INSTANCE=(['"]?)([a-z0-9]*)\1\s*(?:#.*)?""", line)
+    if m:
+        value = m.group(2)
+    elif re.search(r"\bRUNNER_INSTANCE\b", line.split("#", 1)[0]):
+        sys.exit(f"host.conf sets RUNNER_INSTANCE in a way setup can't read as text: write RUNNER_INSTANCE=<name> ({line.strip()!r})")
+if value and not re.fullmatch(r"[a-z][a-z0-9]{0,11}", value):
+    sys.exit("RUNNER_INSTANCE must be a lowercase letter then up to 11 lowercase letters or digits")
+print(value)
+PY
+}
+
+# The repository whose default branch sets up the tier: the one its record ($1) names, or, on the tier's first run,
+# the one the operator names (TIER_OWNER). Never the checkout's remote: that is the checkout owner's to change.
+tier_repo() {
+  local record=$1 repo
+  if [[ -f $record ]]; then
+    repo=$(<"$record")
+    [[ -z ${TIER_OWNER:-} || $TIER_OWNER == "$repo" ]] \
+      || die "the ${TIER:-strict} tier is set up from $repo: run setup without TIER_OWNER, or remove $record to hand the tier to $TIER_OWNER"
+  else
+    repo=${TIER_OWNER:-}
+    [[ -n $repo ]] \
+      || die "no repository owns the ${TIER:-strict} tier yet: run again with TIER=${TIER:-<tier>} TIER_OWNER=<owner>/<repository>, naming the repository whose default branch sets it up"
+  fi
+  [[ $repo =~ ^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$ && ${repo#*/} != . && ${repo#*/} != .. && $repo != *.git ]] \
+    || die "'$repo' isn't <owner>/<repository>"
+  printf '%s\n' "$repo"
+}
+
+# The registration token file ($1): a regular file root or the sudo user owns, readable by nobody else, holding only
+# a token. Opened once, without following a link; every check is made on the open file, and what was checked is
+# copied to $2 (root-only), so a swap of the path after the check changes nothing.
+copy_token_file() {
+  python3 -I - "$1" "$2" "${SUDO_UID:-0}" <<'PY'
+import os, re, stat, sys
+src, dest, sudo_uid = sys.argv[1], sys.argv[2], int(sys.argv[3])
+try:
+    fd = os.open(src, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+except OSError as e:
+    sys.exit(f"{src}: {e.strerror} (it must be a regular file, not a link)")
+st = os.fstat(fd)
+if not stat.S_ISREG(st.st_mode):
+    sys.exit(f"{src} must be a regular file")
+if st.st_uid not in (0, sudo_uid):
+    sys.exit(f"{src} is owned by uid {st.st_uid}, not root or the user running sudo")
+if st.st_mode & 0o077:
+    sys.exit(f"{src} has mode {st.st_mode & 0o777:o}: make it 0600")
+token = os.read(fd, 4096).decode("ascii", "replace").strip()
+os.close(fd)
+if not re.fullmatch(r"[A-Za-z0-9]{20,}", token):
+    sys.exit(f"{src} doesn't hold only a registration token")
+out = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+os.write(out, token.encode())
+os.close(out)
+PY
+}
+
+# GitHub's SSH host keys, from its API over TLS rather than a first connection, into $1.
+github_known_hosts() {
+  local tmp
+  tmp=$(mktemp)
+  if env -i "PATH=$SETUP_PATH" LANG=C.UTF-8 python3 -I -c 'import json, urllib.request
+for k in json.load(urllib.request.urlopen("https://api.github.com/meta", timeout=20))["ssh_keys"]:
+    print("github.com " + k)' > "$tmp" && [[ -s $tmp ]]; then
+    install -m 644 -o root -g root "$tmp" "$1"
+  elif [[ ! -s $1 ]]; then
+    rm -f "$tmp"
+    die "couldn't read GitHub's SSH host keys, so root's fetch can't check whom it reaches"
+  fi
+  rm -f "$tmp"
+}
+
+# The bootstrap (WHAT ROOT RUNS, above). It runs from the checkout, so it reads nothing there but host.conf's
+# RUNNER_INSTANCE (as text) and the registration token, and ends in exec or die.
+bootstrap_and_exec() {
+  local c instance unit repo key clone url branch work stage token_copy= v pass=()
+  PATH=$SETUP_PATH
+  unset BASH_ENV ENV CDPATH TMPDIR
+  umask 022
+  for c in git ssh ssh-keygen python3 flock install mktemp cmp env; do
+    command -v "$c" > /dev/null || die "$c is not installed"
+  done
+  [[ -z ${FACTORY_JSON:-}${HOST_CONF:-} ]] \
+    || die "FACTORY_JSON and HOST_CONF are for --print-settings: as root, setup reads the default branch's"
+  instance=$(conf_instance "$SCRIPT_DIR/host.conf") || exit 1
+  unit=$(tier_unit "${TIER:-strict}" "$instance") || die "TIER must be strict, planning or ci"
+  repo=$(tier_repo "$TIERS_DIR/$unit") || exit 1
+  # One setup at a time on a host, from before the fetch to the end of the staged copy, which inherits fd 9. The lock
+  # is in a directory only root can write, so no one can plant a link where root opens it.
+  install -d -m 711 -o root -g root /run/factory-runner
+  exec 9> /run/factory-runner/setup.lock
+  flock -n 9 || die "another setup is running on this host (it holds /run/factory-runner/setup.lock): let it finish first"
+  work=$(mktemp -d)
+  trap 'rm -rf "$work"' EXIT
+  TOKEN_FILE=${TOKEN_FILE:-$SCRIPT_DIR/reg-token}
+  if [[ -e $TOKEN_FILE || -L $TOKEN_FILE ]]; then
+    token_copy=$work/reg-token
+    copy_token_file "$TOKEN_FILE" "$token_copy" || die "the registration token file (above)"
+  fi
+  # Root's own read-only deploy key for the repository, and its own clone of it.
+  key=$KEYS_DIR/$repo
+  install -d -m 755 -o root -g root /etc/factory-runner "$KEYS_DIR" "$KEYS_DIR/${repo%%/*}"
+  [[ -s $key ]] || ssh-keygen -q -t ed25519 -N '' -C "factory runner setup on $(hostname -s) for $repo" -f "$key"
+  chown root:root "$key" "$key.pub" && chmod 600 "$key" && chmod 644 "$key.pub"
+  github_known_hosts "$KNOWN_HOSTS"
+  SETUP_SSH="ssh -F /dev/null -i $key -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$KNOWN_HOSTS -o GlobalKnownHostsFile=/dev/null -o ConnectTimeout=30"
+  install -d -m 711 -o root -g root /var/lib/factory-runner
+  install -d -m 700 -o root -g root "$CLONES_DIR" "$CLONES_DIR/${repo%%/*}"
+  clone=$CLONES_DIR/$repo.git
+  [[ -d $clone ]] || clean_git init -q --bare "$clone"
+  url=git@github.com:$repo.git
+  branch=$(default_branch "$url") || die "root couldn't read $repo from GitHub with its deploy key. If the key isn't on the repository yet, add this as a read-only deploy key (the repository's Settings, Deploy keys, Allow write access off), then run setup again:
+$(<"$key.pub")"
+  fetch_tip "$clone" "$url" "$branch" || die "root couldn't fetch $repo's $branch"
+  stage=$work/stage
+  stage_tree files "$clone" "$TIP" "$stage" "${STAGED[@]}" || die "staging $repo's $branch (${TIP:0:7}) failed (above)"
+  # Not a check of the checkout (it can't be one): a reminder that what runs is the default branch's.
+  cmp -s "$stage/.github/factory/host/setup.sh" "${BASH_SOURCE[0]}" \
+    || die "this setup.sh isn't $repo's $branch (${TIP:0:7}): the checkout is behind or changed. Update it, or run setup from a fresh clone"
+  if [[ -f $SCRIPT_DIR/host.conf || -f $stage/.github/factory/host/host.conf ]] \
+      && ! cmp -s "$SCRIPT_DIR/host.conf" "$stage/.github/factory/host/host.conf" 2> /dev/null; then
+    die "this checkout's host.conf isn't $branch's (${TIP:0:7}): setup uses the default branch's, so commit its settings there first"
+  fi
+  # The operator's own settings pass through, by name; nothing else of this environment does.
+  for v in $(compgen -e); do
+    if [[ $v =~ ^(TIER|TIER_OWNER|FACTORY_ORG|LAN_DNS|PROBE_PORTS|RUNNER_(COUNT|HOME_BASE|INSTANCE|NAME_PREFIX)|(STRICT|PLANNING|CI)_[A-Z0-9_]+|SUDO_(USER|UID|GID))$ ]]; then
+      pass+=("$v=${!v}")
+    fi
+  done
+  trap - EXIT
+  exec env -i "PATH=$SETUP_PATH" LANG=C.UTF-8 "FACTORY_SETUP_STAGED=$work" "FACTORY_SETUP_TIP=$TIP" \
+    "FACTORY_SETUP_REPO=$repo" "FACTORY_SETUP_INSTANCE=$instance" "FACTORY_SETUP_CHECKOUT=$SCRIPT_DIR" \
+    "FACTORY_SETUP_TOKEN_FILE=$TOKEN_FILE" "FACTORY_SETUP_TOKEN_COPY=$token_copy" ${pass[@]+"${pass[@]}"} \
+    /bin/bash "$stage/.github/factory/host/setup.sh" "$@"
+}
+
+# The staged copy's own checks: it runs only as the bootstrap left it.
+staged_checks() {
+  local work=$FACTORY_SETUP_STAGED
+  [[ $EUID -eq 0 ]] || die "the staged copy runs as root"
+  python3 -I -c 'import os, stat, sys
+st = os.lstat(sys.argv[1])
+sys.exit(0 if stat.S_ISDIR(st.st_mode) and st.st_uid == 0 and stat.S_IMODE(st.st_mode) == 0o700 else 1)' "$work" \
+    || die "FACTORY_SETUP_STAGED isn't a root-only directory the bootstrap made"
+  [[ ${BASH_SOURCE[0]} == "$work/stage/.github/factory/host/setup.sh" ]] || die "the staged copy runs only from $work/stage"
+  [[ ${FACTORY_SETUP_REPO:-} =~ ^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$ && ${FACTORY_SETUP_TIP:-} =~ ^[0-9a-f]{40}$ ]] \
+    || die "the bootstrap named no repository or tip"
+  FACTORY_SETUP_CLONE=$CLONES_DIR/$FACTORY_SETUP_REPO.git
+  [[ $(clean_git -C "$FACTORY_SETUP_CLONE" rev-parse --verify "$SETUP_REF^{commit}") == "$FACTORY_SETUP_TIP" ]] \
+    || die "the staged tip isn't root's clone's $SETUP_REF"
+  flock -n 9 2> /dev/null || die "setup's lock isn't held: run setup as sudo bash setup.sh"
+}
+
+if [[ $EUID -eq 0 && -z ${FACTORY_SETUP_STAGED:-} ]]; then
+  [[ ${1:-} != --print-settings ]] || die "run --print-settings without sudo: as root it would run the checkout's host.conf"
+  bootstrap_and_exec "$@"   # ends in exec of the staged copy, or in die
+  exit 1
+fi
+if [[ -n ${FACTORY_SETUP_STAGED:-} ]]; then
+  staged_checks
+  trap 'rm -rf "$FACTORY_SETUP_STAGED"' EXIT
+  TOKEN_FILE=${FACTORY_SETUP_TOKEN_COPY:-}
+fi
 FACTORY_JSON=${FACTORY_JSON:-$SCRIPT_DIR/../factory.json}
 HOST_CONF=${HOST_CONF:-$SCRIPT_DIR/host.conf}
-TOKEN_FILE=${TOKEN_FILE:-$SCRIPT_DIR/reg-token}
+TOKEN_FILE=${TOKEN_FILE-$SCRIPT_DIR/reg-token}
 # The tier and its owner are the operator's, on the command line: a claim must name its tier, so whether it did is
 # taken before host.conf is read, and a host.conf that sets either is refused.
 tier_named=${TIER:+yes} env_tier=${TIER-} env_owner=${TIER_OWNER-}
-# host.conf is part of the reviewed checkout (code-owned), like this script.
+# host.conf is the default branch's (code-owned), like this script: as root, the staged copy's.
 if [[ -f $HOST_CONF ]]; then
   # shellcheck source=/dev/null
   source "$HOST_CONF"
@@ -61,7 +378,11 @@ if { [[ -f $HOST_CONF ]] && grep -Eq '^[[:space:]]*(export[[:space:]]+|declare[[
   exit 1
 fi
 setting() { python3 -I -c 'import json,sys; v=json.load(open(sys.argv[1])); [v := v[k] for k in sys.argv[2].split(".")]; print(v)' "$FACTORY_JSON" "$1"; }
-origin_owner() { { git -C "$SCRIPT_DIR" remote get-url origin 2>/dev/null || true; } | sed -E 's#^(https://github\.com/|git@github\.com:)##; s#/.*##'; }
+# The repository's owner: as root, the one the bootstrap fetched; for --print-settings, the checkout's remote's.
+origin_owner() {
+  if [[ -n ${FACTORY_SETUP_REPO:-} ]]; then echo "${FACTORY_SETUP_REPO%%/*}"; return; fi
+  { git -C "$SCRIPT_DIR" remote get-url origin 2>/dev/null || true; } | sed -E 's#^(https://github\.com/|git@github\.com:)##; s#/.*##'
+}
 
 FACTORY_ORG=${FACTORY_ORG:-$(origin_owner)}
 # A tier's runner group: factory.json's runners.groups.<shared|ci>, as bootstrap.py reads it.
@@ -75,6 +396,10 @@ PLANNING_DB_HOST=${PLANNING_DB_HOST:-}
 RUNNER_INSTANCE=${RUNNER_INSTANCE:-}
 if [[ -n $RUNNER_INSTANCE && ! $RUNNER_INSTANCE =~ ^[a-z][a-z0-9]{0,11}$ ]]; then
   printf 'ERROR: RUNNER_INSTANCE must be a lowercase letter then up to 11 lowercase letters or digits\n' >&2; exit 1
+fi
+# The bootstrap chose the tier's record by the checkout's host.conf, read as text: the default branch's must agree.
+if [[ -n ${FACTORY_SETUP_STAGED:-} && $RUNNER_INSTANCE != "${FACTORY_SETUP_INSTANCE-}" ]]; then
+  die "the default branch's host.conf sets RUNNER_INSTANCE=$RUNNER_INSTANCE, but the bootstrap read ${FACTORY_SETUP_INSTANCE:-none}"
 fi
 # Names for this organization's runners: plain for the host's first organization, suffixed for another.
 dash=${RUNNER_INSTANCE:+-$RUNNER_INSTANCE} under=${RUNNER_INSTANCE:+_$RUNNER_INSTANCE}
@@ -167,10 +492,6 @@ if [[ ${1:-} == --print-settings ]]; then
   exit 0
 fi
 
-log() { printf '\n==> %s\n' "$*"; }
-die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
-
-
 # Never take over another organization's runners: a runner directory this run would use must be
 # registered to this organization, or not at all.
 for i in $(seq 99); do
@@ -187,33 +508,30 @@ done
 # checkout.
 check_ci_key() {
   local ci_key=$1
-  if [[ -e $SCRIPT_DIR/ci-app.pem ]]; then
-    die "a key at $SCRIPT_DIR/ci-app.pem: the runner-registration App's key never goes in a checkout. Install it with sudo install -D -m 600 -o root -g root <key> $ci_key, then delete every other copy"
+  local checkout=${FACTORY_SETUP_CHECKOUT:-$SCRIPT_DIR}
+  if [[ -e $checkout/ci-app.pem ]]; then
+    die "a key at $checkout/ci-app.pem: the runner-registration App's key never goes in a checkout. Install it with sudo install -D -m 600 -o root -g root <key> $ci_key, then delete every other copy"
   fi
   [[ -f $ci_key && ! -L $ci_key ]] \
     || die "install the runner-registration App's private key first: sudo install -D -m 600 -o root -g root <key> $ci_key (then delete every other copy)"
   chown root:root "$ci_key" && chmod 600 "$ci_key"
 }
 
-# One designated checkout per tier: the repository whose checkout sets the tier up is recorded (in $1), and a run
-# from another repository's checkout is refused, so its host.conf can't re-cap or re-label a tier it doesn't own (a
-# dropped TIER would otherwise fall through to strict). The record is made only when the operator names that
-# repository (TIER_OWNER): the first checkout to run doesn't get a tier by default.
+# One designated repository per tier: the repository whose default branch sets the tier up is recorded (in $1), and
+# a run for another repository is refused, so its host.conf can't re-cap or re-label a tier it doesn't own (a dropped
+# TIER would otherwise fall through to strict). The record is made only when the operator names that repository
+# (TIER_OWNER): the first checkout to run doesn't get a tier by default. The repository is the one root fetched
+# (FACTORY_SETUP_REPO, from the bootstrap), never the checkout's remote, which its owner can point anywhere.
 claim_tier() {
-  local tiers=$1 origin tier_owner owner_file
-  # git's own words when it can't say: no origin, or a checkout another user owns, which root reads only under sudo
-  # from that user (git's safe.directory check).
-  origin=$(git -C "$SCRIPT_DIR" remote get-url origin 2>&1) \
-    || die "can't tell which repository this checkout is: git says: $(printf '%s' "$origin" | tr '\n' ' ')(no origin remote, or a checkout another user owns: run setup with sudo from that user, see git's safe.directory)"
-  tier_owner=$(sed -E 's#^(https://github\.com/|git@github\.com:)##; s#\.git$##' <<< "$origin")
-  [[ -n $tier_owner ]] || die "can't tell which repository this checkout is (its origin remote is empty)"
+  local tiers=$1 tier_owner=${FACTORY_SETUP_REPO:-} owner_file
+  [[ -n $tier_owner ]] || die "setup didn't say which repository root fetched: run it as sudo bash setup.sh"
   owner_file=$tiers/$RUNNER_UNIT
   if [[ -f $owner_file ]]; then
     [[ $(<"$owner_file") == "$tier_owner" ]] \
-      || die "the $TIER tier ($RUNNER_UNIT) is set up from $(<"$owner_file")'s checkout: run setup there, or remove $owner_file to hand the tier to $tier_owner"
+      || die "the $TIER tier ($RUNNER_UNIT) is set up from $(<"$owner_file"): run setup without TIER_OWNER, or remove $owner_file to hand the tier to $tier_owner"
   else
     [[ ${TIER_OWNER:-} == "$tier_owner" ]] \
-      || die "no checkout owns the $TIER tier ($RUNNER_UNIT) yet: if $tier_owner's should, run again with TIER=$TIER TIER_OWNER=$tier_owner"
+      || die "no repository owns the $TIER tier ($RUNNER_UNIT) yet: if $tier_owner should, run again with TIER=$TIER TIER_OWNER=$tier_owner"
     # A claim names its tier too: a dropped TIER would claim strict.
     [[ -n $tier_named ]] || die "name the tier you're giving $tier_owner: TIER=strict, planning or ci, with TIER_OWNER"
     install -d -m 755 -o root -g root "$(dirname "$tiers")" "$tiers"
@@ -240,11 +558,8 @@ warn_home_base() {
 }
 
 [[ $EUID -eq 0 ]] || die "run as root (sudo bash $0)"
-# One setup at a time on a host: a retry over ssh, or a second operator, would otherwise interleave two. The lock is in
-# a directory only root can write, so no one can plant a link where root opens it.
-install -d -m 711 -o root -g root /run/factory-runner
-exec 9> /run/factory-runner/setup.lock
-flock -n 9 || die "another setup is running on this host (it holds /run/factory-runner/setup.lock): let it finish first"
+# From here on this is the staged copy (root's own, from root's clone), holding the host's setup lock the bootstrap
+# took: one setup at a time, since a retry over ssh, or a second operator, would otherwise interleave two.
 command -v dockerd-rootless-setuptool.sh >/dev/null || die "docker-ce-rootless-extras is not installed"
 command -v nft >/dev/null || die "nft is not installed"
 [[ -f "$SCRIPT_DIR/seccomp-bwrap.json" ]] || die "seccomp-bwrap.json must sit next to this script"
@@ -654,7 +969,7 @@ for i in $(seq "$RUNNER_COUNT"); do
         --url '$RUNNER_URL' --token '$token' --runnergroup '$RUNNER_GROUP' \
         --name '$name' --labels '$RUNNER_LABELS' --work '$work' --disableupdate"
     else
-      echo "No registration token at $TOKEN_FILE: runner $i installed but NOT registered. Re-run with the token file."
+      echo "No registration token at ${FACTORY_SETUP_TOKEN_FILE:-$TOKEN_FILE}: runner $i installed but NOT registered. Re-run with the token file."
     fi
   fi
   # Never self-update: runners stay at RUNNER_VERSION, whose checksum this script verifies; z-sdlc bumps it
@@ -668,7 +983,8 @@ for i in $(seq "$RUNNER_COUNT"); do
     && printf '%s\n' 'DOCKER_HOST=unix:///run/user/$RUID/docker.sock' 'XDG_RUNTIME_DIR=/run/user/$RUID' 'ACTIONS_RUNNER_REQUIRE_JOB_CONTAINER=true' >> .env \
     && cp -f bin/runsvc.sh ./runsvc.sh && chmod 755 runsvc.sh"
 done
-rm -f "$TOKEN_FILE"
+# The bootstrap's checked copy, and the file it copied.
+if [[ -n $TOKEN_FILE ]]; then rm -f "$TOKEN_FILE" ${FACTORY_SETUP_TOKEN_FILE:+"$FACTORY_SETUP_TOKEN_FILE"}; fi
 
 log "8/8 systemd services $RUNNER_UNIT@1..$RUNNER_COUNT"
 # One template; the instance number picks the runner directory.

@@ -589,20 +589,33 @@ needs an organization owner's `gh` login (`admin:org`) for the runner groups and
    organization secret), optionally `CONTEXT7_API_KEY`, and the one `fixtures.secret` names, if any
    (read-only; only the fixtures job references it).
 8. **The runner host.** A Linux host with systemd, nftables, `python3`, rootless Docker's extras
-   (`docker-ce-rootless-extras`) and room for the runners' work and images. From a checkout of `main`,
-   set the host's own settings in `.github/factory/host/host.conf`; then, for each tier, write a runner
+   (`docker-ce-rootless-extras`) and room for the runners' work and images. Commit the host's own
+   settings in `.github/factory/host/host.conf` to `main`: setup uses the default branch's, never a
+   checkout's. Then, from a checkout of `main`, for each tier, write a runner
    registration token (`gh api -X POST orgs/<org>/actions/runners/registration-token --jq .token`) to
    `.github/factory/host/reg-token` (mode 600) and run `sudo bash .github/factory/host/setup.sh` (the
    strict tier) or `sudo TIER=planning bash .github/factory/host/setup.sh` (the planning tier), and
    `sudo TIER=ci bash .github/factory/host/setup.sh` for the CI tier if the project needs one (step
    10). It creates each tier's user, rootless Docker, firewall and runners, and registers no runner
-   whose jobs can reach the host or the LAN. Put the host's own LAN and VPN addresses in
+   whose jobs can reach the host or the LAN. **Root never runs the checkout's files.** The checkout's
+   owner, and any agent session running as that login, can change its files, its git metadata and its
+   config (a replace ref makes `git show` and `git status` lie), so setup's bootstrap fetches the
+   tier's repository's default branch into a root-owned clone, with root's own read-only deploy key and
+   a git that reads no config and no replace refs; stages every file it reads from that clone, each
+   checked against the blob id its tree names; and re-executes the staged copy. The repository is the
+   tier's record's, or `TIER_OWNER`'s on its first run, never the checkout's remote. The first run for
+   a repository prints the key and stops: add it to the repository as a deploy key with write access
+   off (one key per repository and host, at `/etc/factory-runner/deploy-keys/<owner>/<repository>`),
+   then run setup again. Setup refuses a checkout whose `setup.sh` or `host.conf` isn't the default
+   branch's. What remains is the bootstrap itself, the checkout's script: whoever can change it
+   before you run it gets root, so run setup from a checkout no agent session can write, such as a
+   fresh clone made just before by a login no agent session uses. Put the host's own LAN and VPN addresses in
    `factory.json`'s `smoke.host_probes`, so smoke checks them too. One host serves the whole
    organization, and can serve other organizations too: each one after the first sets `RUNNER_INSTANCE`
    in its `host.conf` and gets its own users, firewall tables and services, isolated from the others'
    as from the host. Setup refuses runners registered to another organization, and a planning database
-   port is only ever the organization's own. Each tier has one designated checkout, recorded in
-   `/etc/factory-runner/tiers/<unit>`: setup refuses a run from another repository's, whose `host.conf`
+   port is only ever the organization's own. Each tier has one designated repository, recorded in
+   `/etc/factory-runner/tiers/<unit>`: setup refuses a run for another repository, whose `host.conf`
    would re-cap or re-label a tier it doesn't own. The record is made only when the operator names
    the repository and the tier, so the first checkout to run doesn't claim a tier by default: the
    first run for a tier is `sudo TIER=<tier> TIER_OWNER=<owner>/<repository> bash

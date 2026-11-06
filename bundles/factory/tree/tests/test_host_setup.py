@@ -7,9 +7,12 @@ import json
 import os
 import pathlib
 import re
+import shlex
+import shutil
 import subprocess
 import tempfile
 import unittest
+import zlib
 
 SCRIPT = pathlib.Path(__file__).resolve().parents[1] / "host" / "setup.sh"
 SETUP_CI = SCRIPT.parent / "setup-ci.sh"
@@ -258,40 +261,30 @@ class SetupParts(unittest.TestCase):
                     self.assertEqual(r.returncode, 0, r.stderr)
                     self.assertEqual(len(installs), 1)
 
-    def checkout(self, origin):
-        repo = self.root / "checkout"
-        repo.mkdir(exist_ok=True)
-        subprocess.run(["git", "init", "-q", str(repo)], check=True)
-        subprocess.run(["git", "-C", str(repo), "remote", "remove", "origin"], capture_output=True)
-        if origin:
-            subprocess.run(["git", "-C", str(repo), "remote", "add", "origin", origin], check=True)
-        return repo
-
-    def claim(self, origin, **env):
-        repo = self.checkout(origin)
+    def claim(self, repo, **env):
         stub = 'install() { mkdir -p "${@: -2}"; }\n'  # root's install -o root, as a plain mkdir
         return self.bash(stub + function("claim_tier") + f"claim_tier {self.root}/etc/tiers\n",
-                         SCRIPT_DIR=str(repo), RUNNER_UNIT="factory-runner", TIER="strict", **env)
+                         RUNNER_UNIT="factory-runner", TIER="strict", **({"FACTORY_SETUP_REPO": repo} if repo else {}),
+                         **env)
 
-    def test_a_tier_belongs_to_the_checkout_that_claimed_it(self):
+    def test_a_tier_belongs_to_the_repository_that_claimed_it(self):
         owner = self.root / "etc" / "tiers" / "factory-runner"
-        r = self.claim("git@github.com:acme/app.git")
+        r = self.claim("acme/app")
         self.assertEqual(r.returncode, 1)
-        self.assertIn("no checkout owns the strict tier", r.stderr)
-        r = self.claim("git@github.com:acme/app.git", TIER_OWNER="acme/app")
+        self.assertIn("no repository owns the strict tier", r.stderr)
+        r = self.claim("acme/app", TIER_OWNER="acme/app")
         self.assertIn("name the tier you're giving acme/app", r.stderr)  # a dropped TIER would claim strict
         self.assertFalse(owner.exists())
-        r = self.claim("git@github.com:acme/app.git", TIER_OWNER="acme/app", tier_named="1")
+        r = self.claim("acme/app", TIER_OWNER="acme/app", tier_named="1")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(owner.read_text(), "acme/app\n")
-        self.assertEqual(self.claim("https://github.com/acme/app.git").returncode, 0)  # the same repository
-        r = self.claim("git@github.com:acme/other.git", TIER_OWNER="acme/other", tier_named="1")
+        self.assertEqual(self.claim("acme/app").returncode, 0)  # the same repository
+        r = self.claim("acme/other", TIER_OWNER="acme/other", tier_named="1")
         self.assertEqual(r.returncode, 1)
-        self.assertIn("is set up from acme/app's checkout", r.stderr)
+        self.assertIn("is set up from acme/app", r.stderr)
         self.assertEqual(owner.read_text(), "acme/app\n")
-        r = self.claim(None)
-        self.assertIn("can't tell which repository this checkout is: git says: ", r.stderr)  # git's own words
-        self.assertIn("safe.directory", r.stderr)
+        r = self.claim(None)  # never the checkout's remote: only what root fetched
+        self.assertIn("didn't say which repository root fetched", r.stderr)
 
     def test_the_ci_key_is_roots_and_never_in_a_checkout(self):
         checkout, key = self.root / "checkout", self.root / "etc" / "app.pem"
@@ -364,6 +357,243 @@ class SetupParts(unittest.TestCase):
         self.assertIn('"image_inputs=$(json_str "$inputs")"', text)
         # The slots' state outlives a reboot.
         self.assertRegex(text, r"(?m)^STATE=/var/lib/factory-runner/\$RUNNER_UNIT$")
+
+
+def assignment(name):
+    """One top-level assignment of setup.sh, as written there."""
+    m = re.search(rf"^{name}=.*$", SCRIPT.read_text(), re.M)
+    assert m, name
+    return m.group(0) + "\n"
+
+
+class RootsOwnCopy(unittest.TestCase):
+    """The bootstrap's parts (WHAT ROOT RUNS, in setup.sh's header): root fetches and stages its own copy of the
+    default branch, so nothing the checkout's owner controls (the checkout's files, its git metadata, its config, a
+    replace ref) reaches what runs as root. Each protection is also broken here on purpose, and the broken copy must
+    fail the same check: a test that can't tell the mutant apart proves nothing."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = pathlib.Path(self.tmp.name)
+        self.remote = self.root / "remote"
+        files = {".github/factory/host/setup.sh": "echo good\n", ".github/factory/host/seccomp-bwrap.json": "{}\n",
+                 ".github/factory/factory.json": "{}\n", ".github/factory/host/host.conf": "LAN_DNS=\n",
+                 "ci/Dockerfile": "FROM scratch\n", "ci/ctx/run.sh": "#!/bin/sh\n", "ci/ctx/sub/a.txt": "a\n"}
+        for name, text in files.items():
+            (self.remote / name).parent.mkdir(parents=True, exist_ok=True)
+            (self.remote / name).write_text(text)
+        (self.remote / "ci/ctx/run.sh").chmod(0o755)
+        (self.remote / "ci/ctx/link").symlink_to("run.sh")
+        self.git("init", "-q", "-b", "trunk", cwd=self.remote)
+        self.git("add", "-A", cwd=self.remote)
+        self.git("-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qm", "good", cwd=self.remote)
+        self.clone = self.root / "clone.git"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def git(self, *args, cwd=None):
+        return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True).stdout.strip()
+
+    def bash(self, script, **env):
+        prelude = PRELUDE + f"SETUP_PATH={shlex.quote(os.environ['PATH'])}\n" + assignment("SETUP_REF")
+        return subprocess.run(["bash", "-c", prelude + script], capture_output=True, text=True,
+                              env={**os.environ, **env})
+
+    def fetch(self, clean_git=None, **env):
+        """fetch_tip into a new root clone, from the remote, with setup.sh's clean_git (or a mutant of it)."""
+        script = (clean_git or function("clean_git")) + function("fetch_tip") + \
+            f'clean_git init -q --bare {self.clone}\nfetch_tip {self.clone} file://{self.remote} trunk\necho "$TIP"\n'
+        return self.bash(script, **env)
+
+    def stage(self, mode, dest, *paths, stage_tree=None):
+        tip = self.git("--git-dir", str(self.clone), "rev-parse", "refs/factory/setup-tip")
+        return self.bash((stage_tree or function("stage_tree")) + f"stage_tree {mode} {self.clone} {tip} {dest} "
+                         + " ".join(paths) + "\n")
+
+    def test_the_default_branch_is_githubs_and_its_tip_is_fetched(self):
+        r = self.bash(function("clean_git") + function("default_branch") + f"default_branch file://{self.remote}\n")
+        self.assertEqual((r.returncode, r.stdout), (0, "trunk\n"), r.stderr)
+        r = self.fetch()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), self.git("rev-parse", "HEAD", cwd=self.remote))
+
+    def test_the_operators_git_config_never_redirects_roots_fetch(self):
+        evil = self.root / "evil"
+        self.git("clone", "-q", str(self.remote), str(evil))
+        (evil / ".github/factory/host/setup.sh").write_text("echo evil\n")
+        self.git("-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qam", "evil", cwd=evil)
+        home = self.root / "home"
+        home.mkdir()
+        (home / ".gitconfig").write_text(f'[url "file://{evil}"]\n\tinsteadOf = file://{self.remote}\n')
+        good, bad = self.git("rev-parse", "HEAD", cwd=self.remote), self.git("rev-parse", "HEAD", cwd=evil)
+        r = self.fetch(HOME=str(home))
+        self.assertEqual(r.stdout.strip(), good, r.stderr)
+        # The mutant inherits the environment and reads the global config: the redirect works on it.
+        mutant = function("clean_git").replace('env -i "PATH=$SETUP_PATH" HOME=/nonexistent', 'env "PATH=$SETUP_PATH"') \
+            .replace(" GIT_CONFIG_GLOBAL=/dev/null", "")
+        self.assertNotEqual(mutant, function("clean_git"))
+        shutil.rmtree(self.clone)
+        self.assertEqual(self.fetch(clean_git=mutant, HOME=str(home)).stdout.strip(), bad)
+
+    def replace_tip(self):
+        """A replace ref in root's clone: the tip's commit stands in for one whose setup.sh is evil. git show, git
+        status and the tip comparison all stay clean through one (the auditor's repro, in the user's checkout)."""
+        tip = self.git("--git-dir", str(self.clone), "rev-parse", "refs/factory/setup-tip")
+        work = self.root / "evil-work"
+        self.git("clone", "-q", str(self.remote), str(work))
+        (work / ".github/factory/host/setup.sh").write_text("echo evil\n")
+        self.git("-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qam", "evil", cwd=work)
+        self.git("--git-dir", str(self.clone), "fetch", "-q", str(work), "HEAD:refs/heads/evil")
+        evil = self.git("--git-dir", str(self.clone), "rev-parse", "refs/heads/evil")
+        self.git("--git-dir", str(self.clone), "replace", tip, evil)
+        self.assertEqual(self.git("--git-dir", str(self.clone), "show", f"{tip}:.github/factory/host/setup.sh"),
+                         "echo evil")
+
+    def test_a_replace_ref_never_changes_what_is_staged(self):
+        self.assertEqual(self.fetch().returncode, 0)
+        self.replace_tip()
+        dest = self.root / "stage"
+        r = self.stage("files", dest, ".github/factory/host/setup.sh")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual((dest / ".github/factory/host/setup.sh").read_text(), "echo good\n")
+        # The mutant follows replace refs: it stages the evil script, every id consistent.
+        mutant = function("stage_tree").replace('"GIT_NO_REPLACE_OBJECTS": "1", ', "")
+        self.assertNotEqual(mutant, function("stage_tree"))
+        shutil.rmtree(dest)
+        self.stage("files", dest, ".github/factory/host/setup.sh", stage_tree=mutant)
+        self.assertEqual((dest / ".github/factory/host/setup.sh").read_text(), "echo evil\n")
+
+    def test_bytes_that_dont_hash_to_their_blob_id_are_refused(self):
+        self.git("init", "-q", "--bare", str(self.clone))
+        self.git("--git-dir", str(self.clone), "-c", "fetch.unpackLimit=100000", "fetch", "-q", str(self.remote),
+                 "+refs/heads/trunk:refs/factory/setup-tip")
+        blob = self.git("--git-dir", str(self.clone), "rev-parse", "refs/factory/setup-tip:.github/factory/host/setup.sh")
+        loose = self.clone / "objects" / blob[:2] / blob[2:]
+        self.assertTrue(loose.exists())
+        loose.chmod(0o644)
+        loose.write_bytes(zlib.compress(b"blob 10\0echo evil\n"))
+        dest = self.root / "stage"
+        r = self.stage("files", dest, ".github/factory/host/setup.sh")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("don't hash to the blob id", r.stderr)
+        self.assertFalse((dest / ".github/factory/host/setup.sh").exists())
+        mutant = re.sub(r"\n        if hashlib\.sha1\(.*?\n            sys\.exit\(.*?\)\n", "\n",
+                        function("stage_tree"), flags=re.S)
+        self.assertNotEqual(mutant, function("stage_tree"))
+        self.assertEqual(self.stage("files", dest, ".github/factory/host/setup.sh", stage_tree=mutant).returncode, 0)
+        self.assertEqual((dest / ".github/factory/host/setup.sh").read_text(), "echo evil\n")
+
+    def test_files_are_files_and_a_directory_keeps_its_links_and_modes(self):
+        self.assertEqual(self.fetch().returncode, 0)
+        dest = self.root / "stage"
+        r = self.stage("files", dest, ".github/factory/factory.json", "?.github/factory/host/absent.sh")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual((dest / ".github/factory/factory.json").read_text(), "{}\n")
+        for path, refusal in (("ci/ctx/link", "isn't a file"), ("ci/ctx", "isn't a file"),
+                              (".github/factory/host/absent.sh", "has no .github/factory/host/absent.sh")):
+            with self.subTest(path=path):
+                r = self.stage("files", self.root / f"stage-{len(path)}", path)
+                self.assertEqual(r.returncode, 1)
+                self.assertIn(refusal, r.stderr)
+        ctx = self.root / "ctx"
+        r = self.stage("dir", ctx, "ci/ctx")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(sorted(str(p.relative_to(ctx)) for p in ctx.rglob("*") if not p.is_dir()),
+                         ["link", "run.sh", "sub/a.txt"])
+        self.assertEqual(os.readlink(ctx / "link"), "run.sh")
+        self.assertEqual((ctx / "run.sh").stat().st_mode & 0o777, 0o755)
+        self.assertEqual((ctx / "sub/a.txt").stat().st_mode & 0o777, 0o644)
+        everything = self.root / "everything"
+        self.assertEqual(self.stage("dir", everything, ".").returncode, 0)
+        self.assertEqual((everything / "ci/Dockerfile").read_text(), "FROM scratch\n")
+        r = self.stage("dir", self.root / "a-file", "ci/Dockerfile")
+        self.assertIn("isn't a directory", r.stderr)
+
+    def test_the_registration_token_file(self):
+        src, uid = self.root / "reg-token", str(os.getuid())
+        cases = {"ok": ("A" * 29 + "\n", 0o600, uid, None), "group-readable": ("A" * 29, 0o640, uid, "has mode 640"),
+                 "not a token": ("ghp_x y", 0o600, uid, "doesn't hold only a registration token"),
+                 "another user's": ("A" * 29, 0o600, "54321", "not root or the user running sudo")}
+        for case, (text, mode, sudo_uid, refusal) in cases.items():
+            with self.subTest(case=case):
+                src.unlink(missing_ok=True)
+                dest = self.root / f"copy-{case}"
+                src.write_text(text)
+                src.chmod(mode)
+                r = self.bash(function("copy_token_file") + f"copy_token_file {src} {shlex.quote(str(dest))}\n",
+                              SUDO_UID=sudo_uid)
+                if refusal:
+                    self.assertEqual(r.returncode, 1)
+                    self.assertIn(refusal, r.stderr)
+                    self.assertFalse(dest.exists())
+                else:
+                    self.assertEqual(r.returncode, 0, r.stderr)
+                    self.assertEqual(dest.read_text(), "A" * 29)
+                    self.assertEqual(dest.stat().st_mode & 0o777, 0o600)
+        src.unlink()
+        src.symlink_to(self.root / "copy-ok")
+        r = self.bash(function("copy_token_file") + f"copy_token_file {src} {self.root}/copy-link\n", SUDO_UID=uid)
+        self.assertIn("not a link", r.stderr)
+
+    def test_the_instance_is_read_from_host_conf_as_text(self):
+        conf = self.root / "host.conf"
+        cases = {"": ("", None), "RUNNER_INSTANCE=acme\n": ("acme", None),
+                 'export RUNNER_INSTANCE="acme2"  # second org\n': ("acme2", None),
+                 "# RUNNER_INSTANCE=acme\n": ("", None),
+                 "RUNNER_INSTANCE=$(id)\n": (None, "can't read as text"),
+                 "RUNNER_INSTANCE=Acme\n": (None, "can't read as text"),
+                 "RUNNER_INSTANCE=a23456789012x\n": (None, "up to 11")}
+        for text, (value, refusal) in cases.items():
+            with self.subTest(text=text):
+                conf.write_text(text)
+                r = self.bash(function("conf_instance") + f"conf_instance {conf}\n")
+                if refusal:
+                    self.assertEqual(r.returncode, 1)
+                    self.assertIn(refusal, r.stderr)
+                else:
+                    self.assertEqual((r.returncode, r.stdout), (0, value + "\n"), r.stderr)
+        conf.write_text("")
+        r = self.bash(function("conf_instance") + f"conf_instance {conf}\n", RUNNER_INSTANCE="beta")
+        self.assertEqual(r.stdout, "beta\n")
+
+    def test_the_repository_is_the_records_or_the_operators_never_the_checkouts(self):
+        record = self.root / "factory-runner"
+        def repo(**env):
+            return self.bash(function("tier_repo") + f"tier_repo {record}\n", TIER="strict", **env)
+        r = repo()
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("no repository owns the strict tier yet", r.stderr)
+        self.assertEqual(repo(TIER_OWNER="acme/app").stdout, "acme/app\n")
+        for bad in ("acme", "acme/app.git", "acme/..", "../etc/passwd", "acme/app/x"):
+            with self.subTest(bad=bad):
+                self.assertIn("isn't <owner>/<repository>", repo(TIER_OWNER=bad).stderr)
+        record.write_text("acme/app\n")
+        self.assertEqual(repo().stdout, "acme/app\n")
+        r = repo(TIER_OWNER="acme/other")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("is set up from acme/app", r.stderr)
+
+    def test_nothing_from_the_checkout_runs_before_the_bootstrap(self):
+        text = SCRIPT.read_text()
+        call = text.index('\n  bootstrap_and_exec "$@"')
+        for later in ('source "$HOST_CONF"', "\nFACTORY_ORG=", "\nTIER=${TIER:-strict}", "claim_tier /etc"):
+            with self.subTest(later=later):
+                self.assertLess(call, text.index(later))
+        guard = text[text.rindex("\nif [[ $EUID -eq 0 && -z ${FACTORY_SETUP_STAGED:-} ]]; then", 0, call):call]
+        self.assertIn("--print-settings ]] || die", guard)  # as root, --print-settings would source host.conf
+        body = function("bootstrap_and_exec")
+        self.assertNotIn("source ", body)
+        self.assertNotIn("git -C", body)  # the checkout's git is never run: only clean_git, on root's clone
+        self.assertIn('stage_tree files "$clone" "$TIP" "$stage" "${STAGED[@]}"', body)
+        self.assertRegex(body, r'exec env -i "PATH=\$SETUP_PATH"')
+        staged = re.search(r"^STAGED=\((.*?)\)$", text, re.M | re.S).group(1).split()
+        for path in (".github/factory/host/setup.sh", ".github/factory/host/seccomp-bwrap.json",
+                     ".github/factory/factory.json", "?.github/factory/host/host.conf", "?.github/factory/host/setup-ci.sh",
+                     "?.github/factory/host/ci_launcher.py", "?.github/factory/host/ci-runner.Dockerfile"):
+            self.assertIn(path, staged)
+        self.assertNotIn('git -C "$SCRIPT_DIR"', SETUP_CI.read_text())  # the CI context is staged from root's clone
+        self.assertIn('stage_tree dir "$FACTORY_SETUP_CLONE" "$FACTORY_SETUP_TIP"', SETUP_CI.read_text())
 
 
 if __name__ == "__main__":

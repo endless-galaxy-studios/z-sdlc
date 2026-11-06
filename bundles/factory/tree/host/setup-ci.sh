@@ -77,24 +77,21 @@ write_conf "installation_id=$(python3 -I -c 'import json,sys; print(json.loads(s
   "group_id=$(python3 -I -c 'import json,sys; print(json.loads(sys.argv[1])["group_id"])' "$ids")"
 
 # The job image: the project's toolchain (factory.json's ci block), then the runner (ci-runner.Dockerfile). Root
-# copies the build context to a root-owned directory the runner user reads; the runner user builds.
-checkout=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)
-# Each path resolved, links and all, and refused unless it stays inside the checkout: root copies what it names.
-{ IFS= read -r dockerfile && IFS= read -r context; } < <(python3 -I - "$FACTORY_JSON" "$checkout" <<'PY'
-import json, os, stat, sys
+# stages the build context from its own clone of the default branch, at the commit setup runs from, never from the
+# checkout, into a root-owned directory the runner user reads; the runner user builds.
+# Each path a plain one inside the repository: the tree, not the checkout, says what it is.
+{ IFS= read -r dockerfile && IFS= read -r context; } < <(python3 -I - "$FACTORY_JSON" <<'PY'
+import json, posixpath, sys
 ci = json.load(open(sys.argv[1])).get("ci") or {}
-root = os.path.realpath(sys.argv[2])
-for key, kind in (("dockerfile", stat.S_ISREG), ("context", stat.S_ISDIR)):
+for key in ("dockerfile", "context"):
     path = ci.get(key) or ""
-    if not path or os.path.isabs(path) or any(c.isspace() or not c.isprintable() for c in path):
+    norm = posixpath.normpath(path) if path else ""
+    if not path or path.startswith("/") or any(c.isspace() or not c.isprintable() for c in path) \
+            or norm == ".." or norm.startswith("../") or (key == "dockerfile" and norm == "."):
         sys.exit(f"factory.json's ci.{key}: a path inside the repository, got {path!r}")
-    real = os.path.realpath(os.path.join(root, path))
-    if os.path.commonpath([real, root]) != root or not os.path.exists(real) or not kind(os.stat(real).st_mode):
-        sys.exit(f"factory.json's ci.{key} ({path}) isn't a {'file' if key == 'dockerfile' else 'directory'} inside "
-                 "the checkout, links resolved")
-    print(real)
+    print(norm)
 PY
-) || die "factory.json's ci block names no toolchain Dockerfile and context inside the checkout (above)"
+) || die "factory.json's ci block names no toolchain Dockerfile and context inside the repository (above)"
 build_args=$(python3 -I - "$FACTORY_JSON" <<'PY'
 import json, re, shlex, sys
 args = (json.load(open(sys.argv[1])).get("ci") or {}).get("build_args") or {}
@@ -108,9 +105,12 @@ PY
 # swap the context between root's copy and the build.
 build=$(mktemp -d /var/lib/factory-runner/ci-build.XXXXXX)
 chmod 755 "$build"
-# -P: a link is copied as a link, never followed, so nothing outside the context comes along. chmod -R skips links.
-cp -RP "$context" "$build/toolchain"
-cp -P "$dockerfile" "$build/toolchain.Dockerfile"
+# Links are staged as links, never followed, so nothing outside the context comes along. chmod -R skips links.
+stage_tree dir "$FACTORY_SETUP_CLONE" "$FACTORY_SETUP_TIP" "$build/toolchain" "$context" \
+  || { rm -rf "$build"; die "factory.json's ci.context ($context) isn't a directory of the tip ${FACTORY_SETUP_TIP:0:7} (above)"; }
+stage_tree files "$FACTORY_SETUP_CLONE" "$FACTORY_SETUP_TIP" "$build/dockerfile" "$dockerfile" \
+  && mv "$build/dockerfile/$dockerfile" "$build/toolchain.Dockerfile" && rm -rf "$build/dockerfile" \
+  || { rm -rf "$build"; die "factory.json's ci.dockerfile ($dockerfile) isn't a file of the tip ${FACTORY_SETUP_TIP:0:7} (above)"; }
 install -d -m 755 "$build/runner" && cp "$SCRIPT_DIR/ci-runner.Dockerfile" "$build/runner/Dockerfile"
 chown -R -h root:root "$build" && chmod -R a+rX "$build"
 # The job image is kept while its inputs are unchanged (the context and Dockerfiles as copied, the build arguments, the
