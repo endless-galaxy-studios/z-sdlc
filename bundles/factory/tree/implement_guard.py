@@ -117,11 +117,12 @@ def read_catalog():
     return path.read_text() if path.exists() else None
 
 
-def plan_gate_lines(plan_text, catalog_text):
+def plan_gate_lines(plan_text, catalog_text, release_branch=""):
     """The plan's production gates, checked against the operations catalog (gates.py), as PR body lines.
     A plan whose gates break the rules is refused here, before CD is asked to approve it. Without a catalog
     (catalog_text None) the project has no production tier, so a plan may have no gates: CD gates run
-    through the production broker too."""
+    through the production broker too. A release gate (a `**Release:**` line) needs a release branch
+    (factory.json's release.branch, D4 rule 13): without one, a deploy is a gate's operation."""
     import gates  # noqa: E402 (beside this file)
     if catalog_text is None:
         try:
@@ -138,6 +139,16 @@ def plan_gate_lines(plan_text, catalog_text):
         raise Refused("the plan's production gates break the rules: " + "; ".join(errors)[:600])
     lines = []
     for g in gates.parse_gates(plan_text):
+        if g["release"]:
+            if not release_branch:
+                raise Refused(f"{g['id']} is a release gate, but this project's production doesn't follow a release "
+                              "branch (factory.json's release.branch): there, a deploy is a gate's operation")
+            checks = ", ".join(f"`{s['op']}`" for s in (g["block"] or {}).get("steps", []))
+            lines.append(f"- **{g['id']}: {literal(g['title'])}.** A release: the factory opens a release PR into "
+                         f"`{escape(release_branch)}` at this gate, and merging it deploys. The production runner then "
+                         f"checks production serves it{', then runs ' + checks if checks else ''}; it can't roll back. "
+                         f"Why: {literal(g['release'])}")
+            continue
         if g["block"] is None:
             lines.append(f"- **{g['id']}: {literal(g['title'])}.** You run its runbook, then approve the gate run.")
             continue
@@ -1083,7 +1094,7 @@ def main():
         plan_gates, release = None, None
         if stage == "plan" and result["document"].endswith("_plan.md"):
             plan_text = git("show", f"{head}:{result['document']}")
-            plan_gates = plan_gate_lines(plan_text, read_catalog()) or None
+            plan_gates = plan_gate_lines(plan_text, read_catalog(), read_release_branch()) or None
             release = release_line(plan_text, read_release_branch())
         if stage == "execute" and os.environ.get("PLAN"):
             release = release_line(git("show", f"{head}:{os.environ['PLAN']}"), read_release_branch())

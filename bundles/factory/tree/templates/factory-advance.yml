@@ -162,3 +162,36 @@ jobs:
           grep -qF '<!-- factory-release v1 -->' <<< "$BODY" || { echo "PR #$PR's plan doesn't release."; exit 0; }
           gh workflow run factory-release-pr.yml --ref "$DEFAULT_BRANCH" -f pr="$PR"
           echo "Opening the release PR for #$PR" >> "$GITHUB_STEP_SUMMARY"
+
+  release-gate:
+    # CD merged a release gate's release PR into the release branch (D4 rule 13): the merge deployed, so ask
+    # factory-gate-request.yml for the gate run, which checks production serves the release. The PR is the
+    # App's, from a pinned factory/release/<pr>-<gate>-<commit> branch; the request job checks all of it again.
+    if: >-
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.event.pull_request.head.ref, 'factory/release/') &&
+      '%{release.branch?}' != '' &&
+      github.event.pull_request.base.ref == '%{release.branch?}'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Ask for the release gate's run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          AUTHOR: ${{ github.event.pull_request.user.id }}
+          RELEASE_PR: ${{ github.event.pull_request.number }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          [ "$AUTHOR" = "%{app.user_id}" ] || { echo "Not the factory's release PR."; exit 0; }
+          [[ $HEAD_REF =~ ^factory/release/([0-9]+)-G[1-9][0-9]?-([0-9a-f]{12})$ ]] || { echo "Not a release gate's branch."; exit 0; }
+          [ "${HEAD_SHA:0:12}" = "${BASH_REMATCH[2]}" ] || { echo "::error::$HEAD_REF isn't at the commit its name pins"; exit 1; }
+          gh workflow run factory-gate-request.yml --ref "$DEFAULT_BRANCH" -f pr="${BASH_REMATCH[1]}" -f head="$HEAD_SHA" \
+            -f released="$RELEASE_PR"
+          echo "Asked for the gate run of PR #${BASH_REMATCH[1]} at ${HEAD_SHA:0:12}" >> "$GITHUB_STEP_SUMMARY"

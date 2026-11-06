@@ -2,8 +2,11 @@
 # stopped at, from the approved plan on the default branch, the PR's head and the earlier gates' signed
 # results, and dispatches factory-gate.yml with it. The run's title carries the request's digest; CD
 # approves that run. factory-implement dispatches this when execution stops at a gate, factory-revise when
-# a revision does (both with the commit they pushed), and factory-gate-trigger.yml when CD adds
-# factory:gate-retry. It never approves or runs anything itself.
+# a revision does (both with the commit they pushed), factory-gate-trigger.yml when CD adds
+# factory:gate-retry, and factory-advance when CD merges a release gate's release PR. It never approves or
+# runs anything itself. A release gate (D4 rule 13) first pins the stopped commit on a branch nothing can move
+# and opens a release PR from it into the release branch; CD's merge is the deploy, and only then does this
+# ask for the gate run, which checks production serves the release.
 name: factory-gate-request
 run-name: "factory-gate-request: PR #${{ inputs.pr }}"
 
@@ -20,6 +23,10 @@ on:
         default: ""
       head:
         description: The commit the factory stopped at; no request if the PR has moved since. Empty for a retry
+        type: string
+        default: ""
+      released:
+        description: The release PR whose merge asked for this (factory-advance), for a release gate; empty otherwise
         type: string
         default: ""
 
@@ -49,7 +56,7 @@ jobs:
           ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
 
-      # Comments and labels on the PR as the factory App.
+      # Comments and labels on the PR, and a release gate's release PR, as the factory App.
       - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         id: app
         with:
@@ -58,13 +65,24 @@ jobs:
           permission-issues: write
           permission-pull-requests: write
 
+      # Contents only: a release gate's pinned branch, created once (its ruleset lets nothing move it after).
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: pin
+        with:
+          client-id: ${{ vars.FACTORY_APP_CLIENT_ID }}
+          private-key: ${{ secrets.FACTORY_APP_PRIVATE_KEY }}
+          permission-contents: write
+
       - name: Build the request and dispatch the gate run
         env:
           GH_TOKEN: ${{ github.token }}
           APP_TOKEN: ${{ steps.app.outputs.token }}
+          PIN_TOKEN: ${{ steps.pin.outputs.token }}
           GH_REPO: ${{ github.repository }}
+          RELEASE_BRANCH: "%{release.branch?}"
           REQUESTER: ${{ inputs.requester }}
           STOPPED_HEAD: ${{ inputs.head }}
+          RELEASED: ${{ inputs.released }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
@@ -77,14 +95,94 @@ jobs:
           gh api "repos/$GH_REPO/pulls/$PR" > pr.json
           # The factory asks for a gate on the commit it checked and pushed: a push since then is other code.
           head=$(jq -r .head.sha pr.json)
+          # A release gate's PR merged at an older commit than the PR's head (a stale one, reopened): production runs
+          # that commit now. Said only once GitHub confirms the release PR is the App's, from this PR's pin at it.
+          if [ -n "$STOPPED_HEAD" ] && [ "$head" != "$STOPPED_HEAD" ] && [[ $RELEASED =~ ^[0-9]+$ ]] && [ -n "$RELEASE_BRANCH" ] &&
+             gh api "repos/$GH_REPO/pulls/$RELEASED" 2> /dev/null | jq -e --argjson app "$APP_ID" --arg repo "$GH_REPO" \
+               --arg base "$RELEASE_BRANCH" --arg sha "$STOPPED_HEAD" --arg prefix "factory/release/$PR-G" \
+               '.merged == true and .user.id == $app and .base.ref == $base and .head.sha == $sha and
+                .head.repo.full_name == $repo and (.head.ref | startswith($prefix)) and
+                (.head.ref | endswith("-" + $sha[:12]))' > /dev/null; then
+            say "**Release PR #$RELEASED deployed \`${STOPPED_HEAD:0:12}\`, not this PR's head \`${head:0:12}\`.** Production runs that older commit now. Check production, then roll back through the host and revert it in the release branch, or add \`factory:gate-retry\` to release the new commits."; exit 1
+          fi
           if [ -n "$STOPPED_HEAD" ] && [ "$head" != "$STOPPED_HEAD" ]; then
             say "No gate run started: the branch moved after the factory stopped before the gate (\`${STOPPED_HEAD:0:7}\` to \`${head:0:7}\`). Review the new commits, then add \`factory:gate-retry\` to ask for the gate on them."; exit 1
           fi
           gh api "repos/$GH_REPO/issues/$PR/comments" --paginate --jq '.[]' > comments.ndjson
           plan=$(python3 -I .github/factory/gates.py plan-path --comments comments.ndjson --app-id "$APP_ID")
           gh api "repos/$GH_REPO/contents/$plan?ref=$DEFAULT_BRANCH" > plan.json
-          if ! python3 -I .github/factory/gates.py request --repo "$GH_REPO" --app-id "$APP_ID" --factory-dir .github/factory \
-                 --pr-json pr.json --comments comments.ndjson --plan-meta plan.json --out request.json > why.txt; then
+          common=(--repo "$GH_REPO" --app-id "$APP_ID" --factory-dir .github/factory --pr-json pr.json
+                  --comments comments.ndjson --plan-meta plan.json)
+          release=()
+          if ! python3 -I .github/factory/gates.py release-gate "${common[@]}" --out release-gate.json > why.txt; then
+            say "No gate run started: $(sed 's/^::error:://' why.txt | head -c 400)"; exit 1
+          fi
+          read -r rgate pin < <(jq -r '[.gate, .pin] | @tsv' release-gate.json)
+          if [ -n "$pin" ]; then
+            # A release gate (D4 rule 13): CD's merge of its release PR is the deploy; the gate run follows it.
+            if [ -z "$RELEASE_BRANCH" ]; then
+              say "No gate run started: $rgate is a release gate, but factory.json names no release branch (\`release.branch\`)."; exit 1
+            fi
+            # The pin first: created once, at the exact commit the factory checked. A branch of that name at any
+            # other commit was made by something else, and is never used: CD deletes it with its ruleset off.
+            if at=$(gh api "repos/$GH_REPO/git/ref/heads/$pin" --jq .object.sha 2> /dev/null); then
+              if [ "$at" != "$head" ]; then
+                say "No gate run started: \`$pin\` already exists, at \`${at:0:12}\`, not the gate's commit \`${head:0:12}\`. The factory never uses a pinned branch it didn't create at its commit: delete it (with its ruleset off), then add \`factory:gate-retry\`."; exit 1
+              fi
+            else
+              if ! GH_TOKEN="$PIN_TOKEN" gh api "repos/$GH_REPO/git/refs" -f ref="refs/heads/$pin" -f sha="$head" > /dev/null 2> pin.err; then
+                say "No release PR opened: GitHub refused the pinned branch \`$pin\` ($(head -c 300 pin.err | tr '\n' ' ')). Add \`factory:gate-retry\` once that's resolved."; exit 1
+              fi
+            fi
+            # Only the App's own release PRs from the pin, in this repository, at this commit: any other PR from a
+            # branch of that name is someone else's, and merging it would deploy their code.
+            ours="select(.user.id == $APP_ID and .head.repo.full_name == \"$GH_REPO\" and .head.sha == \"$head\")"
+            gh api "repos/$GH_REPO/pulls?state=all&base=$RELEASE_BRANCH&head=${GH_REPO%%/*}:$pin&per_page=100" > release-prs.json
+            merged=$(jq -r "[.[] | $ours | select(.merged_at != null) | .number][0] // empty" release-prs.json)
+            if [ -z "$merged" ]; then
+              open=$(jq -r "[.[] | $ours | select(.state == \"open\") | .number][0] // empty" release-prs.json)
+              if [ -n "$open" ]; then
+                say "**$rgate deploys when you merge** release PR #$open into \`$RELEASE_BRANCH\`; then approve the gate run that follows."; exit 0
+              fi
+              # GitHub allows one open PR per branch pair: someone else's would block the App's.
+              theirs=$(jq -r "[.[] | select(.state == \"open\") | .number][0] // empty" release-prs.json)
+              if [ -n "$theirs" ]; then
+                say "No release PR opened: #$theirs, not the factory's, is open from \`$pin\` into \`$RELEASE_BRANCH\`, and GitHub allows one. Close it without merging, then add \`factory:gate-retry\`."; exit 1
+              fi
+              gh api "repos/$GH_REPO/compare/$RELEASE_BRANCH...$head" > compare-release.json
+              gh api "repos/$GH_REPO/compare/$DEFAULT_BRANCH...$head" > compare-default.json
+              if [ "$(jq -r .total_commits compare-release.json)" = 0 ]; then
+                say "No release PR opened: \`$RELEASE_BRANCH\` already has \`${head:0:12}\`, so $rgate has nothing to release. Production may serve it already, through another release: decide by hand whether to close this PR or release it another way."; exit 1
+              fi
+              python3 -I .github/factory/gates.py release-pr "${common[@]}" --release-branch "$RELEASE_BRANCH" \
+                --default-branch "$DEFAULT_BRANCH" --compare-release compare-release.json \
+                --compare-default compare-default.json --run-url "$RUN_URL" --out release-pr.md
+              if ! url=$(GH_TOKEN="$APP_TOKEN" gh pr create --base "$RELEASE_BRANCH" --head "$pin" \
+                           --title "Release $rgate of #$PR" --body-file release-pr.md 2> create.err); then
+                say "No release PR opened: GitHub refused it ($(head -c 300 create.err | tr '\n' ' ')). Add \`factory:gate-retry\` once that's resolved."; exit 1
+              fi
+              say "**$rgate deploys when you merge** $url into \`$RELEASE_BRANCH\`. Review it there: it lists every commit merging deploys. Then approve the gate run that follows."
+              # This gate's release PRs and waiting gate runs at other commits are stale: they'd deploy or check
+              # code the gate isn't at.
+              prefix="${pin%-*}-"
+              gh api "repos/$GH_REPO/pulls?state=open&base=$RELEASE_BRANCH&per_page=100" --paginate \
+                --jq ".[] | select(.user.id == $APP_ID and .head.repo.full_name == \"$GH_REPO\" and (.head.ref | startswith(\"$prefix\")) and .head.ref != \"$pin\") | .number" |
+                while read -r stale; do
+                  GH_TOKEN="$APP_TOKEN" gh pr close "$stale" --comment "Replaced by $url: $rgate of #$PR is now at \`${head:0:12}\`. <sub>factory gate request · [run]($RUN_URL)</sub>" > /dev/null
+                done
+              gh api "repos/$GH_REPO/actions/workflows/factory-gate.yml/runs?status=waiting&per_page=100" \
+                --jq ".workflow_runs[] | select(.display_title | startswith(\"factory-gate #$PR \")) | .id" |
+                while read -r id; do
+                  gh api -X POST "repos/$GH_REPO/actions/runs/$id/cancel" > /dev/null
+                  echo "Cancelled stale gate run $id" >> "$GITHUB_STEP_SUMMARY"
+                done
+              echo "Opened $url for $rgate" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            gh api "repos/$GH_REPO/pulls/$merged" > release-pr.json
+            release=(--release-branch "$RELEASE_BRANCH" --release-pr release-pr.json)
+          fi
+          if ! python3 -I .github/factory/gates.py request "${common[@]}" ${release[@]+"${release[@]}"} --out request.json > why.txt; then
             say "No gate run started: $(sed 's/^::error:://' why.txt | head -c 400)"; exit 1
           fi
           read -r gate attempt kind digest < <(jq -r '[.gate, .attempt, .kind, .digest] | @tsv' request.json)

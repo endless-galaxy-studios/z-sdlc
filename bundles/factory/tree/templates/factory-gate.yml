@@ -29,9 +29,9 @@ on:
         type: number
         required: true
       kind:
-        description: ops (the production runner runs it) or cd (CD runs the runbook)
+        description: ops (the production runner runs it), cd (CD runs the runbook) or release (CD merged its release PR; the runner checks production serves it)
         type: choice
-        options: [ops, cd]
+        options: [ops, cd, release]
       digest:
         description: The request's digest (sha256)
         type: string
@@ -87,10 +87,18 @@ jobs:
           gh api "repos/$GH_REPO/issues/$PR/comments" --paginate --jq '.[]' > comments.ndjson
           plan=$(python3 -I .github/factory/gates.py plan-path --comments comments.ndjson --app-id "$APP_ID")
           gh api "repos/$GH_REPO/contents/$plan?ref=$DEFAULT_BRANCH" > plan.json
+          printf '%s' "$REQUEST" | base64 -d > request.json
+          # A release gate's request names its release PR: rebuilt from GitHub's record of it, never the request's.
+          release=()
+          release_pr=$(jq -r '.release.pr // empty' request.json)
+          if [ -n "$release_pr" ]; then
+            [[ $release_pr =~ ^[0-9]+$ ]] || { echo "::error::the request's release PR isn't a number"; exit 1; }
+            gh api "repos/$GH_REPO/pulls/$release_pr" > release-pr.json
+            release=(--release-branch "%{release.branch?}" --release-pr release-pr.json)
+          fi
           python3 -I .github/factory/gates.py verify-request --repo "$GH_REPO" --app-id "$APP_ID" --factory-dir .github/factory \
             --pr-json pr.json --comments comments.ndjson --plan-meta plan.json --request-b64 "$REQUEST" \
-            --run-url "$RUN_URL" --out request-comment.md
-          printf '%s' "$REQUEST" | base64 -d > request.json
+            --run-url "$RUN_URL" --out request-comment.md ${release[@]+"${release[@]}"}
           jq -e --argjson pr "$PR" --arg gate "$GATE" --argjson attempt "$ATTEMPT" --arg kind "$KIND" --arg digest "$DIGEST" \
             '.pr == $pr and .gate == $gate and .attempt == $attempt and .kind == $kind and .digest == $digest' request.json > /dev/null \
             || { echo "::error::the run's title doesn't match its request"; exit 1; }

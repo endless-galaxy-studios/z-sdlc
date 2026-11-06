@@ -76,6 +76,34 @@ def gh(method, path, body=None):
     return int(m.group(1)), data
 
 
+def fnmatch_regex(pattern):
+    """A ruleset ref pattern as a regex, matched the way GitHub matches it (Ruby's File.fnmatch with
+    FNM_PATHNAME): `*` and `?` stay inside one path segment, `**/` spans any number of them, a `**` not followed
+    by `/` is a `*`, and `[...]` is a set of characters other than `/`."""
+    regex, i = "", 0
+    while i < len(pattern):
+        if pattern.startswith("**/", i):
+            regex, i = regex + "(?:[^/]*/)*", i + 3
+        elif pattern[i] == "*":
+            while i < len(pattern) and pattern[i] == "*":
+                i += 1
+            regex += "[^/]*"
+        elif pattern[i] == "?":
+            regex, i = regex + "[^/]", i + 1
+        elif pattern[i] == "[" and "]" in pattern[i + 2:]:
+            end = pattern.index("]", i + 2)
+            body = pattern[i + 1:end]
+            negate = body[:1] in ("!", "^")
+            body = body[1:] if negate else body
+            chars = "".join("\\" + c if c in "\\]^" else c for c in body)
+            regex, i = regex + ("(?!/)[^" if negate else "(?!/)[") + chars + "]", end + 1
+        elif pattern[i] == "\\" and i + 1 < len(pattern):
+            regex, i = regex + re.escape(pattern[i + 1]), i + 2
+        else:
+            regex, i = regex + re.escape(pattern[i]), i + 1
+    return regex
+
+
 class Bootstrap:
     def __init__(self, api, root, repo, apply, reviewer=None):
         self.api, self.root, self.repo, self.apply, self.reviewer = api, pathlib.Path(root), repo, apply, reviewer
@@ -503,45 +531,122 @@ class Bootstrap:
         release = ((self.cfg.get("release") or {}).get("branch") or "").strip()
         if release:
             self.check_release_branch(release)
+            self.check_pinned_branches()
         elif self.production:
             self.check_merge_methods(merge_methods)
 
-    def check_release_branch(self, branch):
-        """Production follows a release branch (D4 rule 13): every host serving production deploys it by itself, so
-        CD's merge into it is the deploy's approval. Its ruleset must make that merge the only way in: a PR with
-        code-owner review, no force push, no deletion."""
-        status, _ = self.api("GET", f"repos/{self.repo}/branches/{urllib.parse.quote(branch, safe='')}")
-        if status != 200:
-            self.note("problem", "release branch", f"no branch {branch} (factory.json's release.branch)")
-            return
-        found, always = set(), []
+    def covering_rulesets(self, ref):
+        """The active branch rulesets that cover a ref: one of their ref_name includes matches it (GitHub's
+        fnmatch patterns, ~ALL and ~DEFAULT_BRANCH) and none of their excludes does."""
+        def matches(pattern, ref):
+            if pattern == "~ALL":
+                return True
+            if pattern == "~DEFAULT_BRANCH":
+                return ref == f"refs/heads/{self.default}"
+            return re.fullmatch(fnmatch_regex(pattern), ref) is not None
+        found = []
         for rs in self.list_all(f"repos/{self.repo}/rulesets?includes_parents=true", None) or []:
             status, full = self.api("GET", f"repos/{self.repo}/rulesets/{rs['id']}")
             if status != 200 or full.get("enforcement") != "active" or full.get("target") != "branch":
                 continue
-            include = ((full.get("conditions") or {}).get("ref_name") or {}).get("include") or []
-            if not {"~ALL", f"refs/heads/{branch}"} & set(include):
-                continue
-            # A bypass actor in mode "always" skips every rule here: it could push, force-push or delete.
-            always += [f"{a.get('actor_type', '?')} {a.get('actor_id', '')}".strip()
-                       for a in full.get("bypass_actors") or [] if a.get("bypass_mode", "always") == "always"]
+            names = (full.get("conditions") or {}).get("ref_name") or {}
+            if any(matches(p, ref) for p in names.get("include") or []) \
+                    and not any(matches(p, ref) for p in names.get("exclude") or []):
+                found.append(full)
+        return found
+
+    def check_release_branch(self, branch):
+        """Production follows a release branch (D4 rule 13): every host serving production deploys it by itself, so
+        CD's merge into it is the deploy's approval. Its rulesets must make that merge the only way in: a PR with
+        code-owner review and merge commits only (provenance reads them), no force push, no deletion, and updates
+        restricted to bypass actors who are only organization or repository admins, in pull-request mode."""
+        status, _ = self.api("GET", f"repos/{self.repo}/branches/{urllib.parse.quote(branch, safe='')}")
+        if status != 200:
+            self.note("problem", "release branch", f"no branch {branch} (factory.json's release.branch)")
+            return
+        found, methods, problems = set(), None, []
+        for full in self.covering_rulesets(f"refs/heads/{branch}"):
+            for actor in full.get("bypass_actors") or []:
+                who = f"{actor.get('actor_type', '?')} {actor.get('actor_id') or ''}".strip()
+                admin = actor.get("actor_type") in ("OrganizationAdmin", "EnterpriseOwner") or (
+                    actor.get("actor_type") == "RepositoryRole" and actor.get("actor_id") == 5)
+                if not admin:
+                    # An App, team, deploy key or a role below admin could merge a release PR: that is a deploy.
+                    problems.append(f"lets {who} bypass it: only organization or repository admins may")
+                elif actor.get("bypass_mode", "always") != "pull_request":
+                    # Missing means always; exempt doesn't apply the rules at all. Either can push, force-push or delete.
+                    problems.append(f"lets {who} bypass it {actor.get('bypass_mode', 'always')}: set it to pull requests only")
             for rule in full.get("rules") or []:
                 params = rule.get("parameters") or {}
-                if rule.get("type") == "pull_request" and params.get("require_code_owner_review"):
-                    found.add("code-owner review")
+                if rule.get("type") == "pull_request":
+                    if params.get("require_code_owner_review"):
+                        found.add("code-owner review")
+                    if params.get("allowed_merge_methods"):
+                        allowed = set(params["allowed_merge_methods"])
+                        methods = allowed if methods is None else methods & allowed
+                if rule.get("type") == "update":
+                    if params.get("update_allows_fetch_and_merge"):
+                        problems.append("lets updates through as fetch and merge (a fork-sync allowance)")
+                    else:
+                        found.add("update")
                 if rule.get("type") in ("non_fast_forward", "deletion"):
                     found.add(rule["type"])
-        wanted = {"code-owner review": "a PR with code-owner review", "non_fast_forward": "no force push",
-                  "deletion": "no deletion"}
+        if methods == {"merge"}:
+            found.add("merge commits")
+        wanted = {"code-owner review": "a PR with code-owner review", "merge commits": "merge commits only",
+                  "update": "restricted updates", "non_fast_forward": "no force push", "deletion": "no deletion"}
         missing = [text for key, text in wanted.items() if key not in found]
         if missing:
-            self.note("problem", "release branch", f"{branch}'s ruleset lacks {', '.join(missing)}: merging into it "
+            self.note("problem", "release branch", f"{branch}'s rulesets lack {', '.join(missing)}: merging into it "
                       "deploys, so CD's merge must be the only way in (D4 rule 13)")
-        if always:
-            self.note("problem", "release branch", f"{branch}'s ruleset lets {', '.join(always)} bypass it always: "
-                      "set their bypass mode to pull requests only, or they can push, force-push or delete it")
-        if not missing and not always:
-            self.note("ok", "release branch", f"{branch} takes changes only through a PR with code-owner review")
+        for problem in dict.fromkeys(problems):
+            self.note("problem", "release branch", f"{branch}'s ruleset {problem} (D4 rule 13)")
+        if not missing and not problems:
+            self.note("ok", "release branch", f"{branch} takes changes only through a PR an admin merges, with "
+                      "code-owner review and a merge commit")
+
+    # Names a release gate pins its commit on, spread over the pattern: a ruleset must cover every one.
+    PINNED_SAMPLES = ("refs/heads/factory/release/1-G1-0123456789ab", "refs/heads/factory/release/42-G7-fedcba987654",
+                      "refs/heads/factory/release/99999-G99-a1b2c3d4e5f6")
+
+    def check_pinned_branches(self):
+        """A release gate pins its commit on factory/release/<pr>-<gate>-<commit> (D4 rule 13). Rulesets must keep
+        every such branch from moving once the factory App creates it: updates, deletion and force pushes
+        restricted, creation allowed, and no bypass actor at all, the App included."""
+        problems, uncovered = [], {}
+        for ref in self.PINNED_SAMPLES:
+            found = set()
+            for full in self.covering_rulesets(ref):
+                types = {rule.get("type") for rule in full.get("rules") or []}
+                if "creation" in types and not full.get("bypass_actors"):
+                    problems.append("restricts creation: the factory App couldn't pin a release gate's commit")
+                # Samples can't see every exclude: one that could leave out any pinned name is a hole.
+                for pattern in ((full.get("conditions") or {}).get("ref_name") or {}).get("exclude") or []:
+                    literal = re.split(r"[*?\[]", pattern, maxsplit=1)[0]
+                    if pattern == "~ALL" or "refs/heads/factory/release/".startswith(literal) \
+                            or literal.startswith("refs/heads/factory/release/"):
+                        problems.append(f"excludes {pattern}, which can leave pinned branches out")
+                if types & {"update", "deletion", "non_fast_forward"} and full.get("bypass_actors"):
+                    actors = ", ".join(f"{a.get('actor_type', '?')} {a.get('actor_id') or ''}".strip()
+                                       for a in full["bypass_actors"])
+                    problems.append(f"lets {actors} bypass it: nothing may move a pinned branch")
+                for rule in full.get("rules") or []:
+                    if rule.get("type") == "update" and (rule.get("parameters") or {}).get("update_allows_fetch_and_merge"):
+                        problems.append("lets updates through as fetch and merge (a fork-sync allowance)")
+                    elif rule.get("type") in ("update", "deletion", "non_fast_forward"):
+                        found.add(rule["type"])
+            for key, text in (("update", "restricted updates"), ("deletion", "no deletion"),
+                              ("non_fast_forward", "no force push")):
+                if key not in found:
+                    uncovered.setdefault(text, ref[len("refs/heads/"):])
+        if uncovered:
+            self.note("problem", "release branch", "factory/release/** (release gates' pinned commits) needs a ruleset "
+                      f"with {', '.join(uncovered)} on every branch under it ({', '.join(sorted(set(uncovered.values())))} "
+                      "isn't covered): a pinned branch could move after CD reviews it (D4 rule 13)")
+        for problem in dict.fromkeys(problems):
+            self.note("problem", "release branch", f"factory/release/**'s ruleset {problem} (D4 rule 13)")
+        if not uncovered and not problems:
+            self.note("ok", "release branch", "factory/release/** branches can't move once created")
 
     def check_merge_methods(self, ruleset_methods):
         """With a production tier, an execution PR merges with a merge commit (D4 rule 13): the broker deploys

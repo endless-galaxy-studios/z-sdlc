@@ -281,7 +281,7 @@ class Bootstrap(unittest.TestCase):
         code, out = self.run_it()
         self.assertIn("main allows no merge commit", out)
 
-    def test_a_release_branch_needs_its_ruleset(self):
+    def release_project(self):
         factory = self.root / ".github" / "factory"
         cfg = json.loads((factory / "factory.json").read_text())
         cfg["release"] = {"branch": "release/production"}
@@ -289,26 +289,168 @@ class Bootstrap(unittest.TestCase):
         self.production_tier()
         self.gh.repo.update(allow_merge_commit=True, allow_squash_merge=True, allow_rebase_merge=True)
         self.gh.branches = {"release/production"}
+
+    def release_ruleset(self, **changes):
+        rs = {"id": 2, "enforcement": "active", "target": "branch",
+              "conditions": {"ref_name": {"include": ["refs/heads/release/production"]}},
+              "bypass_actors": [{"actor_id": 1, "actor_type": "OrganizationAdmin", "bypass_mode": "pull_request"}],
+              "rules": [{"type": "pull_request", "parameters": {"require_code_owner_review": True,
+                                                                "allowed_merge_methods": ["merge"]}},
+                        {"type": "update"}, {"type": "non_fast_forward"}, {"type": "deletion"}]}
+        rs.update(changes)
+        return rs
+
+    def pinned_ruleset(self, **changes):
+        rs = {"id": 3, "enforcement": "active", "target": "branch",
+              "conditions": {"ref_name": {"include": ["refs/heads/factory/release/**"]}}, "bypass_actors": [],
+              "rules": [{"type": "update"}, {"type": "non_fast_forward"}, {"type": "deletion"}]}
+        rs.update(changes)
+        return rs
+
+    def test_a_release_branch_needs_its_ruleset(self):
+        self.release_project()
         code, out = self.run_it()
-        self.assertIn("release/production's ruleset lacks a PR with code-owner review, no force push, no deletion", out)
+        self.assertIn("release/production's rulesets lack a PR with code-owner review, merge commits only, restricted "
+                      "updates, no force push, no deletion", out)
         # The default branch's merge methods don't matter: deploys follow the release branch.
         self.assertNotIn("also allows", out)
-        self.gh.rulesets.append({"id": 2, "enforcement": "active", "target": "branch",
-                                 "conditions": {"ref_name": {"include": ["refs/heads/release/production"]}},
-                                 "rules": [{"type": "pull_request", "parameters": {"require_code_owner_review": True}},
-                                           {"type": "non_fast_forward"}, {"type": "deletion"}]})
+        self.gh.rulesets += [self.release_ruleset(), self.pinned_ruleset()]
         code, out = self.run_it()
-        self.assertIn("release/production takes changes only through a PR with code-owner review", out)
-        # A bypass actor in mode "always" skips every rule: admins could push, force-push or delete.
-        self.gh.rulesets[-1]["bypass_actors"] = [{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always"}]
-        code, out = self.run_it()
-        self.assertIn("lets RepositoryRole 5 bypass it always", out)
-        self.gh.rulesets[-1]["bypass_actors"][0]["bypass_mode"] = "pull_request"
-        code, out = self.run_it()
-        self.assertIn("release/production takes changes only through a PR with code-owner review", out)
+        self.assertIn("release/production takes changes only through a PR an admin merges", out)
+        self.assertIn("factory/release/** branches can't move once created", out)
         self.gh.branches = set()
         code, out = self.run_it()
         self.assertIn("no branch release/production", out)
+
+    def test_a_release_branch_ruleset_admits_only_admins_on_pull_requests(self):
+        self.release_project()
+        self.gh.rulesets += [self.release_ruleset(), self.pinned_ruleset()]
+        for actor, expect in [
+                ({"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always"}, "RepositoryRole 5 bypass it always"),
+                ({"actor_id": 5, "actor_type": "RepositoryRole"}, "RepositoryRole 5 bypass it always"),
+                ({"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "exempt"}, "RepositoryRole 5 bypass it exempt"),
+                ({"actor_id": 4, "actor_type": "RepositoryRole", "bypass_mode": "pull_request"}, "lets RepositoryRole 4 bypass it"),
+                ({"actor_id": 9, "actor_type": "Integration", "bypass_mode": "pull_request"}, "lets Integration 9 bypass it"),
+                ({"actor_id": 7, "actor_type": "Team", "bypass_mode": "pull_request"}, "lets Team 7 bypass it"),
+                ({"actor_id": 3, "actor_type": "DeployKey", "bypass_mode": "pull_request"}, "lets DeployKey 3 bypass it")]:
+            with self.subTest(actor=actor):
+                self.gh.rulesets[-2]["bypass_actors"] = [actor]
+                code, out = self.run_it()
+                self.assertIn(expect, out)
+                self.assertNotIn("takes changes only through", out)
+        self.gh.rulesets[-2]["bypass_actors"] = [{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "pull_request"}]
+        code, out = self.run_it()
+        self.assertIn("release/production takes changes only through a PR an admin merges", out)
+
+    def test_a_release_branch_ruleset_restricts_updates_and_merges_with_merge_commits(self):
+        self.release_project()
+        self.gh.rulesets += [self.release_ruleset(), self.pinned_ruleset()]
+        rules = self.gh.rulesets[-2]["rules"]
+        rules[1] = {"type": "update", "parameters": {"update_allows_fetch_and_merge": True}}
+        code, out = self.run_it()
+        self.assertIn("lets updates through as fetch and merge", out)
+        del rules[1]
+        code, out = self.run_it()
+        self.assertIn("lack restricted updates", out)
+        rules.insert(1, {"type": "update"})
+        rules[0]["parameters"]["allowed_merge_methods"] = ["merge", "squash"]
+        code, out = self.run_it()
+        self.assertIn("lack merge commits only", out)
+        del rules[0]["parameters"]["allowed_merge_methods"]
+        code, out = self.run_it()
+        self.assertIn("lack merge commits only", out)
+
+    def test_ruleset_patterns_include_and_exclude_like_github(self):
+        self.release_project()
+        self.gh.rulesets += [self.release_ruleset(), self.pinned_ruleset()]
+        self.gh.rulesets[-2]["conditions"]["ref_name"] = {"include": ["refs/heads/release/**"]}
+        code, out = self.run_it()
+        self.assertIn("release/production takes changes only through a PR an admin merges", out)
+        # An exclude that matches the branch takes the ruleset off it.
+        self.gh.rulesets[-2]["conditions"]["ref_name"] = {"include": ["~ALL"], "exclude": ["refs/heads/release/*"]}
+        code, out = self.run_it()
+        self.assertIn("release/production's rulesets lack a PR with code-owner review", out)
+        # A single * doesn't cross a slash, and nor does a ** without one after it (GitHub's FNM_PATHNAME).
+        for include in ("refs/heads/*", "refs/heads/**"):
+            with self.subTest(include=include):
+                self.gh.rulesets[-2]["conditions"]["ref_name"] = {"include": [include]}
+                code, out = self.run_it()
+                self.assertIn("release/production's rulesets lack", out)
+        self.gh.rulesets[-2]["conditions"]["ref_name"] = {"include": ["refs/heads/**/*"]}
+        code, out = self.run_it()
+        self.assertIn("release/production takes changes only through a PR an admin merges", out)
+        # A set in an exclude counts.
+        self.gh.rulesets[-2]["conditions"]["ref_name"] = {"include": ["~ALL"], "exclude": ["refs/heads/[q-s]elease/*"]}
+        code, out = self.run_it()
+        self.assertIn("release/production's rulesets lack", out)
+
+    def test_ref_patterns_match_as_github_matches_them(self):
+        # Ruby's File.fnmatch with FNM_PATHNAME, which GitHub's docs name for branch patterns.
+        for pattern, ref, want in [
+                ("refs/heads/**", "refs/heads/main", True), ("refs/heads/**", "refs/heads/release/production", False),
+                ("refs/heads/**/*", "refs/heads/release/production", True),
+                ("refs/heads/**/production", "refs/heads/production", True),
+                ("refs/heads/**/production", "refs/heads/a/b/production", True),
+                ("refs/heads/**/production", "refs/heads/xproduction", False),
+                ("refs/heads/factory/release/**", "refs/heads/factory/release/1-G1-0123456789ab", True),
+                ("refs/heads/factory/**", "refs/heads/factory/release/1-G1-0123456789ab", False),
+                ("refs/heads/factory/release/[4-9]*", "refs/heads/factory/release/42-G7-fedcba987654", True),
+                ("refs/heads/factory/release/[!4-9]*", "refs/heads/factory/release/42-G7-fedcba987654", False),
+                ("refs/heads/release?production", "refs/heads/release/production", False),
+                ("refs/heads/release.production", "refs/heads/releaseXproduction", False)]:
+            with self.subTest(pattern=pattern, ref=ref):
+                self.assertEqual(re.fullmatch(bootstrap.fnmatch_regex(pattern), ref) is not None, want)
+
+    def test_pinned_release_branches_cant_move(self):
+        self.release_project()
+        self.gh.rulesets += [self.release_ruleset()]
+        code, out = self.run_it()
+        self.assertIn("factory/release/** (release gates' pinned commits) needs a ruleset with restricted updates, "
+                      "no deletion, no force push on every branch under it", out)
+        self.gh.rulesets.append(self.pinned_ruleset(bypass_actors=[{"actor_id": 9, "actor_type": "Integration",
+                                                                     "bypass_mode": "always"}]))
+        code, out = self.run_it()
+        self.assertIn("lets Integration 9 bypass it: nothing may move a pinned branch", out)
+        self.gh.rulesets[-1] = self.pinned_ruleset(rules=[{"type": "creation"}, {"type": "update"},
+                                                          {"type": "non_fast_forward"}, {"type": "deletion"}])
+        code, out = self.run_it()
+        self.assertIn("restricts creation: the factory App couldn't pin", out)
+        self.gh.rulesets[-1] = self.pinned_ruleset(rules=[{"type": "update", "parameters": {"update_allows_fetch_and_merge": True}},
+                                                          {"type": "non_fast_forward"}, {"type": "deletion"}])
+        code, out = self.run_it()
+        self.assertIn("factory/release/**'s ruleset lets updates through as fetch and merge", out)
+        self.gh.rulesets[-1] = self.pinned_ruleset()
+        code, out = self.run_it()
+        self.assertIn("factory/release/** branches can't move once created", out)
+
+    def test_a_pinned_ruleset_covers_every_pinned_name(self):
+        self.release_project()
+        self.gh.rulesets += [self.release_ruleset(), self.pinned_ruleset()]
+        # Only some names: PR 1's, all but an excluded gate, or GitHub's `**` without a slash, which stops at one.
+        for names, expect in (({"include": ["refs/heads/factory/release/1-*"]}, "isn't covered"),
+                              ({"include": ["refs/heads/factory/**"]}, "isn't covered"),
+                              ({"include": ["refs/heads/factory/release/**"], "exclude": ["refs/heads/factory/release/*-G7-*"]},
+                               "excludes refs/heads/factory/release/*-G7-*"),
+                              # An exclude no sample hits is still a hole.
+                              ({"include": ["refs/heads/factory/release/**"], "exclude": ["refs/heads/factory/release/1?-*"]},
+                               "excludes refs/heads/factory/release/1?-*, which can leave pinned branches out")):
+            with self.subTest(names=names):
+                self.gh.rulesets[-1]["conditions"]["ref_name"] = names
+                code, out = self.run_it()
+                self.assertIn(expect, out)
+                self.assertNotIn("can't move once created", out)
+        # An exclude elsewhere is fine.
+        self.gh.rulesets[-1]["conditions"]["ref_name"] = {"include": ["refs/heads/factory/release/**"],
+                                                          "exclude": ["refs/heads/main"]}
+        code, out = self.run_it()
+        self.assertIn("factory/release/** branches can't move once created", out)
+
+    def test_the_pinned_ruleset_is_checked_before_the_release_branch_exists(self):
+        self.release_project()
+        self.gh.branches = set()
+        code, out = self.run_it()
+        self.assertIn("no branch release/production", out)
+        self.assertIn("factory/release/** (release gates' pinned commits) needs a ruleset", out)
 
     def test_merge_settings_matter_only_with_a_production_tier(self):
         self.gh.repo.update(allow_merge_commit=True, allow_squash_merge=True, allow_rebase_merge=True)

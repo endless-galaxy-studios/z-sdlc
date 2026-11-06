@@ -73,7 +73,32 @@ Without a catalog, the runbook is the whole gate, and CD does it.
 
 ## With a Release Branch
 
-A project whose production follows a release branch (`factory.json`'s `release.branch`, `[sdlc-root]/process/factory.md` D4 rule 13) deploys only when CD merges a PR into that branch: every host serving production deploys it by itself. A plan there never deploys mid-execution. Its gates hold only what isn't a deploy (a backup, a live check), and a plan whose changes must reach production says so in a Release section, after its phases:
+A project whose production follows a release branch (`factory.json`'s `release.branch`, `[sdlc-root]/process/factory.md` D4 rule 13) deploys only when CD merges a PR into that branch: every host serving production deploys it by itself. A plan there deploys in either of two ways, or both.
+
+**Partway through, in a release gate.** A gate with a `**Release:**` line deploys the work up to it. When execution reaches it, the factory pins that commit and opens a release PR from it into the release branch, and CD's merge is the deploy. The gate then checks production as any gate does, and the next phase starts once it's done:
+
+````markdown
+### Gate G1: [what reaches production, in plain words]
+
+**After:** Phase 2. **Changes production:** yes.
+**Release:** [what production needs from the work so far, in one line]
+**Why here:** [why production needs it before the next phase]
+**Preconditions:** [what must be true first]
+**Runbook:**
+- [ ] Merge the release PR the factory opens; merging deploys.
+- [ ] Approve the gate run that follows; it checks production runs the release.
+**Report back:** `field`: [what it is and which phase uses it]; ...
+**Rollback:** through the host, then a revert PR into the release branch and a `baseline`; after a migration, fix forward instead (expand-only, never reverted).
+
+```gate-ops
+{"steps": [{"op": "health"}]}
+```
+````
+
+- **Its `gate-ops` block is optional** and holds only read operations, run after the deploy. It has no `rollback`: the broker can't deploy, so a failed release gate is CD's: rolled back through the host and a revert, or, after a migration, fixed forward.
+- **Merging deploys everything behind the gate's commit:** the default branch's commits the release branch doesn't have yet go too. The release PR lists them.
+
+**When the work is done, in a Release section,** after its phases:
 
 ````markdown
 ### Release
@@ -81,7 +106,9 @@ A project whose production follows a release branch (`factory.json`'s `release.b
 **Why:** [what production needs from this deliverable, in one line]
 ````
 
-The plan's PR shows the release. When CD merges the plan's execution PR, the factory opens a release PR from the default branch into the release branch, or comments on the one already open, and merging that PR is the deploy. Work that needs production between two of its own phases is two deliverables: the first releases, the second depends on it. A plan with a Release section in a project without a release branch is refused: there, production steps are gates.
+The plan's PR shows the release. When CD merges the plan's execution PR, the factory opens a release PR from the default branch into the release branch, or comments on the one already open, and merging that PR is the deploy. It carries only what the plan's release gates haven't.
+
+The plan's other gates hold only what isn't a deploy (a backup, a live check). A release gate or a Release section in a project without a release branch is refused: there, a deploy is a gate's operation.
 
 ## Red Flags
 

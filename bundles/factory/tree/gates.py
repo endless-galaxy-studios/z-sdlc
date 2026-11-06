@@ -47,7 +47,13 @@ KINDS = ("read", "change")
 MAX_STEPS = 12
 MARKER = re.compile(r"\A<!-- (factory-gate-(?:tracker|request|result)): (\{.*?\}) -->\n", re.S)
 TRACKER, REQUEST, RESULT = "factory-gate-tracker", "factory-gate-request", "factory-gate-result"
-TITLE = re.compile(r"^factory-gate #([0-9]+) (G[1-9][0-9]?) a([0-9]+) (ops|cd) ([0-9a-f]{64})$")
+TITLE = re.compile(r"^factory-gate #([0-9]+) (G[1-9][0-9]?) a([0-9]+) (ops|cd|release) ([0-9a-f]{64})$")
+# A release gate (D4 rule 13, a project whose production follows a release branch): a gate section's
+# `**Release:**` line, saying what production needs from the work so far. Its commit is pinned on a branch of
+# its own, `factory/release/<pr>-<gate>-<first 12 of the commit>`, which a ruleset keeps from moving.
+GATE_RELEASE = re.compile(r"^\*\*Release:\*\*\s*(\S.*?)\s*$")
+BRANCH = re.compile(r"^[A-Za-z0-9._/-]{1,100}$")
+PIN = re.compile(r"^factory/release/([0-9]+)-(G[1-9][0-9]?)-([0-9a-f]{12})$")
 # A broker receipt's status. Only done lets execution continue. refused: nothing ran.
 RECEIPT_STATUSES = ("done", "failed", "rolled-back", "refused")
 # A result the report job posts without a receipt: CD rejected the run, or the runner returned nothing.
@@ -137,9 +143,9 @@ def installed_ops_files(lib_dir):
 # ---------------------------------------------------------------- the plan's gates
 
 def parse_gates(plan):
-    """The plan's gates, in order: [{id, title, block (dict or None), line}]. Also checks the shape the
-    factory relies on: G1, G2, ... in order; at most one gate-ops block per gate; a phase (or step)
-    before the first gate and after the last. Raises Invalid."""
+    """The plan's gates, in order: [{id, title, block (dict or None), release (str or None), line}]. Also
+    checks the shape the factory relies on: G1, G2, ... in order; at most one gate-ops block and one
+    Release line per gate; a phase (or step) before the first gate and after the last. Raises Invalid."""
     lines = plan.splitlines()
     gates, items, current, fence = [], [], None, None
     for n, line in enumerate(lines, 1):
@@ -161,7 +167,7 @@ def parse_gates(plan):
             continue
         m = GATE_HEAD.match(line)
         if m:
-            current = {"id": m.group(1), "title": m.group(2), "block": None, "line": n}
+            current = {"id": m.group(1), "title": m.group(2), "block": None, "release": None, "line": n}
             gates.append(current)
             items.append(("gate", m.group(1)))
             continue
@@ -170,6 +176,10 @@ def parse_gates(plan):
             items.append(("phase", m.group(2)))
         if SECTION_END.match(line):
             current = None
+        elif current is not None and (m := GATE_RELEASE.match(line)):
+            if current["release"] is not None:
+                raise Invalid(f"{current['id']}: more than one Release line")
+            current["release"] = m.group(1)
     if fence is not None:
         raise Invalid(f"line {fence}: an unclosed gate-ops block")
     for i, g in enumerate(gates, 1):
@@ -310,6 +320,17 @@ def check_plan(plan, catalog):
             outputs_of[g["id"]] = {}
             continue
         errors += check_block(g["id"], g["block"], catalog, outputs_of)
+        if g["release"] and isinstance(g["block"], dict):
+            # The release PR's merge is the deploy: the broker only checks production after it, and can't
+            # deploy, so it can't roll a release back either (D4 rule 13).
+            if g["block"].get("rollback"):
+                errors.append(f"{g['id']}: a release gate has no rollback (its release is live from the merge; "
+                              "rolling back is CD's, through the host)")
+            for i, step in enumerate(g["block"].get("steps") or [], 1):
+                op = catalog["operations"].get(step.get("op")) if isinstance(step, dict) else None
+                if op and op.get("kind") != "read":
+                    errors.append(f"{g['id']}.steps[{i}]: a release gate runs only read operations "
+                                  f"({step['op']} is {op.get('kind')})")
         steps = g["block"].get("steps") if isinstance(g["block"], dict) else None
         outputs_of[g["id"]] = {
             s.get("id", s.get("op")): list(catalog["operations"].get(s.get("op"), {}).get("outputs", {}))
@@ -356,14 +377,44 @@ def resolve(block, catalog, head, gate_outputs):
 
 
 def digest(request):
-    """sha256 over the request's binding fields: what CD approves is exactly what the broker runs."""
-    return hashlib.sha256(canonical({k: request[k] for k in DIGEST_FIELDS}).encode()).hexdigest()
+    """sha256 over the request's binding fields: what CD approves is exactly what the broker runs. A release
+    gate's also binds its release (the release PR and its merge commit); no other kind has the field, so their
+    digests are what they always were."""
+    fields = DIGEST_FIELDS + (("release",) if "release" in request else ())
+    return hashlib.sha256(canonical({k: request[k] for k in fields}).encode()).hexdigest()
+
+
+def pin_branch(pr, gate_id, head):
+    """The branch a release gate's commit is pinned on: one per PR, gate and commit."""
+    if not GATE_ID.match(gate_id or "") or not SHA.match(head or ""):
+        raise Invalid(f"no pinned branch for {gate_id!r} at {head!r}")
+    return f"factory/release/{int(pr)}-{gate_id}-{head[:12]}"
+
+
+def release_binding(release_pr, *, repo, app_id, branch, pr, gate_id, head):
+    """What a release gate's request binds: {branch, pr, merge}, from the release PR's record (GitHub's
+    pulls API). The PR must be the App's, from the gate's pinned branch at the request's head, merged into the
+    release branch. The broker checks it all again for itself, with who merged it."""
+    if not BRANCH.match(branch or "") or ".." in branch:
+        raise Invalid(f"not a release branch: {branch!r}")
+    pin = pin_branch(pr, gate_id, head)
+    h, b = release_pr.get("head") or {}, release_pr.get("base") or {}
+    if h.get("ref") != pin or h.get("sha") != head or (h.get("repo") or {}).get("full_name") != repo:
+        raise Invalid(f"release PR #{release_pr.get('number')} isn't from {pin} at {head[:12]}")
+    if b.get("ref") != branch or (release_pr.get("user") or {}).get("id") != app_id:
+        raise Invalid(f"release PR #{release_pr.get('number')} isn't the factory's into {branch}")
+    merge = release_pr.get("merge_commit_sha") or ""
+    if release_pr.get("merged") is not True or not SHA.match(merge):
+        raise Invalid(f"release PR #{release_pr.get('number')} isn't merged")
+    return {"branch": branch, "pr": int(release_pr["number"]), "merge": merge}
 
 
 def build_request(*, repo, issue, pr, plan, plan_blob, plan_text, gate_id, attempt, head, catalog,
-                  gate_outputs, ops_digest):
-    """A gate request: the binding fields and their digest. kind is `ops` (the broker runs the block)
-    or `cd` (no block: CD does the runbook, then approves to continue)."""
+                  gate_outputs, ops_digest, release=None):
+    """A gate request: the binding fields and their digest. kind is `ops` (the broker runs the block),
+    `cd` (no block: CD does the runbook, then approves to continue) or `release` (a release gate: its
+    release PR is merged, and the broker checks production serves it, then runs the block's read steps).
+    release: a release gate's binding (release_binding), required for one and refused for any other."""
     if not PLAN_PATH.match(plan or ""):
         raise Invalid(f"not a plan path: {plan!r}")
     if not SHA.match(plan_blob or ""):
@@ -373,7 +424,21 @@ def build_request(*, repo, issue, pr, plan, plan_blob, plan_text, gate_id, attem
     if not isinstance(attempt, int) or not 1 <= attempt <= 99:
         raise Invalid(f"attempt must be 1-99: {attempt!r}")
     g = gate(plan_text, gate_id)
-    if g["block"] is None:
+    if g["release"]:
+        if not isinstance(release, dict) or set(release) != {"branch", "pr", "merge"} \
+                or not BRANCH.match(str(release["branch"])) or not isinstance(release["pr"], int) \
+                or not SHA.match(str(release["merge"])):
+            raise Invalid(f"{gate_id} is a release gate: its request needs its merged release PR")
+        errors = check_plan(plan_text, catalog)
+        if errors:
+            raise Invalid("; ".join(errors))
+        if not SHA.match(head or ""):
+            raise Invalid(f"head isn't a commit SHA: {head!r}")
+        steps, rollback = resolve(g["block"], catalog, head, gate_outputs) if g["block"] else ([], [])
+        kind = "release"
+    elif release is not None:
+        raise Invalid(f"{gate_id} isn't a release gate")
+    elif g["block"] is None:
         steps, rollback, kind = [], [], "cd"
         if not SHA.match(head or ""):
             raise Invalid(f"head isn't a commit SHA: {head!r}")
@@ -386,6 +451,8 @@ def build_request(*, repo, issue, pr, plan, plan_blob, plan_text, gate_id, attem
     request = {"v": 1, "repo": repo, "issue": int(issue), "pr": int(pr), "gate": gate_id, "attempt": attempt,
                "title": g["title"], "plan": plan, "plan_blob": plan_blob, "head": head, "kind": kind,
                "steps": steps, "rollback": rollback, "ops_digest": ops_digest}
+    if kind == "release":
+        request["release"] = dict(release)
     request["digest"] = digest(request)
     return request
 
@@ -581,7 +648,8 @@ def render_tracker(tracker, plan_text, state):
         cell = labels.get(status, status)
         if entry and entry.get("run_url"):
             cell += f" ([run]({entry['run_url']}))"
-        kind = "CD runs the runbook" if g["block"] is None else "production runner"
+        kind = ("you merge its release PR, then the production runner checks" if g["release"]
+                else "CD runs the runbook" if g["block"] is None else "production runner")
         lines.append(f"| {g['id']} | {_literal(g['title'])} | {kind} | {cell} |")
     lines += ["", "<sub>factory gates · updated by the factory</sub>"]
     return "\n".join(lines) + "\n"
@@ -595,6 +663,17 @@ def render_request(request, run_url, catalog, plan_text):
         lines += ["**You run this gate.** Do the runbook in the plan, post the report-back values as a comment "
                   "on this PR, then approve the run: the production runner records your approval (it runs nothing) "
                   "and execution continues.", ""]
+    elif request["kind"] == "release":
+        rel = request["release"]
+        lines += [f"**Released:** release PR #{rel['pr']} merged into `{rel['branch']}` (merge `{rel['merge'][:12]}`); "
+                  "production deploys that branch by itself. Once you approve the run, the production runner checks "
+                  "that production serves the release" + (", then runs these read steps:" if request["steps"] else "."), ""]
+        for i, s in enumerate(request["steps"], 1):
+            op = catalog["operations"][s["op"]]
+            args = ", ".join(f"`{k}={v}`" for k, v in s["with"].items())
+            lines.append(f"{i}. `{s['op']}`{' (' + args + ')' if args else ''} ({op['kind']}): {op['summary']}")
+        lines += ["", f"**If it fails:** nothing rolls back, since the release is live. Roll back through the host, "
+                      f"then with a revert PR into `{rel['branch']}`.", ""]
     else:
         lines += ["**The production runner runs these steps, in order, once you approve the run:**", ""]
         for i, s in enumerate(request["steps"], 1):
@@ -611,6 +690,55 @@ def render_request(request, run_url, catalog, plan_text):
               f"**Approve:** [the gate run]({run_url}) → Review deployments → `factory-production`. "
               f"Digest `{request['digest'][:16]}`, also in the run's title.", "",
               "<sub>factory gate request · comments are display only; the runner re-checks everything</sub>"]
+    return "\n".join(lines) + "\n"
+
+
+RELEASE_PR = "factory-release-gate"
+
+
+def commit_line(c):
+    """A commit as a release PR lists it: short SHA, subject, and its GitHub author (or git's)."""
+    who = (c.get("author") or {}).get("login") or ((c.get("commit") or {}).get("author") or {}).get("name") or "?"
+    subject = ((c.get("commit") or {}).get("message") or "").split("\n", 1)[0]
+    return f"- `{c['sha'][:12]}` {_literal(subject)} ({_literal(who)})"
+
+
+def release_commits(compare_release, compare_default):
+    """What merging a release gate's PR deploys, from GitHub's compare of the release branch and of the
+    default branch with the gate's commit: (the PR's unreleased commits, the default branch's commits the
+    release branch doesn't have yet, the total, whether GitHub listed them all). An earlier release gate's
+    commits are on the release branch already, so they're in neither list."""
+    pending = compare_release.get("commits") or []
+    own = {c["sha"] for c in compare_default.get("commits") or []}
+    total = compare_release.get("total_commits", len(pending))
+    complete = len(pending) >= total and len(own) >= compare_default.get("total_commits", len(own))
+    return ([c for c in pending if c["sha"] in own], [c for c in pending if c["sha"] not in own], total, complete)
+
+
+def render_release_pr(*, pr, pr_title, gate_id, gate_title, why, head, branch, default_branch, own, others, total,
+                      complete, run_url):
+    """A release gate's release PR description: what merging it deploys, every commit by its author."""
+    payload = {"v": 1, "pr": int(pr), "gate": gate_id, "head": head}
+    lines = [f"<!-- {RELEASE_PR}: {canonical(payload)} -->", "",
+             f"**Merging this deploys.** It is release gate {gate_id} of #{pr} ({_literal(pr_title)}): "
+             f"{_literal(gate_title)}. Every host serving production deploys `{branch}` by itself "
+             "(process/factory.md, D4 rule 13).", "",
+             f"**Why now:** {_literal(why)}", "",
+             f"**It brings `{branch}` to `{head[:12]}`,** a commit pinned on this PR's branch, which nothing can move. "
+             f"Merging deploys {total} commit{'s' if total != 1 else ''}:", ""]
+    if not complete:
+        lines += ["GitHub listed only some of them, so the lists below are partial: see this PR's commits for all of "
+                  "them.", ""]
+    for heading, commits in ((f"#{pr}'s own, not released yet", own),
+                             (f"From `{default_branch}`, which `{branch}` doesn't have yet", others)):
+        if commits:
+            lines += [f"**{heading} ({len(commits)}):**", ""] + [commit_line(c) for c in commits[:50]]
+            if len(commits) > 50:
+                lines.append(f"- and {len(commits) - 50} more: see this PR's commits")
+            lines.append("")
+    lines += ["**After merging,** approve the gate run the factory asks for: it checks production serves this "
+              f"release, then execution continues on #{pr}. If no run follows, add `factory:gate-retry` to #{pr}.",
+              "", f"<sub>factory release gate · [run]({run_url})</sub>"]
     return "\n".join(lines) + "\n"
 
 
@@ -635,6 +763,14 @@ def render_result(payload, request, run_url):
             lines.append("")
     if status == "done":
         lines.append("Execution continues on this PR.")
+    elif request.get("kind") == "release" and status not in ("refused", "rejected", "error"):
+        # The release PR's merge deployed: nothing here rolls it back (D4 rule 13).
+        branch = request["release"]["branch"]
+        lines.append(f"**The release is live:** production runs what release PR #{request['release']['pr']} merged. "
+                     f"Without a migration, roll back through the host and revert it in `{branch}`; with one, fix "
+                     "forward. The broker blocks the next gate until you record a `baseline` for the revert. To try "
+                     f"again after a revert, first revert the revert in `{branch}` (never a migration file), then add "
+                     "`factory:gate-retry`.")
     elif status == "error":
         lines.append("Re-run this run's failed jobs and approve again: if the gate finished on the host, its recorded "
                      "result comes back without running anything; if it was interrupted, the broker says how to resolve it.")
@@ -687,7 +823,7 @@ def cli(argv):
     sp = sub.add_parser("stopped-at", help="the gate the PR's tracker says execution is stopped at (empty if none)")
     sp.add_argument("--comments", required=True)
     sp.add_argument("--app-id", type=int, required=True)
-    for name in ("request", "verify-request", "tracker", "report", "results"):
+    for name in ("request", "verify-request", "tracker", "report", "results", "release-gate", "release-pr"):
         s = sub.add_parser(name)
         s.add_argument("--repo", required=True)
         s.add_argument("--app-id", type=int, required=True)
@@ -698,6 +834,16 @@ def cli(argv):
         s.add_argument("--out", required=True)
         if name == "verify-request":
             s.add_argument("--request-b64", required=True)
+            s.add_argument("--run-url", required=True)
+        if name in ("request", "verify-request"):
+            # A release gate's merged release PR (GitHub's pulls API record), and the branch it merged into.
+            s.add_argument("--release-branch", default="")
+            s.add_argument("--release-pr")
+        if name == "release-pr":
+            s.add_argument("--release-branch", required=True)
+            s.add_argument("--default-branch", required=True)
+            s.add_argument("--compare-release", required=True, help="compare/<release branch>...<head>")
+            s.add_argument("--compare-default", required=True, help="compare/<default branch>...<head>")
             s.add_argument("--run-url", required=True)
         if name == "tracker":
             s.add_argument("--plan")
@@ -752,6 +898,31 @@ def cli(argv):
         return 0
 
     tracker = state["tracker"] or {}
+    if args.cmd in ("release-gate", "release-pr"):
+        # The gate execution is stopped at, if it's a release gate: its pinned branch (release-gate, as JSON),
+        # or its release PR's description (release-pr).
+        gate_id = tracker.get("stopped_at") or ""
+        if not gate_id or tracker.get("plan") is None:
+            raise Invalid("execution isn't stopped at a gate on this PR")
+        _, plan_text = _plan(args)
+        g = gate(plan_text, gate_id)
+        head = pr["head"]["sha"]
+        if gate_status(state, gate_id)[0] == "done":
+            raise Invalid(f"{gate_id} is already done")
+        if args.cmd == "release-gate":
+            out(canonical({"gate": gate_id, "release": bool(g["release"]),
+                           "pin": pin_branch(pr["number"], gate_id, head) if g["release"] else ""}))
+            return 0
+        if not g["release"]:
+            raise Invalid(f"{gate_id} isn't a release gate")
+        own, others, total, complete = release_commits(json.loads(pathlib.Path(args.compare_release).read_text()),
+                                                       json.loads(pathlib.Path(args.compare_default).read_text()))
+        out(render_release_pr(pr=pr["number"], pr_title=pr.get("title", ""), gate_id=gate_id, gate_title=g["title"],
+                              why=g["release"], head=head, branch=args.release_branch,
+                              default_branch=args.default_branch, own=own, others=others, total=total,
+                              complete=complete, run_url=args.run_url))
+        return 0
+
     if args.cmd in ("request", "verify-request"):
         plan_blob, plan_text = _plan(args)
         if args.cmd == "request":
@@ -767,10 +938,17 @@ def cli(argv):
             gate_id, attempt = asked.get("gate"), asked.get("attempt")
         if tracker.get("plan") is None:
             raise Invalid("no gate tracker on this PR")
+        release = None
+        if gate(plan_text, gate_id)["release"]:
+            if not args.release_branch or not args.release_pr:
+                raise Invalid(f"{gate_id} is a release gate: its request needs its merged release PR")
+            release = release_binding(json.loads(pathlib.Path(args.release_pr).read_text()), repo=args.repo,
+                                      app_id=args.app_id, branch=args.release_branch, pr=pr["number"],
+                                      gate_id=gate_id, head=pr["head"]["sha"])
         request = build_request(repo=args.repo, issue=issue, pr=pr["number"], plan=tracker["plan"], plan_blob=plan_blob,
                                 plan_text=plan_text, gate_id=gate_id, attempt=attempt, head=pr["head"]["sha"],
                                 catalog=catalog, gate_outputs=gate_outputs(state),
-                                ops_digest=ops_digest(repo_ops_files(factory)))
+                                ops_digest=ops_digest(repo_ops_files(factory)), release=release)
         if args.cmd == "request":
             out(canonical(request))
             return 0

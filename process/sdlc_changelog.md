@@ -37,6 +37,44 @@ Each entry contains:
 
 ---
 
+## 2026-11-05: A plan can deploy partway through, in a release gate
+
+**Origin:** CD (2026-11-05): "i need any project able to execute deploys mid-work as part of plans. gating to release/production shouldn't stop work that needs to execute that way". The release-branch model in v2.3.3 forbade it: "A plan never deploys mid-execution", and work that needed production between its own phases had to be split into two deliverables. Neuroloom's enablement and broker sessions reviewed the design; their security audit's provenance rule and ruleset checks are folded in.
+
+**What happened:** A release-branch project could deploy only when a plan was done. The broker can't deploy there, since every host deploys the release branch by itself and CD's merge into it is the deploy. So a plan whose later phases need the earlier ones live had no way to say so.
+
+**Changes made:**
+1. **`process/factory.md`:**
+   - D4 rule 13: a release gate (a gate with a `**Release:**` line) pins the stopped commit on `factory/release/<pr>-<gate>-<commit>`, opens a release PR from it, and CD's merge is the deploy. Its gate run, of kind `release`, binds the release PR and its merge. The broker checks the release PR is the App's from the pin at the request's head, merged by an approver, its merge on the release branch's first-parent history, and the head still holding the gate's content. Then it waits for rule 15's evidence and runs the gate's read steps.
+   - Provenance accepts a merge whose second parent is on the default branch or is a release gate's pinned commit: who merged proves who clicked, not what came in.
+   - The release branch's ruleset restricts updates to admin bypass actors in pull-request mode, merges with merge commits only, and no `exclude` matches it. The pinned branches' ruleset lets nothing move them.
+   - Rule 2 and Enablement step 9 say so.
+2. **`process/production-gates.md`** § With a Release Branch: a plan deploys partway through, in a release gate (its template: read steps only, no rollback; merging deploys everything behind the gate's commit), or when done, in a Release section, or both. The two-deliverables rule is gone.
+3. **`bundles/factory/tree/`:**
+   - `gates.py`: the gate's Release line, the `release` kind, its title, digest field (only for that kind, so `ops` and `cd` digests are unchanged), `pin_branch`, `release_binding`, the release PR's description, and the `release-gate` and `release-pr` commands.
+   - `factory-gate-request.yml`: pins the commit with a contents-only App token, refuses a pinned name at another commit, trusts only the App's own release PRs from it, closes the gate's stale ones, and opens the release PR. Once it's merged, it asks for the gate run.
+   - `factory-advance.yml`: asks for it when CD merges a release gate's PR.
+   - `factory-gate.yml`: takes the `release` kind and rebuilds the request from GitHub's record of the release PR.
+   - `implement_guard.py`: shows release gates on the plan PR and refuses one without a release branch.
+   - `bootstrap.py`: checks both rulesets, with GitHub's include and exclude patterns.
+   - Tests: `tests/test_release_gates.py` (new; it runs the request step, the advance job and the gate run's check against a fake `gh`) and `tests/test_bootstrap.py`. Review agents read it in two rounds (code, security, then the fixes); their findings are fixed:
+     - someone else's PR from a pin is refused rather than blocking silently, and a refused pin or PR is said;
+     - a release PR merged at an older commit is reported, once GitHub confirms it's the App's from that PR's pin;
+     - the release PR lists every commit by author from GitHub's totals, leaving out ones an earlier release gate shipped;
+     - stale gate runs are cancelled, and the release PR is announced before that cleanup;
+     - `bootstrap.py` matches ruleset patterns as GitHub does (`File.fnmatch` with `FNM_PATHNAME`: `**` crosses a slash only as `**/`), refuses any exclude that can leave pinned branches out, and checks the pinned ruleset even before the release branch exists;
+     - the recovery after a failed release gate is stated as git and rule 11 allow it (a revert needs a `baseline`; a migration fixes forward), and its result comment says so.
+4. **`skills/sdlc-plan`, `skills/sdlc-lite-plan` and both plan templates:** a deploy partway through is a release gate.
+
+**Installed projects:**
+- **Every project with a production tier re-runs its host's setup (`setup-production.sh`) after migrating, before its next gate.** `gates.py` changed, and the operations digest every request carries hashes it, so until the host installs the new copy every gate is refused, `ops` and `cd` included. Gates without a release branch otherwise behave as before: their request and digest fields are unchanged.
+- **A release-branch project** runs `bootstrap.py`, adds the pinned branches' ruleset, and tightens the release branch's. Its broker takes the `release` kind: it checks the binding, the merge, the head's content and rule 15's evidence, and applies the new provenance rule.
+- **The incubator** takes it with the next `--to-incubator`, and CD re-runs its production setup on the production machine with it.
+
+**Rationale:** CD's merge into the release branch already is the deploy and its approval, so a mid-plan deploy is a release PR at the gate's commit. The pin and its ruleset make the commit CD reviews the commit CD merges. The gate run after it lets the broker check that production serves it before the next phase builds on it.
+
+---
+
 ## 2026-11-05: The factory imported from the incubator (9e56842..7c07be1): Where to look, a revision's gate stop
 
 **Origin:** The incubator merged the factory code for the entry below, its own fix of 2026-10-20 for a revision's gate stop, and a larger patch cap.
