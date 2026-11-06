@@ -66,7 +66,21 @@ Each entry contains:
 
 **Installed projects:** migrations never touch seeds. To turn it on, copy the seed's `review` block into `.github/factory/factory.json`, add the project's own always-high areas as rules with paths, and let CI (the factory's tests load the rules) pass. Without the block, PRs are unchanged.
 
-**Rationale:** CD approves every merge, and what to look at first shouldn't depend on the agent that wrote the change. Rules from the default branch, applied by the writer job, can't be changed by the agent. A file can't hide from a path rule by its name, though logic copied elsewhere isn't followed; line rules catch mistakes, not a hostile agent. It points CD at files and blocks nothing. Release type: minor (a new setting projects write in their own `factory.json`).
+**Rationale:** CD approves every merge, and what to look at first shouldn't depend on the agent that wrote the change. Rules from the default branch, applied by the writer job, can't be changed by the agent. A file can't hide from a path rule by its name, though logic copied elsewhere isn't followed; line rules catch mistakes, not a hostile agent. It points CD at files and blocks nothing. Release type: patch (CD, 2026-11-05: v2.3.3; the bump rule reads a new setting as minor, and CD chose a patch).
+
+---
+
+## 2026-11-05: The runners move to actions/runner v2.338.2
+
+**Origin:** A third project enabling the factory noticed `setup.sh` still pinned v2.338.0 (released 2026-10-06), while v2.338.2 came out on 2026-10-26. GitHub stops sending jobs to a self-hosted runner more than 30 days behind the latest release, and the factory's runners never update themselves (`--disableupdate`).
+
+**Changes made:**
+
+1. **`bundles/factory/tree/host/setup.sh`**: `RUNNER_VERSION=2.338.2`, with `RUNNER_SHA256` set to the linux-x64 archive's published checksum. GitHub's asset digest and the release notes agree on it, and setup verifies the download against it.
+
+**Upgrading:** after the migration that brings this, run each tier's setup again from its checkout (`sudo TIER=<tier> bash .github/factory/host/setup.sh`, the strict tier with no `TIER`): it upgrades each idle runner in place. Do it before 2026-11-25, 30 days after v2.338.2. The CI tier's image is rebuilt on its next setup run. A project's own `setup-production.sh` that copies the pin bumps its own copy.
+
+**Rationale:** The pin is a supply-chain control (a checksum, no self-update), so keeping it current is z-sdlc's job, within the 30 days. Release type: patch.
 
 ---
 
@@ -117,7 +131,7 @@ Each entry contains:
 - The broker keeps what it's for: operations that aren't deploys.
 - The execution-PR model stays as it was for projects that run it.
 
-Release type: minor (a new setting and workflow).
+Release type: patch (CD, 2026-11-05: v2.3.3; the bump rule reads a new setting and workflow as minor, and CD chose a patch).
 
 ---
 

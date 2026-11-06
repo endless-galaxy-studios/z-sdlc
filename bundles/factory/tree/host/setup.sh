@@ -153,8 +153,8 @@ runner_work() {
 runner_name() {
   if legacy_first "$1"; then echo "$NAME_PREFIX"; else echo "$NAME_PREFIX-$1"; fi
 }
-RUNNER_VERSION=2.338.0
-RUNNER_SHA256=af4b794c1bc41d73d40535e3fe092a39f9679cd8d965954c2aca25a05ca41d32
+RUNNER_VERSION=2.338.2
+RUNNER_SHA256=baebf204307bac6193480852732f0aba2ae97b6c5597c244f4d5558390147c40
 
 if [[ ${1:-} == --print-settings ]]; then
   ci_settings=
