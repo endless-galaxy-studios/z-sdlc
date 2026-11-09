@@ -13,7 +13,7 @@ An ADR captures a single significant architectural decision: the context that fo
 
 ## Immutability
 
-ADRs are append-only facts. Once Active, you do **not** edit a prior ADR to reflect a newer choice — you write a new ADR that `Supersedes` the prior one and link both directions via frontmatter. This preserves the reasoning chain: someone later can reconstruct *why* the old decision was made and what changed.
+ADRs are append-only facts. Once Active, you do **not** edit a prior ADR to reflect a newer choice — you write a new ADR that `Supersedes` the prior one and link both directions via frontmatter. This preserves the reasoning chain: someone later can reconstruct *why* the old decision was made and what changed. The only in-place edits are the three in § Amendments vs. Supersessions, plus the Status line and frontmatter a supersession sets on the ADR it replaces; none changes what the ADR requires or forbids.
 
 ## Crystallization Signals
 
@@ -38,7 +38,7 @@ If proposed or in-flight work appears to contradict an active ADR, surface the c
 2. **Conform** — revise the approach to match the active ADR.
 3. **Reject** — if neither supersession nor conformance is acceptable, the deliverable itself needs to change.
 
-Never edit the prior ADR in place. Never merge work that contradicts an active ADR without also merging the supersession ADR in the same commit.
+Never edit the prior ADR in place to reflect the new choice (§ Amendments vs. Supersessions lists the only in-place edits, plus the Status line and frontmatter a supersession sets on the ADR it replaces, and none changes what the ADR requires or forbids). Never merge work that contradicts an active ADR without also merging the supersession ADR in the same commit.
 
 ## Three Functions
 
@@ -83,13 +83,19 @@ Add a subsection titled **"What This ADR Does NOT Decide"** or **"What This ADR 
 
 ## Amendments vs. Supersessions
 
-ADR immutability has two narrow exceptions that do not require a superseding ADR. Both require an `## Amendment` trailer at the bottom of the ADR documenting what changed and why it is not a supersession.
+ADR immutability has three narrow exceptions that do not require a superseding ADR. All three require an `## Amendment` trailer at the bottom of the ADR (a dated `## Amendment log` section of entries is the same trailer) documenting what changed and why it is not a supersession. Each trailer entry names the exception it uses (`Exception: placeholder correction`, `rendering update`, `status fact` or `answer to an open question`), stands on its own, and never declares that it wins over the ADR's body.
 
 **Placeholder corrections** — a fact written into the Decision section turned out wrong before any consumer depended on it (e.g., a URL placeholder for an unbuilt repo, a version number for an unreleased dependency). The decision itself is unchanged; a detail that was always intended to have a specific value is corrected to that value. The amendment trailer cites the correction and confirms no consumer depended on the placeholder.
 
 **Rendering updates** — diagram syntax, formatting, or rendering directives that change how the ADR displays without changing what it decides (e.g., updating Mermaid syntax for a new renderer version). The amendment trailer cites the rendering change.
 
-Everything else — including rewording the Decision section to say something substantively different, adding new constraints, or removing existing constraints — is a narrative edit and requires a superseding ADR. When in doubt, supersede. The cost of an unnecessary supersession ADR is one extra file; the cost of a misclassified in-place edit is a broken reasoning chain.
+**Status facts and answers to open questions** — one of the two edits below, each with the trailer the last item describes:
+
+- **Status fact:** a proposal (an item the ADR itself marks undecided: Proposed, pending CD) was dropped; something the ADR already required has landed (the PR a Status line awaited has merged); or a proposal was adopted without adding, removing or changing a requirement or prohibition (e.g., a proposed fitness function was built and enforces a constraint already in the ADR). Adding a proposal (any item or section marked Proposed) to an Active (or Accepted) ADR is never a status fact: a proposed change, or an adopted proposal that adds a requirement or prohibition, is drafted as a superseding ADR. Retiring the ADR (Expired, or removing its constraints) is outside this exception; until the framework defines retirement, supersede.
+- **Answer to an open question:** CD's answer to a question the ADR left open, written where the question was. It qualifies only when it defers the item, declines a proposal or keeps the current state; one that picks a new requirement or prohibition is a supersession. It is written as a dated fact with its reopening trigger ("CD declined X on YYYY-MM-DD; revisit when …"), never as an instruction ("X is not allowed"). Neither the recorded decline or keep nor its revisit trigger is a requirement or prohibition: work that wants X goes back to CD, as it would have while the question was open.
+- **Trailer:** says what happened, quotes the text it replaced (if any), says where the decision or event is recorded, and confirms no constraint changed.
+
+Everything else — including rewording the Decision section to say something substantively different, adding new constraints, removing existing constraints, or tightening or loosening one — is a narrative edit and requires a superseding ADR. The test: does the edit add, remove or change (loosen or tighten) anything the ADR requires or forbids, in any section (e.g., Decision, Consequences, What This ADR Forbids, Revisit)? Then supersede. It decides only whether a status-fact or answer edit qualifies (placeholder corrections and rendering updates have their own conditions above), and an edit that is none of the three exceptions is a supersession whatever the test says. When in doubt, supersede. The cost of an unnecessary supersession ADR is one extra file; the cost of a misclassified in-place edit is a broken reasoning chain.
 
 ## Template Section Discipline
 

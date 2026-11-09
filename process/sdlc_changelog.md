@@ -37,6 +37,27 @@ Each entry contains:
 
 ---
 
+## 2026-11-09: ADRs may record status facts and CD's answers in place
+
+**Origin:** CD's decision of 2026-11-09, from a project that installed the framework, whose ADRs recorded status facts and CD's answers in place under a rule that named neither.
+
+**What happened:** `adr-practice.md` allowed two in-place ADR edits, placeholder corrections and rendering updates, and sent everything else to a superseding ADR. The project made a third kind of edit that changes no constraint, and each one read as a violation:
+- status facts: a Status line saying CD approves the ADR by merging its PR, after the PR merged; an Implementation Notes item marked "Proposed" after CD dropped it and its PR closed unmerged;
+- answers to the ADR's own open questions: a Revisit line or a Consequences item that left a question for CD, after CD answered it.
+
+**Changes made:**
+
+1. **`process/adr-practice.md`**:
+   - § Amendments vs. Supersessions has three exceptions, not two. The section's opening says every trailer entry names the exception it uses (`Exception: placeholder correction`, `rendering update`, `status fact` or `answer to an open question`), stands on its own and never declares that it wins over the ADR's body, and that a dated `## Amendment log` is the same trailer. The trailer's name is unchanged.
+   - The third exception, status facts and answers to open questions, has three sub-items. **Status fact:** a proposal (an item the ADR itself marks undecided: Proposed, pending CD) was dropped; something the ADR already required has landed; or a proposal was adopted without adding, removing or changing a requirement or prohibition. Adding a proposal to an Active (or Accepted) ADR is never a status fact: a proposed change, or an adopted proposal that adds a requirement or prohibition, is drafted as a superseding ADR. Retiring the ADR is outside the exception; until the framework defines retirement, it is a supersession. **Answer to an open question:** written where the question was, and it qualifies only when it defers, declines or keeps the current state; one that picks a new requirement or prohibition is a supersession. It is written as a dated fact with its reopening trigger, never as an instruction ("CD declined X on YYYY-MM-DD; revisit when …", not "X is not allowed"), and neither it nor the trigger is a requirement or prohibition: work that wants X goes back to CD. **Trailer:** what happened, the text it replaced (if any), where the decision or event is recorded, and that no constraint changed.
+   - The closing paragraph names tightening and loosening alongside adding and removing, and gains a test: does the edit add, remove or change anything the ADR requires or forbids, in any section (e.g., Decision, Consequences, What This ADR Forbids, Revisit)? Then supersede. It decides only whether a status-fact or answer edit qualifies (placeholder corrections and rendering updates keep their own conditions), and an edit that is none of the three exceptions is a supersession whatever the test says. "When in doubt, supersede" stays.
+   - § Immutability gains a sentence: the only in-place edits are the three exceptions, plus the Status line and frontmatter a supersession sets on the ADR it replaces, and none changes what the ADR requires or forbids. § Contradiction Handling's "Never edit the prior ADR in place" becomes "… in place to reflect the new choice", with the same pointer.
+2. **`docs/current_work/ideas/adr-amendment-vs-supersession-gate_handoff.md`** — dated notes: the first open question and candidates 2 (the decision test, its scope, and that adding a proposal to an Active (or Accepted) ADR is not a status fact) and 5 (what "Amendment trailer" means) are partly answered; three mentions of "two exceptions" (candidates 2 and 5, and Evidence) note there are three since 2026-11-09; the retrofit question notes that amendment entries written before the `Exception:` label carry none; a new open question records that `adr-practice.md` lists two different status vocabularies and doesn't say how an ADR is retired, left for a later patch. Another new open question asks whether replacing an estimate with a measured figure needs its own form; today it supersedes. The handoff stays pending and its gate work is untouched.
+
+**Rationale:** The rule exists to keep the reasoning chain intact, and these edits don't break it: what the ADR requires and forbids stays as written, and the trailer records what changed and where. The test asks about what the ADR requires or forbids in any section, so it catches a tightened value or a rule added under Consequences as surely as an edit to the Decision. It doesn't lean on the drift review in § Three Functions, because that review checks only the ADR's decision. Naming the form, with that hard boundary, stops normal upkeep from reading as a violation without opening a path for the constraint-adding amendments the pending handoff is about.
+
+---
+
 ## 2026-11-09: A runbook for installing the factory, from the third project's install
 
 **Origin:** CD (2026-11-09): "analyze all the work that it took getting neuroloom integrated with the software factory and make repeatable procedures for next time so we dont have the same pains". The third project's install session wrote a retrospective from its transcripts, transaction log and PR history: 25 pain areas, 40 decisions made mid-stream, 15 assumptions that held only because the first two projects were alike. z-sdlc's own record of the same install was read alongside it.
