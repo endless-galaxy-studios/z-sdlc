@@ -537,6 +537,11 @@ case).
 
 ## Enablement
 
+**The order to do these in, what to ask CD before starting, how to tell each step worked, and what to
+build when a project brings a stack, data route or production host the factory hasn't seen:**
+`[sdlc-root]/process/factory-runbook.md`. Read its first section before starting: these steps are a
+small part of an install whose project doesn't fit an existing profile or host.
+
 The bundle installs inert: nothing runs until a person adds `factory:triage` to an issue, and the
 first run fails without the setup below, done in order. Steps 3 to 5 replace the seed's placeholders
 in `factory.json`; after each settings change, run `python3 .github/factory/render.py` and commit the
@@ -640,7 +645,8 @@ needs an organization owner's `gh` login (`admin:org`) for the runner groups and
    branch's. What remains is the bootstrap itself, the checkout's script: whoever can change it
    before you run it gets root, so run setup from a checkout no agent session can write, such as a
    fresh clone made just before by a login no agent session uses. Put the host's own LAN and VPN addresses in
-   `factory.json`'s `smoke.host_probes`, so smoke checks them too. One host serves the whole
+   `factory.json`'s `smoke.host_probes`, so smoke checks them too: the runner host's own, never another
+   project's planning database exception. One host serves the whole
    organization, and can serve other organizations too: each one after the first sets `RUNNER_INSTANCE`
    in its `host.conf` and gets its own users, firewall tables and services, isolated from the others'
    as from the host. Setup refuses runners registered to another organization, and a planning database
@@ -984,4 +990,7 @@ needs an organization owner's `gh` login (`admin:org`) for the runner groups and
     4. `runner_audit.py workflow expected.json > .github/workflows/factory-runner-audit.yml` in the
        audit's repository, committed; run it once by hand. After any intended change to the
        groups or their runners (a new runner, a re-registration, a new project's workflows),
-       regenerate it the same way. The schedule is hourly; `--cron` tightens it.
+       regenerate it the same way. The schedule is hourly; `--cron` tightens it. GitHub starts scheduled
+       runs late or not at all (an hourly schedule was measured starting in about one slot in five,
+       with gaps of up to eleven hours), so a quiet audit is no all-clear: pair it with an outside
+       heartbeat that alarms when runs stop, with its grace sized from measured gaps.

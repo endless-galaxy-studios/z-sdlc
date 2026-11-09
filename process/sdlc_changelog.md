@@ -37,6 +37,51 @@ Each entry contains:
 
 ---
 
+## 2026-11-09: A runbook for installing the factory, from the third project's install
+
+**Origin:** CD (2026-11-09): "analyze all the work that it took getting neuroloom integrated with the software factory and make repeatable procedures for next time so we dont have the same pains". The third project's install session wrote a retrospective from its transcripts, transaction log and PR history: 25 pain areas, 40 decisions made mid-stream, 15 assumptions that held only because the first two projects were alike. z-sdlc's own record of the same install was read alongside it.
+
+**What happened:** On the third project, the twelve Enablement steps took about 2.5 hours of an 83-hour install. The rest went to three things the steps don't cover:
+- a stack no profile fit, built upstream mid-install;
+- credential debt the factory's threat model surfaced: secrets in history, a "read-only" route running as a superuser, a public database without TLS;
+- a production tier for a host unlike the incubator's.
+
+The first two projects had hidden this, because each fit a profile and the incubator's production host was one its broker deploys to. Decisions were also asked one at a time, relayed between sessions, some reversed and one never built.
+
+**Changes made:**
+1. **`process/factory-runbook.md`** (new, a `factory` bundle process doc):
+   - **§ 0, how an install runs:** one owning session in the project, migrations included; framework fixes batched per phase and never re-tagged; every decision recorded when made, with its source session; recommendations with alternatives; no credential ever handled by the agent.
+   - **§ 1, the day-one form:** every question, with options, the usual answer, its cost to reverse and who decides.
+   - **§ 2, a read-only inventory:** stack fit, bare tools against CI, a CI audit, every host that deploys from git, the production host's profile, credential reach, an architecture map.
+   - **§ 3, the critical path:** each step's Enablement step and its check; CD's steps batched into three sittings (GitHub and secrets, hosts, dashboards). The definition of done is one real issue through the factory, the first release and a production tier's first `baseline`, not a passing smoke run.
+   - **§ 4, when no template exists:** a stack profile, a planning data route, a production tier for a new kind of host, a new host serving production, the first project in an organization, a scheduled alarm.
+   - **§ 5, the pitfalls,** each with where it's handled.
+   - **§ 6, what varies between projects:** each dimension, what the first two projects had, what the third brought, the rule now, and what a new value means.
+   - **§ 7, upkeep.**
+   - **Reviewed:** the third project's install session read it against what happened. Its nine findings are in: the two credential forms, three more day-one questions, scheduled alarms (§ 4.6), the rollback drill's revert path, a contract check's known false failure, and the host repository's clone command.
+2. **`process/factory.md`:**
+   - Enablement opens with a pointer to the runbook.
+   - Step 8: `smoke.host_probes` holds the runner host's own addresses, never another project's planning exception.
+   - Step 12: GitHub starts scheduled runs late or not at all (an hourly schedule was measured starting in about one slot in five), so pair the audit with an outside heartbeat.
+3. **`bundles/factory/seed/README.md`:** an Enablement record skeleton (decisions with their source, inventory, state, deferred). Seeds aren't overwritten, so this reaches new installs only.
+4. **`skeleton/manifest.json`:** the runbook is in `bundles.factory.process`.
+5. **`docs/current_work/ideas/factory-enablement-upstream_handoff.md`:** what the install found worth building upstream, none of it built:
+   - a checks-only broker skeleton;
+   - a catalog-based planning reader generator;
+   - a CI audit script;
+   - a release provenance alarm;
+   - a seeded CODEOWNERS test importing the guard's lists;
+   - per-stack review rules;
+   - a drill checklist;
+   - gate-plan checks;
+   - shellcheck fixes.
+
+**Installed projects:** the runbook arrives with the next migration of any project with the `factory` bundle. Nothing else changes for an installed project.
+
+**Rationale:** The steps say what must be true. What cost the time was what to ask, and what to build when a project doesn't fit, and both were being decided live. Writing them down once, against what actually happened, turns the next install's discoveries into checks.
+
+---
+
 ## 2026-11-06: A release gate pins only for a broker that takes it, under its ruleset
 
 **Origin:** Neuroloom's review of its own v2.4.0 migration, passed upstream by its enablement session. CD (2026-11-06): "yes, build v2.4.1".

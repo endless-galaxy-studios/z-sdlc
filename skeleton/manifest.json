@@ -320,7 +320,8 @@
         "skills/sdlc-revise/SKILL.md"
       ],
       "process": [
-        "process/factory.md"
+        "process/factory.md",
+        "process/factory-runbook.md"
       ],
       "tree": {
         "from": "bundles/factory/tree",

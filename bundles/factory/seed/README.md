@@ -15,3 +15,19 @@ profile come from z-sdlc and are refreshed by `sdlc-migrate`; change them there.
 
 This file is the project's: record its runners, hosts, environments and anything else an operator
 needs here. `sdlc-migrate` never overwrites it.
+
+## Enablement record
+
+The install's decisions and state (`[sdlc-root]/process/factory-runbook.md` § 0 and § 1). Write each
+decision when it's made, in CD's words, with the date and the session it was made in, and say later
+whether it was built or dropped.
+
+| # | Question | Answer (CD's words) | Date | Session | Built, deferred or dropped |
+|---|---|---|---|---|---|
+
+**Inventory** (runbook § 2): the stack-fit table, the hosts that deploy from git, the production
+host's profile, credential reach, and the "New" items.
+
+**State** (runbook § 3): each step's check, with its date and result.
+
+**Deferred:** what was left for later, and who owns it.
