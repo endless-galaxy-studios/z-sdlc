@@ -182,11 +182,14 @@ batching). Check: the migration's tests pass in the project, and `render.py --ch
    state; **[CD]** commits it, since agents don't commit there. A new project's workflows are drift
    until then. With § 1 A3 answered "CD's login", CD can't approve that PR either, and merges it with
    the ruleset bypass.
-6. **Step 9, the rulesets:** the default branch's (code-owner review, the aggregate check, updates
-   restricted, bypass mode `pull_request`; merge commits only on the fallback, D4 rule 13), the release
-   branch's (merge commits only, which provenance reads), and the pinned branches'
-   (`factory/release/**`, no bypass actor at all). Prove a bypass mode on a scratch branch before
-   trusting it: mode "always" skips every rule.
+6. **Step 9, the rulesets:** the default branch's (code-owner review, stale approvals dismissed on
+   push, the aggregate check, bypass mode `pull_request`; merge commits only on the fallback, D4 rule
+   13), the release branch's (merge commits only, which provenance reads), and the pinned branches'
+   (`factory/release/**`, no bypass actor at all). Of the project's branches, restricted updates belong
+   on the release branch and the pinned branches only. On its default branch they let only bypass
+   actors merge, so every merge there, approved and green, needs the bypass. (The runner host's
+   repository keeps them on its default branch, factory.md step 8: a merge there is root on the host.)
+   Prove a bypass mode on a scratch branch before trusting it: mode "always" skips every rule.
 7. **Environments before the workflows that name them:** a run naming an environment that doesn't
    exist creates it unprotected. `bootstrap.py --apply` creates the factory's own environments,
    deployable from the default branch only, and reports one that already exists without that policy,
@@ -371,6 +374,7 @@ Record each one's values where the next project's install will look.
 | A first image publish `denied` | Re-run once | factory.md step 3 |
 | A workflow naming a missing environment creates it unprotected | Environments first | § 3.3 |
 | Ruleset bypass mode "always" skips every rule | `pull_request` mode, proven on a scratch branch | § 3.3; `bootstrap.py` checks the release branch |
+| Restricted updates on the project's default branch: every merge, approved and green, needs the bypass | Restricted updates on the release branch and the pinned branches only | § 3.3 |
 | Squash or rebase merges where provenance is checked | Merge commits only | D4 rule 13 |
 | A service's "read-only" mode running as a superuser | Verify as the role | § 4.2; D3 rule 3 |
 | A public database without TLS | TLS, or another route | § 4.2; `planning-services.sh` |

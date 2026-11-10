@@ -37,6 +37,26 @@ Each entry contains:
 
 ---
 
+## 2026-11-10: Restricted updates on the default branch come out of the runbook
+
+**Origin:** The third project's install session asked z-sdlc whether the factory needed restricted updates and last-push approval on its default branch's ruleset. With restricted updates, every Dependabot PR needed the bypass to merge, even approved and green. CD (2026-11-10): "yes, fix the runbook line".
+
+**What happened:** `process/factory-runbook.md` § 3.3 step 6 listed "updates restricted" for the default branch's ruleset. Nothing else asks for it:
+- `process/factory.md` Enablement step 9 asks the default branch for code-owner review only;
+- `bootstrap.py`'s `check_branch_rules` checks code-owner review and a required status check;
+- the incubator's own default-branch ruleset has no restricted updates.
+
+The factory never merges a PR itself, and its release gates rely on the release branch's and the pinned branches' rulesets, not the default branch's.
+
+**Changes made:**
+1. **`process/factory-runbook.md`:**
+   - § 3.3 step 6: the default branch's ruleset drops restricted updates and gains stale approvals dismissed on push. Of the project's branches, restricted updates belong on the release branch and the pinned branches only, since on the default branch every merge needs the bypass. The runner host's repository keeps them on its default branch (factory.md step 8), and the step says so.
+   - § 5: a pitfall row for it.
+
+**Rationale:** Restricted updates on the default branch make the bypass the routine way to merge, when it's meant for the exception: agent PRs under CD's login, which CD can't approve. Dismissing stale approvals is what keeps an approval from carrying over to commits pushed after it.
+
+---
+
 ## 2026-11-09: ADRs may record status facts and CD's answers in place
 
 **Origin:** CD's decision of 2026-11-09, from a project that installed the framework, whose ADRs recorded status facts and CD's answers in place under a rule that named neither.
