@@ -143,7 +143,7 @@ jobs:
       - name: Analyze
         id: claude
         timeout-minutes: 80
-        uses: anthropics/claude-code-action@58985842b834ed26087302ba27d07bc24ca8697a # v1.0.244
+        uses: anthropics/claude-code-action@d535f5172dec02b204866b393d6b20b9b2aaf98d # v1.0.266
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # Read-only token: without it the action uses the Claude App token, which can write.
@@ -230,7 +230,7 @@ jobs:
           retention-days: 30
 
       # Issues only, scoped to this repository: the report shows as the factory App.
-      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         if: ${{ !inputs.dry_run }}
         id: app
         with:

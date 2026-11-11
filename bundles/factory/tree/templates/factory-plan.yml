@@ -92,7 +92,7 @@ jobs:
       spec: ${{ steps.mode.outputs.spec }}
     steps:
       # Issues only, scoped to this repository: comments and labels show as the factory App.
-      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         id: app
         with:
           client-id: ${{ vars.FACTORY_APP_CLIENT_ID }}
@@ -381,7 +381,7 @@ jobs:
           FACTORY_SVC_2: ${{ secrets.FACTORY_SVC_2 }}
           FACTORY_SVC_3: ${{ secrets.FACTORY_SVC_3 }}
           FACTORY_SVC_4: ${{ secrets.FACTORY_SVC_4 }}
-        uses: anthropics/claude-code-action@58985842b834ed26087302ba27d07bc24ca8697a # v1.0.244
+        uses: anthropics/claude-code-action@d535f5172dec02b204866b393d6b20b9b2aaf98d # v1.0.266
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ github.token }}
@@ -414,7 +414,7 @@ jobs:
           FACTORY_SVC_2: ${{ secrets.FACTORY_SVC_2 }}
           FACTORY_SVC_3: ${{ secrets.FACTORY_SVC_3 }}
           FACTORY_SVC_4: ${{ secrets.FACTORY_SVC_4 }}
-        uses: anthropics/claude-code-action@58985842b834ed26087302ba27d07bc24ca8697a # v1.0.244
+        uses: anthropics/claude-code-action@d535f5172dec02b204866b393d6b20b9b2aaf98d # v1.0.266
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ github.token }}
@@ -485,7 +485,7 @@ jobs:
         if: steps.briefcheck.outputs.fix == 'yes'
         continue-on-error: true
         timeout-minutes: 20
-        uses: anthropics/claude-code-action@58985842b834ed26087302ba27d07bc24ca8697a # v1.0.244
+        uses: anthropics/claude-code-action@d535f5172dec02b204866b393d6b20b9b2aaf98d # v1.0.266
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ github.token }}
@@ -706,7 +706,7 @@ jobs:
           python3 -I .github/factory/implement_guard.py "$RUNNER_TEMP/in/plan.bundle" "$BASE" \
             "$RUNNER_TEMP/result.json" "$ISSUE_NUMBER" "$RUN_URL" "$RUNNER_TEMP/out" "$STAGE" "$RUNNER_TEMP/stats.json"
 
-      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         id: app
         with:
           client-id: ${{ vars.FACTORY_APP_CLIENT_ID }}
@@ -756,7 +756,7 @@ jobs:
           persist-credentials: false
 
       # Issues only, scoped to this repository: comments and labels show as the factory App.
-      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         id: app
         with:
           client-id: ${{ vars.FACTORY_APP_CLIENT_ID }}
@@ -828,7 +828,7 @@ jobs:
       issues: write
     steps:
       # Issues only, scoped to this repository: comments and labels show as the factory App.
-      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         id: app
         # A broken App key must not silence the failure report: fall back to GITHUB_TOKEN.
         continue-on-error: true

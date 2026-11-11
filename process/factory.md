@@ -751,6 +751,17 @@ needs an organization owner's `gh` login (`admin:org`) for the runner groups and
     container rule, the last of the rules below, so its reason says how that runner is isolated
     instead. The other rules below still apply to the job.
 
+    **Dependabot's actions updates** edit `.github/workflows/` only, so a bump of an action a factory
+    workflow uses fails `render.py --check` until the templates have it. On the update's PR, run
+    `python3 .github/factory/render.py --adopt-pins`: it copies the changed commit pins into the
+    templates and refuses any other change, so `--check` passes again and CD still reviews the
+    templates under CODEOWNERS (D2 rule 6). A bump of `anthropics/claude-code-action` also moves
+    `CLAUDE_CODE_VERSION` in `templates/factory-smoke.yml` to the Claude Code version the action
+    installs at its new commit (its `base-action/action.yml`). Run `factory-smoke` once the PR merges
+    (D2 rule 5). `sdlc-migrate` then reports those templates as changed by the project, even once a
+    release carries the same pins; take the release's copy when it equals the project's or has newer
+    pins. After a migration that changes the factory's action pins, run `factory-smoke` too.
+
     **The project's existing CI runs agent-written code.** Factory branches live in the repository,
     so a factory PR's `pull_request` runs get the repository's secrets. Before the first run, hold
     every job that builds, tests or lints a PR's code to an agent job's rules:

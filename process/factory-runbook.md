@@ -429,5 +429,7 @@ right-hand column says what to do.
   the broker or `ops.json`, or every gate is refused.
 - **The runner audit** is regenerated after any intended change to runner groups or their runners, a
   new project's workflows included.
+- **Dependabot's actions updates:** on each PR, `render.py --adopt-pins`, `CLAUDE_CODE_VERSION`
+  moved with the agent action, and `factory-smoke` after the merge (factory.md step 10).
 - **Tokens** a production tier holds are rotated on a schedule CD sets, and at once on any suspicion.
 - **Migrations** run in the project's own session (§ 0), one release at a time.

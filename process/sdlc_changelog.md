@@ -37,6 +37,34 @@ Each entry contains:
 
 ---
 
+## 2026-11-11: The factory's templates take Dependabot's action pins; the bundle's pins move up
+
+**Origin:** The third project's install session reported two problems from a week of Dependabot PRs. It relayed CD's choice to fix both upstream first; the project changes nothing locally until the bundle ships.
+
+**On migrating:** this release moves the agent action to v1.0.266 and factory-smoke's Claude Code to 2.1.316. Run `factory-smoke` after the migration (D2 rule 5). A project that already copied these pins by hand still gets asked about those templates: take the release's copy, which matches.
+
+**What happened:**
+- **Dependabot breaks `render.py --check`.** Dependabot's `github-actions` updates edit only the rendered `.github/workflows/factory-*.yml`, because it scans `.github/workflows/` and a root `action.yml` and nothing else. So every actions bump touching a factory workflow failed `render.py --check` until someone copied the pins into the templates by hand. On one update the project did that across 15 templates. It also moved factory-smoke's `CLAUDE_CODE_VERSION` to the version the new agent action installs, and factory-smoke then passed on its default branch.
+- **Re-rendering isn't the answer.** Re-rendering goes from template to workflow, so it would throw the bump away.
+- **The project's templates had drifted from the bundle.** The 15 hand-edited templates no longer matched the bundle's copies. `sdlc-migrate` asks about each one either way, since it compares a file with its installed hash, but the release's copy is now the same content.
+
+**Changes made:**
+1. **`bundles/factory/tree/templates/`:** `actions/create-github-app-token` v3.2.0 → v3.3.0 and `anthropics/claude-code-action` v1.0.244 → v1.0.266, by commit, in all 15 templates that use them. `factory-smoke.yml`'s `CLAUDE_CODE_VERSION` 2.1.292 → 2.1.316, the version v1.0.266's `base-action/action.yml` installs. The templates now match the project's byte for byte.
+2. **`bundles/factory/tree/render.py`:** `--adopt-pins` copies the workflows' changed action pins into the templates. It takes a line only where:
+   - a `uses:` line differs only in its commit and version comment;
+   - the action's path and the line's indentation are unchanged;
+   - both pins are full 40-character commits;
+   - the template's line has no setting in it.
+
+   It also requires every pin of the adopted action to end at one commit. It refuses anything else and writes nothing. It prints each pin it adopted and a reminder to run factory-smoke after the merge. When the agent action changed, it also reminds you to move `CLAUDE_CODE_VERSION`. An unknown flag, or `--check` with `--adopt-pins`, is a usage error (exit 2).
+3. **`bundles/factory/tree/tests/test_render.py`:** `AdoptPins` tests the bump, `--check` passing after it, the agent action's reminder, nothing to adopt, and each refusal, with the templates unchanged after every refusal. A mutant of each guard was run: the action, indentation, settings, one-commit and set checks and the agent action's reminder each fail a test when removed. The line-count check and the final render check back each other: removing both fails a test.
+4. **`process/factory.md`** Enablement step 10: Dependabot's actions updates, with `--adopt-pins`, `CLAUDE_CODE_VERSION`, factory-smoke after the merge, and what `sdlc-migrate` reports until a release carries the same pins.
+5. **`process/factory-runbook.md`** § 7: the same as an upkeep line.
+
+**Rationale:** The templates are code-owned and generated workflows are policy-checked, so a Dependabot bump has to land in the templates under CD's review. A copy that takes only a commit pin's change keeps that review meaningful. Replayed on the project's real Dependabot commit, `--adopt-pins` wrote exactly the templates the project had fixed by hand. The new pins have passed factory-smoke on one project's default branch and stack profile so far, so each project runs smoke after it migrates.
+
+---
+
 ## 2026-11-10: Restricted updates on the default branch come out of the runbook
 
 **Origin:** The third project's install session asked z-sdlc whether the factory needed restricted updates and last-push approval on its default branch's ruleset. With restricted updates, every Dependabot PR needed the bypass to merge, even approved and green. CD (2026-11-10): "yes, fix the runbook line".

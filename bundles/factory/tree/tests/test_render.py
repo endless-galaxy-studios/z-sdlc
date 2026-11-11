@@ -531,5 +531,114 @@ class Refusals(unittest.TestCase):
             self.assertEqual(quiet_main(["--check", str(d), str(d / "templates"), str(d / "workflows")]), 1)
 
 
+class AdoptPins(unittest.TestCase):
+    """--adopt-pins: a Dependabot actions update edits only the workflows; the templates take its pins."""
+    OLD, NEW, OTHER_SHA = "a" * 40, "b" * 40, "c" * 40
+    X = ("on: push\nenv:\n  V: \"%{a.v}\"\njobs:\n  j:\n    steps:\n"
+         f"      - uses: actions/checkout@{'a' * 40} # v4.1.0\n"
+         f"      - name: agent\n        uses: anthropics/claude-code-action@{'c' * 40} # v1.0.1\n")
+    Y = f"on: push\njobs:\n  j:\n    steps:\n      - uses: actions/checkout@{'a' * 40} # v4.1.0\n"
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.d = pathlib.Path(self.tmp.name)
+        (self.d / "templates").mkdir()
+        (self.d / "workflows").mkdir()
+        (self.d / "factory.json").write_text(json.dumps({"a": {"v": 1}}))
+        (self.d / "templates/factory-x.yml").write_text(self.X)
+        (self.d / "templates/factory-y.yml").write_text(self.Y)
+        self.assertEqual(self.run_render(), 0)
+        self.before = self.templates()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def run_render(self, *flags):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = render.main([*flags, str(self.d), str(self.d / "templates"), str(self.d / "workflows")])
+        self.output = out.getvalue()
+        return code
+
+    def templates(self):
+        return {p.name: p.read_text() for p in (self.d / "templates").glob("*.yml")}
+
+    def edit(self, name, old, new):
+        path = self.d / "workflows" / name
+        self.assertIn(old, path.read_text())
+        path.write_text(path.read_text().replace(old, new))
+
+    def bump_checkout(self, names=("factory-x.yml", "factory-y.yml")):
+        for name in names:
+            self.edit(name, f"checkout@{self.OLD} # v4.1.0", f"checkout@{self.NEW} # v4.2.0")
+
+    def test_the_templates_take_the_bump_and_check_passes(self):
+        self.bump_checkout()
+        self.assertEqual(self.run_render("--adopt-pins"), 0, self.output)
+        for text in self.templates().values():
+            self.assertIn(f"actions/checkout@{self.NEW} # v4.2.0\n", text)
+            self.assertNotIn(self.OLD, text)
+        self.assertIn('V: "%{a.v}"', self.templates()["factory-x.yml"])  # the template's settings stay
+        self.assertIn("actions/checkout v4.1.0 -> v4.2.0", self.output)
+        self.assertIn("factory-smoke", self.output)
+        self.assertNotIn("CLAUDE_CODE_VERSION", self.output)
+        self.assertEqual(self.run_render("--check"), 0, self.output)
+
+    def test_the_agent_action_asks_for_claude_codes_version(self):
+        self.edit("factory-x.yml", f"claude-code-action@{self.OTHER_SHA} # v1.0.1",
+                  f"claude-code-action@{self.NEW} # v1.0.2")
+        self.assertEqual(self.run_render("--adopt-pins"), 0, self.output)
+        self.assertIn("CLAUDE_CODE_VERSION", self.output)
+        self.assertEqual(self.run_render("--check"), 0, self.output)
+
+    def test_nothing_to_adopt(self):
+        self.assertEqual(self.run_render("--adopt-pins"), 0, self.output)
+        self.assertEqual(self.templates(), self.before)
+        self.assertIn("0 pins adopted", self.output)
+
+    def test_anything_but_a_pin_is_refused_and_nothing_is_written(self):
+        cases = {
+            "a setting's value": [("factory-x.yml", 'V: "1"', 'V: "2"')],
+            "another action": [("factory-x.yml", "actions/checkout@", "evil/checkout@")],
+            "a tag, not a commit": [("factory-x.yml", f"@{self.OLD} # v4.1.0", "@v4")],
+            "a short commit": [("factory-x.yml", f"@{self.OLD}", f"@{self.NEW[:12]}")],
+            "the step's indentation": [("factory-x.yml", "      - uses: actions/checkout", "     - uses: actions/checkout")],
+            "a line added": [("factory-x.yml", "    steps:\n", "    steps:\n      - run: curl evil\n")],
+            "a line appended": [("factory-y.yml", " # v4.1.0\n", " # v4.1.0\n      - run: curl evil\n")],
+            "something after the pin": [("factory-x.yml", " # v4.1.0\n", "\n        with: {x: 1}\n")],
+            "the header": [("factory-x.yml", "# Rendered from", "# Edited from")],
+            "one workflow of two": [("factory-x.yml", f"checkout@{self.OLD} # v4.1.0", f"checkout@{self.NEW} # v4.2.0")],
+        }
+        for case, edits in cases.items():
+            with self.subTest(case=case):
+                self.assertEqual(self.run_render(), 0)
+                for name, old, new in edits:
+                    self.edit(name, old, new)
+                self.assertEqual(self.run_render("--adopt-pins"), 1, self.output)
+                self.assertIn("nothing written", self.output)
+                self.assertEqual(self.templates(), self.before)
+
+    def test_a_pin_on_a_line_with_a_setting_is_refused(self):
+        (self.d / "factory.json").write_text(json.dumps({"a": {"v": 1, "ref": self.OLD}}))
+        (self.d / "templates/factory-y.yml").write_text(self.Y.replace(f"@{self.OLD}", "@%{a.ref}"))
+        self.before = self.templates()
+        self.assertEqual(self.run_render(), 0)
+        self.bump_checkout()
+        self.assertEqual(self.run_render("--adopt-pins"), 1, self.output)
+        self.assertIn("has a setting in it", self.output)
+        self.assertEqual(self.templates(), self.before)
+
+    def test_a_workflow_without_a_template_is_refused(self):
+        (self.d / "workflows/factory-z.yml").write_text("unmanaged\n")
+        self.bump_checkout()
+        self.assertEqual(self.run_render("--adopt-pins"), 1, self.output)
+        self.assertEqual(self.templates(), self.before)
+
+    def test_usage(self):
+        for flags in (("--check", "--adopt-pins"), ("--adopt-pin",)):
+            with self.subTest(flags=flags):
+                self.assertEqual(self.run_render(*flags), 2)
+
+
 if __name__ == "__main__":
     unittest.main()
