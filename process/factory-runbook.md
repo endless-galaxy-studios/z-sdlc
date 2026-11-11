@@ -65,7 +65,7 @@ changed answer undoes later: ask the high ones carefully, once.
 |---|---|---|---|---|---|
 | A1 | How is the install tracked? | An SDLC deliverable; direct dispatch | Direct dispatch, with the Enablement record | Low | CD |
 | A2 | What may the agent do without asking? | Everything but credentials and host root; ask per step | Everything but credentials, root and dashboards | Low | CD |
-| A3 | Whose GitHub identity do agent sessions use? | CD's login (every agent PR is CD's, so CD merges with the ruleset bypass and can't approve); a fine-grained token of their own (CD reviews and approves) | Decide now; the rulesets depend on it | Medium | CD |
+| A3 | Whose GitHub identity do agent sessions use? | CD's login (every agent PR is CD's, so CD merges with the ruleset bypass and can't approve); a GitHub App of their own (no seat: its key on CD's machine mints a token for one repository; CD reviews and approves; the token helper isn't in the bundle yet); a second account's fine-grained token (a paid seat; CD reviews and approves). An identity of their own names who acted; it contains nothing while a session can still reach CD's login | Decide now; the rulesets depend on it. Whichever is chosen, step 9's team of required reviewers is needed: without it, an App's approval merges CD's own PRs | Medium | CD |
 | A4 | Who runs root steps on hosts, and who writes host tokens? | CD; the agent with temporary sudo, removed after | CD writes every token; root steps by CD, or by the agent under temporary sudo CD grants and removes | Low | CD |
 | A5 | What may be pushed to the default branch during the install, and when may a push that deploys go out? | Hold; allow; a window | Name what may ship, and the project's deploy windows | Low | CD |
 | B1 | Does an existing stack profile fit? (§ 2's stack-fit table answers it) | Existing; a new profile upstream (§ 4.1) | Whatever § 2 shows | Medium once workflows render | Agent proposes, CD confirms |
@@ -182,14 +182,19 @@ batching). Check: the migration's tests pass in the project, and `render.py --ch
    state; **[CD]** commits it, since agents don't commit there. A new project's workflows are drift
    until then. With § 1 A3 answered "CD's login", CD can't approve that PR either, and merges it with
    the ruleset bypass.
-6. **Step 9, the rulesets:** the default branch's (code-owner review, stale approvals dismissed on
-   push, the aggregate check, bypass mode `pull_request`; merge commits only on the fallback, D4 rule
-   13), the release branch's (merge commits only, which provenance reads), and the pinned branches'
-   (`factory/release/**`, no bypass actor at all). Of the project's branches, restricted updates belong
+6. **Step 9, the rulesets:** the default branch's (code-owner review, a team of people as required
+   reviewers of every file, stale approvals dismissed on push, the aggregate check, bypass mode
+   `pull_request`; merge commits only on the fallback, D4 rule 13), the release branch's (merge
+   commits only, which provenance reads), and the pinned branches' (`factory/release/**`, no bypass
+   actor at all). Of the project's branches, restricted updates belong
    on the release branch and the pinned branches only. On its default branch they let only bypass
    actors merge, so every merge there, approved and green, needs the bypass. (The runner host's
    repository keeps them on its default branch, factory.md step 8: a merge there is root on the host.)
    Prove a bypass mode on a scratch branch before trusting it: mode "always" skips every rule.
+   The team holds only people CD trusts as reviewers (CD alone, usually) and has write access to the
+   repository; the rule's file pattern is `*`, with one approval. Code-owner review alone lets an App
+   approve and merge a PR CD opened, because GitHub asks no code-owner review of a PR whose author is
+   the only code owner of what it changes (D2 rule 6).
 7. **Environments before the workflows that name them:** a run naming an environment that doesn't
    exist creates it unprotected. `bootstrap.py --apply` creates the factory's own environments,
    deployable from the default branch only, and reports one that already exists without that policy,
@@ -375,6 +380,7 @@ Record each one's values where the next project's install will look.
 | A workflow naming a missing environment creates it unprotected | Environments first | § 3.3 |
 | Ruleset bypass mode "always" skips every rule | `pull_request` mode, proven on a scratch branch | § 3.3; `bootstrap.py` checks the release branch |
 | Restricted updates on the project's default branch: every merge, approved and green, needs the bypass | Restricted updates on the release branch and the pinned branches only | § 3.3 |
+| An App's approval merging a PR CD opened, recorded as a pass: code-owner review isn't asked of a PR whose author is the only code owner of what it changes | A team of people as required reviewers of every file on the default branch | § 3.3; `bootstrap.py` checks it |
 | Squash or rebase merges where provenance is checked | Merge commits only | D4 rule 13 |
 | A service's "read-only" mode running as a superuser | Verify as the role | § 4.2; D3 rule 3 |
 | A public database without TLS | TLS, or another route | § 4.2; `planning-services.sh` |

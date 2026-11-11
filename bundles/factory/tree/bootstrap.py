@@ -496,8 +496,19 @@ class Bootstrap:
                 return
         self.note("ok", "codeowners", f"{path} owns /.github/ and /.claude/ (the seeded tests check the rest)")
 
+    @staticmethod
+    def a_team_approves_every_file(entry):
+        """One of a ruleset pull-request rule's required reviewers, read as D2 rule 6 needs it: a team (a team holds
+        accounts, never an App) whose approval is required (0 only adds it for visibility) on every file. Its
+        patterns are .gitignore's syntax; only `*` itself is proven to match every path, dot-directories at any
+        depth included (a leading space is part of a pattern there), and a `!` line exempts paths, so anything
+        else is reported, never guessed at."""
+        patterns = entry.get("file_patterns") or []
+        return ((entry.get("reviewer") or {}).get("type") == "Team" and (entry.get("minimum_approvals") or 0) >= 1
+                and "*" in patterns and not any(p.strip().startswith("!") for p in patterns))
+
     def check_branch_rules(self):
-        owner_review, checks, merge_methods = False, set(), None
+        owner_review, team_review, checks, merge_methods = False, None, set(), None
         for rs in self.list_all(f"repos/{self.repo}/rulesets?includes_parents=true", None) or []:
             status, full = self.api("GET", f"repos/{self.repo}/rulesets/{rs['id']}")
             if status != 200 or full.get("enforcement") != "active" or full.get("target") != "branch":
@@ -509,6 +520,9 @@ class Bootstrap:
                 params = rule.get("parameters") or {}
                 if rule.get("type") == "pull_request" and params.get("require_code_owner_review"):
                     owner_review = True
+                if rule.get("type") == "pull_request" and team_review is None:
+                    team_review = next((e["reviewer"].get("id") or "?" for e in params.get("required_reviewers") or []
+                                        if self.a_team_approves_every_file(e)), None)
                 if rule.get("type") == "pull_request" and params.get("allowed_merge_methods"):
                     allowed = set(params["allowed_merge_methods"])
                     merge_methods = allowed if merge_methods is None else merge_methods & allowed
@@ -522,6 +536,16 @@ class Bootstrap:
             self.note("ok", "branch rules", f"{self.default} requires code-owner review")
         else:
             self.note("problem", "branch rules", f"{self.default} doesn't require code-owner review (D2 rule 6)")
+        # Classic branch protection has no required team, so only a ruleset counts. Without one, GitHub asks no
+        # code-owner review of a PR whose author owns what it changes and counts an App's approval, so an App could
+        # approve and merge CD's own PR, recorded as a pass.
+        if team_review is not None:
+            self.note("ok", "branch rules", f"{self.default} requires team {team_review}'s approval on every file: "
+                      "only people CD trusts as reviewers may be on it")
+        else:
+            self.note("problem", "branch rules", f"{self.default}'s rulesets don't require a team to approve every file "
+                      "(required reviewers: a team of people with write access, file pattern `*`, one approval, no `!` "
+                      "line). Without it an App's approval merges a PR CD opens (D2 rule 6)")
         if checks:
             self.note("ok", "branch rules", f"{self.default} requires {', '.join(sorted(c for c in checks if c))}: "
                       "it must run render.py --check, workflow_policy.py and the factory's tests")

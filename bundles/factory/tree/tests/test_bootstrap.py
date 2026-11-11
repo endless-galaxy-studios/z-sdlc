@@ -24,6 +24,10 @@ FIXTURE_SETTINGS = {"app": {"user_id": 424242, "login": "acme-factory[bot]"},
 OTHER_WF = f"{OTHER}/.github/workflows/factory-triage.yml@refs/heads/main"
 
 
+# The default branch's required reviewers, as Enablement step 9 sets them: a team of people approves every file.
+TEAM_REVIEW = {"file_patterns": ["*"], "minimum_approvals": 1, "reviewer": {"id": 3, "type": "Team"}}
+
+
 class FakeGitHub:
     def __init__(self):
         self.repo = {"id": 7, "default_branch": "main", "owner": {"type": "Organization"}}
@@ -36,12 +40,14 @@ class FakeGitHub:
                                "permissions": dict(bootstrap.APP_PERMISSIONS)}]
         self.rulesets = [{"id": 1, "enforcement": "active", "target": "branch",
                           "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"]}},
-                          "rules": [{"type": "pull_request", "parameters": {"require_code_owner_review": True}},
+                          "rules": [{"type": "pull_request", "parameters": {"require_code_owner_review": True,
+                                                                             "required_reviewers": [dict(TEAM_REVIEW)]}},
                                     {"type": "required_status_checks",
                                      "parameters": {"required_status_checks": [{"context": "ci-ok"}]}}]}]
         self.admin = True
         self.writes = []
         self.branches = set()
+        self.protection = None  # the default branch's classic protection: none
 
     def env(self, name):
         return self.envs.setdefault(name, {"policy": None, "branches": [], "reviewers": [], "secrets": set(),
@@ -141,7 +147,7 @@ class FakeGitHub:
         if g := m(rf"{r}/rulesets/(\d+)"):
             return 200, next(rs for rs in self.rulesets if rs["id"] == int(g.group(1)))
         if path == f"{r}/branches/main/protection":
-            return 404, {"message": "Branch not protected"}
+            return (200, self.protection) if self.protection else (404, {"message": "Branch not protected"})
         if g := m(rf"{r}/branches/([^/]+)"):
             return (200, {"name": urllib.parse.unquote(g.group(1))}) if urllib.parse.unquote(g.group(1)) in self.branches \
                 else (404, {"message": "Branch not found"})
@@ -598,7 +604,47 @@ class Bootstrap(unittest.TestCase):
         code, out = self.run_it()
         self.assertEqual(code, 1)
         self.assertIn("doesn't require code-owner review", out)
+        self.assertIn("main's rulesets don't require a team to approve every file", out)
         self.assertIn("has no required status check", out)
+
+    def test_a_team_of_people_must_approve_every_file(self):
+        # GitHub asks no code-owner review of a PR whose author owns what it changes, and counts an App's approval:
+        # only a team's required review keeps an App from approving and merging CD's own PR (D2 rule 6).
+        self.gh.set_up()
+        params = self.gh.rulesets[0]["rules"][0]["parameters"]
+        code, out = self.run_it()
+        self.assertEqual(code, 0, out)
+        self.assertIn("main requires team 3's approval on every file", out)
+        lacking = "main's rulesets don't require a team to approve every file"
+        for name, reviewers in [
+                ("none", []),
+                ("visibility only", [dict(TEAM_REVIEW, minimum_approvals=0)]),
+                ("not a team", [dict(TEAM_REVIEW, reviewer={"id": 3, "type": "User"})]),
+                ("some files", [dict(TEAM_REVIEW, file_patterns=["src/**", ".github/"])]),
+                ("an unproven pattern", [dict(TEAM_REVIEW, file_patterns=["**"])]),
+                ("a leading space, literal in .gitignore", [dict(TEAM_REVIEW, file_patterns=[" *"])]),
+                ("a file exempted", [dict(TEAM_REVIEW, file_patterns=["*", "!docs/**"])]),
+                ("exempted first", [dict(TEAM_REVIEW, file_patterns=["!docs/**", "*"])])]:
+            with self.subTest(name):
+                params["required_reviewers"] = reviewers
+                code, out = self.run_it()
+                self.assertEqual(code, 1, out)
+                self.assertIn(lacking, out)
+        # A narrower team besides doesn't matter, nor do other patterns beside `*`.
+        params["required_reviewers"] = [dict(TEAM_REVIEW, file_patterns=["src/**"], reviewer={"id": 8, "type": "Team"}),
+                                        dict(TEAM_REVIEW, file_patterns=["docs/**", "*"])]
+        code, out = self.run_it()
+        self.assertEqual(code, 0, out)
+        self.assertIn("main requires team 3's approval on every file", out)
+        # Classic branch protection has no required team: its code-owner review leaves the gap open.
+        del params["required_reviewers"]
+        params["require_code_owner_review"] = False
+        self.gh.protection = {"required_pull_request_reviews": {"require_code_owner_reviews": True,
+                                                                "required_approving_review_count": 1}}
+        code, out = self.run_it()
+        self.assertEqual(code, 1, out)
+        self.assertIn("main requires code-owner review", out)
+        self.assertIn(lacking, out)
 
     def test_codeowners_must_own_github_and_claude(self):
         self.gh.set_up()

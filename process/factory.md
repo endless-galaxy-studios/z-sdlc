@@ -129,6 +129,7 @@ Agent jobs run on self-hosted runners, and a runner host may also run production
    Re-run smoke on every action, image or tool-policy change.
 6. **Workflow edits are trusted only through review.** The boundary against a malicious workflow change is:
    - CODEOWNERS on `.github/`, `.claude/`, `CLAUDE.md`, `.mcp.json`, other agents' and tools' configuration, `[sdlc-root]/` and the test and build config, enforced by the `main` ruleset. The discipline parking lots (`[sdlc-root]/disciplines/*.md`) and the knowledge YAMLs other than the governing ones are the exception: an owner-less line unowns them so agents can add entries. The writer's guard follows GitHub's last-match-wins rule, and CD still sees each entry in the PR diff. Unlike GitHub, the guard matches an owned line in any case and Unicode normalization, refuses agent configuration by name in any case, and refuses a path that collides with another on a case-insensitive checkout: on CD's Mac, `.Claude/settings.local.json` is `.claude/settings.local.json`;
+   - a team of people approving every file, in the `main` ruleset's pull-request rule (its required reviewers: file pattern `*`, at least one approval). GitHub asks no code-owner review of a PR when the PR's author is the only code owner of what it changes, and it counts an App's approval toward the required approvals. Without the team, then, an App that can review PRs (the factory's own, an agent session's, any other the organization installs) can approve a PR CD opened, and with contents write merge it, and the ruleset's history records a pass. A team holds accounts, never an App. With it, every merge into `main` carries a person's approval or is recorded as a bypass. A session acting as CD can still merge with CD's bypass, and only that record shows it (proven on a scratch repository, 2026-11-11);
    - the factory's own GitHub App (Z Software Factory) has no `workflows` permission, so no factory token can push a workflow change. Its key is in the `factory-writer` environment, which only `main` can use, so a factory branch can't mint the token;
    - the runtime sandbox probe (rule 5).
 
@@ -699,6 +700,12 @@ needs an organization owner's `gh` login (`admin:org`) for the runner groups and
    `CLAUDE.md` at any depth, `.mcp.json`, `[sdlc-root]/` and the test and build configuration,
    including every file the profile's tools load just because it exists (§ Stack Profiles, What
    CODEOWNERS must cover); code-owner review required on `main`.
+   - **A team of people approves every file on `main`** (D2 rule 6): in the `main` ruleset's
+     pull-request rule, required reviewers of a team only people CD trusts as reviewers are on (CD's own,
+     with write access to the repository), file pattern `*`, one approval. Without it, an App's approval
+     merges a PR CD opens. `bootstrap.py` reports it, and reports anything but `*` or any `!` line as
+     missing: `*` is the pattern proven to cover every path, dot-directories at any depth included.
+     Branch protection has no equivalent, so it must be a ruleset.
    - **What other agents and tools load on CD's machine:** `AGENTS.md`, `GEMINI.md`, `.codex/`,
      `.gemini/`, `.cursor/`, `.vscode/` (its tasks can run when the folder opens), `.devcontainer/`,
      `.envrc`, `.gitattributes` (`linguist-generated` collapses a file's diff in review),

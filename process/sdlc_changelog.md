@@ -37,6 +37,35 @@ Each entry contains:
 
 ---
 
+## 2026-11-11: A team of people must approve every file on the factory's default branch
+
+**Origin:** CD asked what an identity of their own for agent sessions would take, short of a paid second account. A GitHub App of their own was tried on a scratch repository, and the trial found that an App's approval merges a PR CD opened. CD had the fix added to the third project's ruleset the same day, then said "go" to making it part of the factory's setup.
+
+**On migrating:** `bootstrap.py` reports a new problem until the default branch's ruleset requires a team to approve every file. Add a team that only people CD trusts as reviewers are on (CD alone, usually) and give it write access to the repository. Then, in the ruleset's pull-request rule, add it as a required reviewer: file pattern `*`, one approval. After that, CD's own PRs merge only with the bypass, since CD can't approve their own. With one approval or more already required, that is no change. With none, it is a change: those PRs merged without a review before, and an App could merge them too.
+
+**What happened:** On the scratch repository, with code-owner review and one approval required on `main`:
+- an App can't approve its own PR, so its PRs needed CD's approval as code owner;
+- GitHub asked no code-owner review of a PR CD opened, since CD was the only code owner of what it changed. The App's approval counted toward the one required, and the App, with contents write, merged it. The ruleset's history recorded a pass, not a bypass, on an owned path as on an unowned one;
+- with a team holding only CD added as a required reviewer of `*`, the same App approval no longer satisfied the rule. It was tried on an `owned/` file, which CD then merged with the bypass, recorded as a bypass, and on `.github/` and `.claude/` files two and three directories deep, a PR closed unmerged. With 0 approvals required, the team still blocked the App's merge, with or without the App's approval;
+- a PR the App opened, approved by CD, merged with a pass.
+
+The factory's own App could approve PRs the same way, as could any App the organization installs with pull-request write. A session working as CD's login could merge with CD's bypass all along; the team only makes the record honest about it.
+
+**Changes made:**
+1. **`process/factory.md`:**
+   - D2 rule 6: the team is part of the boundary against a malicious change, with why.
+   - Enablement step 9: the team, its pattern and approval count, and that it must be a ruleset (branch protection has nothing like it).
+2. **`process/factory-runbook.md`:**
+   - § 1 A3: a GitHub App of the sessions' own is an option, no seat needed (its token helper isn't in the bundle yet). An identity of their own names who acted, but contains nothing while a session can reach CD's login. The team is needed whichever answer is chosen.
+   - § 3.3 step 6: the team in the default branch's ruleset.
+   - § 5: a pitfalls row.
+3. **`bundles/factory/tree/bootstrap.py`:** `check_branch_rules` reports the default branch's rulesets lacking a team that approves every file. It reads a required reviewer only as a team, with at least one approval (0 only adds it for visibility), and exactly `*` among its patterns with no `!` line. A narrower or unproven pattern is reported, not guessed at (a leading space is part of a pattern in `.gitignore` syntax, so `" *"` is not `*`), and classic protection never counts. The fix was found in an installed project, so it goes straight into the bundle's tree; the incubator gets it with the next `--to-incubator`.
+4. **`bundles/factory/tree/tests/test_bootstrap.py`:** the fake's default ruleset has the team. A new test covers a missing team, zero approvals, a reviewer that isn't a team, narrower patterns, `**`, `" *"`, a `!` line in either order, an extra narrower team beside the right one, and classic protection alone.
+
+**Rationale:** Code-owner review is the factory's control on what reaches `main` (D2 rule 6). But GitHub doesn't ask it of a PR whose author is the only code owner, and that author is CD on every PR CD opens. Any App's approval then stood in for a person's. A team can't hold an App, so requiring one on every file means a merge into `main` carries a person's approval or shows as a bypass.
+
+---
+
 ## 2026-11-11: The factory's templates take Dependabot's action pins; the bundle's pins move up
 
 **Origin:** The third project's install session reported two problems from a week of Dependabot PRs. It relayed CD's choice to fix both upstream first; the project changes nothing locally until the bundle ships.
