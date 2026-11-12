@@ -545,8 +545,8 @@ small part of an install whose project doesn't fit an existing profile or host.
 
 The bundle installs inert: nothing runs until a person adds `factory:triage` to an issue, and the
 first run fails without the setup below, done in order. Steps 3 to 5 replace the seed's placeholders
-in `factory.json`; after each settings change, run `python3 .github/factory/render.py` and commit the
-settings and the workflows to `main`. `python3 .github/factory/bootstrap.py` checks steps 2 to 9 and
+in `factory.json`; after each settings change, run `python3 .github/factory/render.py` and merge the
+settings and the workflows into `main` through a PR. `python3 .github/factory/bootstrap.py` checks steps 2 to 9 and
 changes nothing; with `--apply` it does step 6, and only once the placeholders are gone. It reports,
 and never sets, the secrets, the App's install, CODEOWNERS and the `main` ruleset, which stay CD's. It
 needs an organization owner's `gh` login (`admin:org`) for the runner groups and the App.
@@ -587,9 +587,9 @@ needs an organization owner's `gh` login (`admin:org`) for the runner groups and
    - **A host that can't follow a branch yet** (a Compose host, until its broker follows the branch):
      set `release.branch` to `""`. Deploys are then gates' operations, the fallback.
 3. **The job image.** Set `image.repository` to where the organization publishes it (for example
-   `ghcr.io/<org>/factory-job`), render, and push to `main`: `factory-image` builds the profile's
+   `ghcr.io/<org>/factory-job`), render, and merge it into `main`: `factory-image` builds the profile's
    `Dockerfile` on a GitHub-hosted runner and publishes it (or run it by hand). Its run on the
-   install's own push fails, publishing to the placeholder; this one is the first that counts. On
+   install's own merge fails, publishing to the placeholder; this one is the first that counts. On
    a package's first publish, GHCR can refuse the tag (`error from registry: denied`) in the
    same second it creates the package and takes every layer: re-run the job, and it publishes. Copy the digest from
    its run summary into `image.digest` and render again. Every factory job runs in this image, pinned
@@ -706,6 +706,11 @@ needs an organization owner's `gh` login (`admin:org`) for the runner groups and
      merges a PR CD opens. `bootstrap.py` reports it, and reports anything but `*` or any `!` line as
      missing: `*` is the pattern proven to cover every path, dot-directories at any depth included.
      Branch protection has no equivalent, so it must be a ruleset.
+   - **Every bypass of `main`'s rulesets in pull-request mode** (CD, 2026-11-12, for every project the
+     factory runs in): a bypass then only merges a PR, and is recorded. Always (a missing mode is always)
+     and exempt let the actor push to `main` with no PR, every rule skipped. So nothing reaches `main`
+     but a PR, CD's own changes included. `bootstrap.py` reports any other mode. A tag ruleset (release
+     tags, which are pushed, not merged) is outside this.
    - **What other agents and tools load on CD's machine:** `AGENTS.md`, `GEMINI.md`, `.codex/`,
      `.gemini/`, `.cursor/`, `.vscode/` (its tasks can run when the folder opens), `.devcontainer/`,
      `.envrc`, `.gitattributes` (`linguist-generated` collapses a file's diff in review),

@@ -508,7 +508,7 @@ class Bootstrap:
                 and "*" in patterns and not any(p.strip().startswith("!") for p in patterns))
 
     def check_branch_rules(self):
-        owner_review, team_review, checks, merge_methods = False, None, set(), None
+        owner_review, team_review, checks, merge_methods, bypass = False, None, set(), None, []
         for rs in self.list_all(f"repos/{self.repo}/rulesets?includes_parents=true", None) or []:
             status, full = self.api("GET", f"repos/{self.repo}/rulesets/{rs['id']}")
             if status != 200 or full.get("enforcement") != "active" or full.get("target") != "branch":
@@ -516,6 +516,13 @@ class Bootstrap:
             include = ((full.get("conditions") or {}).get("ref_name") or {}).get("include") or []
             if not {"~DEFAULT_BRANCH", "~ALL", f"refs/heads/{self.default}"} & set(include):
                 continue
+            for actor in full.get("bypass_actors") or []:
+                # Missing means always; exempt doesn't apply the rules at all. Either lets the actor push to the
+                # default branch with no PR. In pull-request mode a bypass only merges a PR, and is recorded.
+                if actor.get("bypass_mode", "always") != "pull_request":
+                    who = f"{actor.get('actor_type', '?')} {actor.get('actor_id') or ''}".strip()
+                    bypass.append(f"{full.get('name') or full.get('id')} lets {who} bypass it "
+                                  f"{actor.get('bypass_mode', 'always')}")
             for rule in full.get("rules") or []:
                 params = rule.get("parameters") or {}
                 if rule.get("type") == "pull_request" and params.get("require_code_owner_review"):
@@ -546,6 +553,9 @@ class Bootstrap:
             self.note("problem", "branch rules", f"{self.default}'s rulesets don't require a team to approve every file "
                       "(required reviewers: a team of people with write access, file pattern `*`, one approval, no `!` "
                       "line). Without it an App's approval merges a PR CD opens (D2 rule 6)")
+        for text in dict.fromkeys(bypass):
+            self.note("problem", "branch rules", f"{self.default}'s ruleset {text}: set it to pull requests only, so "
+                      "nothing reaches it but a PR (Enablement step 9)")
         if checks:
             self.note("ok", "branch rules", f"{self.default} requires {', '.join(sorted(c for c in checks if c))}: "
                       "it must run render.py --check, workflow_policy.py and the factory's tests")

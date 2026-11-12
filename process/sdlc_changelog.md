@@ -37,6 +37,26 @@ Each entry contains:
 
 ---
 
+## 2026-11-12: Every bypass of the factory's default branch is in pull-request mode
+
+**Origin:** Adding the required-reviewers team showed two of the three factory projects with their default branch's bypass in mode "always". CD (2026-11-12): "switch the bypasses to pr mode - we should be standardized across all projects utilizing the software factory".
+
+**On migrating:** `bootstrap.py` reports a default-branch ruleset whose bypass actor is in mode `always`, `exempt` or no mode (which means always). Switch each to pull requests only. After that, nothing reaches the default branch but a PR: an admin's direct push is refused. A project whose sessions or people pushed docs or migrations straight to it opens a PR for them instead, and an admin merges it with the bypass, which the ruleset's history records.
+
+**What happened:** The runbook's § 3.3 step 6 already asked for `pull_request` bypass mode on the default branch, but `process/factory.md` step 9 didn't, and `bootstrap.py` checked bypass modes only on the release branch. So two of the three projects kept "always", which skips every rule, review and checks included, for a direct push. One of them took about 29 direct commits on its default branch in 30 days. The third project's ruleset, the runner host's and the runner audit's were already in pull-request mode. Step 3 and Enablement's opening also said to push to `main`, which pull-request mode refuses.
+
+**Changes made:**
+1. **`process/factory.md`:**
+   - Enablement step 9: every bypass of `main`'s rulesets in pull-request mode, for every project the factory runs in. A tag ruleset is outside it.
+   - Enablement's opening and step 3: settings and workflows are merged into `main` through a PR, not pushed to it.
+2. **`process/factory-runbook.md`** § 5: the bypass pitfall's row says `bootstrap.py` checks the default branch too.
+3. **`bundles/factory/tree/bootstrap.py`:** `check_branch_rules` reports each bypass actor of a default-branch ruleset that isn't in `pull_request` mode, reading a missing mode as always, as the release branch's check does. It checks the mode only, not who may bypass.
+4. **`bundles/factory/tree/tests/test_bootstrap.py`:** the fake's default ruleset has a pull-request-mode bypass. A new test covers always, exempt and a missing mode, and a tag ruleset's always bypass being ignored.
+
+**Rationale:** Code-owner review, the team and the required check guard what reaches `main` (D2 rule 6), and an "always" bypass skips all three without leaving a PR to read. In pull-request mode, a bypass still merges what an admin chooses, but always through a PR, and it's recorded as a bypass. Holding every project to it, and having `bootstrap.py` check it, keeps them from drifting apart again.
+
+---
+
 ## 2026-11-11: A team of people must approve every file on the factory's default branch
 
 **Origin:** CD asked what an identity of their own for agent sessions would take, short of a paid second account. A GitHub App of their own was tried on a scratch repository, and the trial found that an App's approval merges a PR CD opened. CD had the fix added to the third project's ruleset the same day, then said "go" to making it part of the factory's setup.

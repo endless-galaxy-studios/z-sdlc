@@ -378,7 +378,7 @@ Record each one's values where the next project's install will look.
 | CODEOWNERS on a case-insensitive checkout | Every casing; the guard matches any case | factory.md step 9 |
 | A first image publish `denied` | Re-run once | factory.md step 3 |
 | A workflow naming a missing environment creates it unprotected | Environments first | § 3.3 |
-| Ruleset bypass mode "always" skips every rule | `pull_request` mode, proven on a scratch branch | § 3.3; `bootstrap.py` checks the release branch |
+| Ruleset bypass mode "always" skips every rule | `pull_request` mode, proven on a scratch branch | § 3.3; `bootstrap.py` checks the default and release branches |
 | Restricted updates on the project's default branch: every merge, approved and green, needs the bypass | Restricted updates on the release branch and the pinned branches only | § 3.3 |
 | An App's approval merging a PR CD opened, recorded as a pass: code-owner review isn't asked of a PR whose author is the only code owner of what it changes | A team of people as required reviewers of every file on the default branch | § 3.3; `bootstrap.py` checks it |
 | Squash or rebase merges where provenance is checked | Merge commits only | D4 rule 13 |

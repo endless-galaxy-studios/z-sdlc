@@ -38,8 +38,10 @@ class FakeGitHub:
                         "selected_workflows": [OTHER_WF], "repos": [9], "runners": ["runner-1"]}]
         self.installations = [{"id": 1, "app_slug": "acme-factory", "repository_selection": "all",
                                "permissions": dict(bootstrap.APP_PERMISSIONS)}]
-        self.rulesets = [{"id": 1, "enforcement": "active", "target": "branch",
+        self.rulesets = [{"id": 1, "name": "main", "enforcement": "active", "target": "branch",
                           "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"]}},
+                          "bypass_actors": [{"actor_id": None, "actor_type": "OrganizationAdmin",
+                                             "bypass_mode": "pull_request"}],
                           "rules": [{"type": "pull_request", "parameters": {"require_code_owner_review": True,
                                                                              "required_reviewers": [dict(TEAM_REVIEW)]}},
                                     {"type": "required_status_checks",
@@ -645,6 +647,30 @@ class Bootstrap(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertIn("main requires code-owner review", out)
         self.assertIn(lacking, out)
+
+    def test_the_default_branch_is_bypassed_only_through_pull_requests(self):
+        # Always (or a missing mode, which means always) and exempt let an admin push to it with no PR. Every factory
+        # project's default branch takes PRs only, the bypass included (Enablement step 9).
+        self.gh.set_up()
+        actor = self.gh.rulesets[0]["bypass_actors"][0]
+        for name, mode in [("always", "always"), ("exempt", "exempt"), ("missing", None)]:
+            with self.subTest(name):
+                actor.pop("bypass_mode", None)
+                if mode:
+                    actor["bypass_mode"] = mode
+                code, out = self.run_it()
+                self.assertEqual(code, 1, out)
+                self.assertIn(f"main's ruleset main lets OrganizationAdmin bypass it {mode or 'always'}: set it to "
+                              "pull requests only", out)
+        actor["bypass_mode"] = "pull_request"
+        # A tag ruleset's always bypass (release tags are pushed, never merged) is no concern of the default branch's.
+        self.gh.rulesets.append({"id": 2, "name": "release tags", "enforcement": "active", "target": "tag",
+                                 "conditions": {"ref_name": {"include": ["~ALL"]}},
+                                 "bypass_actors": [{"actor_id": 5, "actor_type": "RepositoryRole",
+                                                    "bypass_mode": "always"}], "rules": [{"type": "creation"}]})
+        code, out = self.run_it()
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("bypass it", out)
 
     def test_codeowners_must_own_github_and_claude(self):
         self.gh.set_up()
