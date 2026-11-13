@@ -30,7 +30,8 @@ TEAM_REVIEW = {"file_patterns": ["*"], "minimum_approvals": 1, "reviewer": {"id"
 
 class FakeGitHub:
     def __init__(self):
-        self.repo = {"id": 7, "default_branch": "main", "owner": {"type": "Organization"}}
+        self.repo = {"id": 7, "default_branch": "main", "owner": {"type": "Organization"},
+                     "allow_merge_commit": True, "allow_squash_merge": False, "allow_rebase_merge": False}
         self.labels = []
         self.envs = {}
         self.repo_secrets, self.org_secrets = set(), set()
@@ -43,6 +44,9 @@ class FakeGitHub:
                           "bypass_actors": [{"actor_id": None, "actor_type": "OrganizationAdmin",
                                              "bypass_mode": "pull_request"}],
                           "rules": [{"type": "pull_request", "parameters": {"require_code_owner_review": True,
+                                                                             "required_approving_review_count": 1,
+                                                                             "dismiss_stale_reviews_on_push": True,
+                                                                             "require_last_push_approval": False,
                                                                              "required_reviewers": [dict(TEAM_REVIEW)]}},
                                     {"type": "required_status_checks",
                                      "parameters": {"required_status_checks": [{"context": "ci-ok"}]}}]}]
@@ -323,8 +327,10 @@ class Bootstrap(unittest.TestCase):
         code, out = self.run_it()
         self.assertIn("release/production's rulesets lack a PR with code-owner review, merge commits only, restricted "
                       "updates, no force push, no deletion", out)
-        # The default branch's merge methods don't matter: deploys follow the release branch.
-        self.assertNotIn("also allows", out)
+        # Deploys follow the release branch, so the default branch's merge methods don't matter to them (they still
+        # must be merge commits only, every project's standard).
+        self.assertIn("main also allows rebase and squash merges", out)
+        self.assertNotIn("the next gate is refused", out)
         self.gh.rulesets += [self.release_ruleset(), self.pinned_ruleset()]
         code, out = self.run_it()
         self.assertIn("release/production takes changes only through a PR an admin merges", out)
@@ -463,11 +469,70 @@ class Bootstrap(unittest.TestCase):
         self.assertIn("no branch release/production", out)
         self.assertIn("factory/release/** (release gates' pinned commits) needs a ruleset", out)
 
-    def test_merge_settings_matter_only_with_a_production_tier(self):
-        self.gh.repo.update(allow_merge_commit=True, allow_squash_merge=True, allow_rebase_merge=True)
+    def test_every_default_branch_merges_with_merge_commits_only(self):
+        # Every factory project, production tier or not (CD, 2026-11-12): a PR's commits reach main as reviewed.
         self.gh.set_up()
         code, out = self.run_it()
-        self.assertNotIn("merge commit", out)
+        self.assertEqual(code, 0, out)
+        self.assertIn("main merges with merge commits only", out)
+        self.gh.repo.update(allow_squash_merge=True, allow_rebase_merge=True)
+        code, out = self.run_it()
+        self.assertEqual(code, 1, out)
+        self.assertIn("main also allows rebase and squash merges: allow merge commits only", out)
+        self.assertNotIn("D4 rule", out)  # no production tier: nothing deploys from it
+        # The ruleset's allowed methods settle it, even when the repository's settings can't be read (no admin).
+        params = self.gh.rulesets[0]["rules"][0]["parameters"]
+        params["allowed_merge_methods"] = ["merge"]
+        code, out = self.run_it()
+        self.assertEqual(code, 0, out)
+        for key in ("allow_merge_commit", "allow_squash_merge", "allow_rebase_merge"):
+            del self.gh.repo[key]
+        code, out = self.run_it()
+        self.assertEqual(code, 0, out)
+        self.assertIn("main merges with merge commits only", out)
+        params["allowed_merge_methods"] = ["merge", "squash"]
+        code, out = self.run_it()
+        self.assertIn("can't read the repository's merge settings", out)
+        # With a release branch, deploys follow its history, but main still merges with merge commits only.
+        self.release_project()
+        self.gh.repo.update(allow_merge_commit=True, allow_squash_merge=True, allow_rebase_merge=False)
+        code, out = self.run_it()
+        self.assertIn("main also allows squash merges", out)
+        self.assertNotIn("the next gate is refused", out)
+
+    def test_the_default_branch_needs_one_approval_a_push_dismisses_and_no_last_push_approval(self):
+        # CD's standard for every factory project (2026-11-12): one approving review, dismissed by a push, so every
+        # push needs a fresh one; and no last-push approval, which would only stop CD approving what CD last pushed.
+        self.gh.set_up()
+        params = self.gh.rulesets[0]["rules"][0]["parameters"]
+        code, out = self.run_it()
+        self.assertEqual(code, 0, out)
+        self.assertIn("main requires 1 approving review", out)
+        self.assertIn("main dismisses an approval when new commits are pushed", out)
+        for name, change, expected in [
+                ("no approval", {"required_approving_review_count": 0}, "main requires no approving review"),
+                ("approval missing", {"required_approving_review_count": None}, "main requires no approving review"),
+                ("approvals kept", {"dismiss_stale_reviews_on_push": False}, "main keeps an approval when new commits"),
+                ("last push", {"require_last_push_approval": True}, "main requires the last push's approval")]:
+            with self.subTest(name):
+                saved = dict(params)
+                params.update(change)
+                code, out = self.run_it()
+                self.assertEqual(code, 1, out)
+                self.assertIn(expected, out)
+                params.clear()
+                params.update(saved)
+        # Classic branch protection counts too, beside the ruleset.
+        params.update(required_approving_review_count=0, dismiss_stale_reviews_on_push=False)
+        self.gh.protection = {"required_pull_request_reviews": {"required_approving_review_count": 2,
+                                                                "dismiss_stale_reviews": True,
+                                                                "require_last_push_approval": False}}
+        code, out = self.run_it()
+        self.assertEqual(code, 0, out)
+        self.assertIn("main requires 2 approving reviews", out)
+        self.gh.protection["required_pull_request_reviews"]["require_last_push_approval"] = True
+        code, out = self.run_it()
+        self.assertIn("main requires the last push's approval", out)
 
     def test_the_planning_secrets_follow_planning_json_and_services_json(self):
         factory = self.root / ".github" / "factory"

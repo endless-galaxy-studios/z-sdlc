@@ -509,6 +509,7 @@ class Bootstrap:
 
     def check_branch_rules(self):
         owner_review, team_review, checks, merge_methods, bypass = False, None, set(), None, []
+        approvals, stale_dismissed, last_push = 0, False, False
         for rs in self.list_all(f"repos/{self.repo}/rulesets?includes_parents=true", None) or []:
             status, full = self.api("GET", f"repos/{self.repo}/rulesets/{rs['id']}")
             if status != 200 or full.get("enforcement") != "active" or full.get("target") != "branch":
@@ -533,11 +534,19 @@ class Bootstrap:
                 if rule.get("type") == "pull_request" and params.get("allowed_merge_methods"):
                     allowed = set(params["allowed_merge_methods"])
                     merge_methods = allowed if merge_methods is None else merge_methods & allowed
+                if rule.get("type") == "pull_request":
+                    approvals = max(approvals, params.get("required_approving_review_count") or 0)
+                    stale_dismissed |= bool(params.get("dismiss_stale_reviews_on_push"))
+                    last_push |= bool(params.get("require_last_push_approval"))
                 if rule.get("type") == "required_status_checks":
                     checks |= {c.get("context") for c in params.get("required_status_checks") or []}
         status, prot = self.api("GET", f"repos/{self.repo}/branches/{self.default}/protection")
         if status == 200:
-            owner_review |= bool((prot.get("required_pull_request_reviews") or {}).get("require_code_owner_reviews"))
+            reviews = prot.get("required_pull_request_reviews") or {}
+            owner_review |= bool(reviews.get("require_code_owner_reviews"))
+            approvals = max(approvals, reviews.get("required_approving_review_count") or 0)
+            stale_dismissed |= bool(reviews.get("dismiss_stale_reviews"))
+            last_push |= bool(reviews.get("require_last_push_approval"))
             checks |= set(((prot.get("required_status_checks") or {}).get("contexts")) or [])
         if owner_review:
             self.note("ok", "branch rules", f"{self.default} requires code-owner review")
@@ -556,18 +565,36 @@ class Bootstrap:
         for text in dict.fromkeys(bypass):
             self.note("problem", "branch rules", f"{self.default}'s ruleset {text}: set it to pull requests only, so "
                       "nothing reaches it but a PR (Enablement step 9)")
+        # Every factory project's default branch takes the same review (CD, 2026-11-12): one approval, which a push
+        # dismisses, and no last-push approval. Without the dismissal, a push after CD approves keeps the approval,
+        # so the App could merge commits CD never saw. With it, every push needs a fresh approval already, and
+        # last-push approval only stops CD approving a PR CD last pushed to, an App's included.
+        if approvals >= 1:
+            self.note("ok", "branch rules", f"{self.default} requires {approvals} approving review"
+                      f"{'s' if approvals > 1 else ''}")
+        else:
+            self.note("problem", "branch rules", f"{self.default} requires no approving review: require one "
+                      "(Enablement step 9)")
+        if stale_dismissed:
+            self.note("ok", "branch rules", f"{self.default} dismisses an approval when new commits are pushed")
+        else:
+            self.note("problem", "branch rules", f"{self.default} keeps an approval when new commits are pushed: "
+                      "dismiss stale approvals on push, or commits pushed after CD approves merge unseen (D2 rule 6)")
+        if last_push:
+            self.note("problem", "branch rules", f"{self.default} requires the last push's approval by someone else: "
+                      "turn it off, so CD can approve a PR CD last pushed to; dismissing stale approvals already "
+                      "makes every push need a fresh one (Enablement step 9)")
         if checks:
             self.note("ok", "branch rules", f"{self.default} requires {', '.join(sorted(c for c in checks if c))}: "
                       "it must run render.py --check, workflow_policy.py and the factory's tests")
         else:
             self.note("problem", "branch rules", f"{self.default} has no required status check: CI must run "
                       "render.py --check, workflow_policy.py and the factory's tests")
+        self.check_merge_methods(merge_methods)
         release = ((self.cfg.get("release") or {}).get("branch") or "").strip()
         if release:
             self.check_release_branch(release)
             self.check_pinned_branches()
-        elif self.production:
-            self.check_merge_methods(merge_methods)
 
     def covering_rulesets(self, ref):
         """The active branch rulesets that cover a ref: one of their ref_name includes matches it (GitHub's
@@ -685,27 +712,36 @@ class Bootstrap:
             self.note("ok", "release branch", "factory/release/** branches can't move once created")
 
     def check_merge_methods(self, ruleset_methods):
-        """With a production tier, an execution PR merges with a merge commit (D4 rule 13): the broker deploys
-        the PR's head, so a squash or rebase leaves production on a commit the default branch doesn't contain,
-        and rule 7 refuses the next gate."""
+        """Every factory project's default branch merges with merge commits only (CD, 2026-11-12): a PR's commits
+        reach it as they were reviewed, and a PR that should be one commit is squashed in the session that drives it.
+        On the fallback with a production tier it matters for deploys too (D4 rule 13): the broker deploys an
+        execution PR's head, so a squash or rebase leaves production on a commit the default branch doesn't contain,
+        and rule 7 refuses the next gate. The ruleset's allowed merge methods alone can settle it, since reading the
+        repository's settings needs admin access."""
         keys = {"merge": "allow_merge_commit", "squash": "allow_squash_merge", "rebase": "allow_rebase_merge"}
-        if any(self.merge_settings.get(k) is None for k in keys.values()):
-            self.note("unchecked", "branch rules", "can't read the repository's merge settings (they need admin "
-                      "access): execution PRs must merge with a merge commit (D4 rule 13)")
-            return
-        allowed = {m for m, k in keys.items() if self.merge_settings[k]}
-        if ruleset_methods is not None:
-            allowed &= ruleset_methods
-        if "merge" not in allowed:
-            self.note("problem", "branch rules", f"{self.default} allows no merge commit: an execution PR merges "
-                      "with one (D4 rule 13)")
+        deploys = self.production and not ((self.cfg.get("release") or {}).get("branch") or "").strip()
+        why = " (Enablement step 9; D4 rule 13)" if deploys else " (Enablement step 9)"
+        allowed = set(keys) if ruleset_methods is None else set(ruleset_methods)
+        if all(self.merge_settings.get(k) is not None for k in keys.values()):
+            allowed &= {m for m, k in keys.items() if self.merge_settings[k]}
         elif allowed - {"merge"}:
-            self.note("problem", "branch rules", f"{self.default} also allows {' and '.join(sorted(allowed - {'merge'}))} "
-                      "merges: one of an execution PR leaves production on a commit the branch doesn't contain, and "
-                      "the next gate is refused (D4 rules 7 and 13). Allow merge commits only, in the repository's "
-                      "settings or the branch's ruleset (allowed merge methods)")
+            self.note("unchecked", "branch rules", "can't read the repository's merge settings (they need admin "
+                      f"access), and the rulesets allow other methods: {self.default} must merge with merge commits "
+                      f"only{why}")
+            return
+        if "merge" not in allowed:
+            self.note("problem", "branch rules", f"{self.default} allows no merge commit: every PR merges with "
+                      f"one{why}")
+        elif allowed - {"merge"}:
+            others = " and ".join(sorted(allowed - {"merge"}))
+            self.note("problem", "branch rules", f"{self.default} also allows {others} merges: allow merge commits "
+                      "only, in the repository's settings or the branch's ruleset (allowed merge methods), so a PR's "
+                      "commits reach it as they were reviewed"
+                      + ("; a squash or rebase of an execution PR also leaves production on a commit the branch "
+                         "doesn't contain, and the next gate is refused (D4 rules 7 and 13)" if deploys else "")
+                      + " (Enablement step 9)")
         else:
-            self.note("ok", "branch rules", f"{self.default} merges with merge commits only (D4 rule 13)")
+            self.note("ok", "branch rules", f"{self.default} merges with merge commits only")
 
 
 def main(argv=None, api=gh):

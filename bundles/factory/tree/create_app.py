@@ -4,6 +4,7 @@
     python3 .github/factory/create_app.py <organization> [--name NAME] [--key-out PATH]
     python3 .github/factory/create_app.py <organization> --runners [--name NAME] [--key-out PATH]
     python3 .github/factory/create_app.py <organization> --auditor [--name NAME] [--key-out PATH]
+    python3 .github/factory/create_app.py <organization> --sessions [--name NAME] [--key-out PATH]
 
 Opens GitHub's create-an-App page for the organization with the factory's manifest filled in (a local
 page posts it); you confirm it there. GitHub sends the browser back to this script, which converts the
@@ -23,6 +24,12 @@ other copy is deleted. factory.json is left alone.
 access to the organization's self-hosted runners, nothing else. runner_audit.py's workflow uses it from one
 repository, on GitHub-hosted runners only, so its key goes into that repository's secrets and nowhere else.
 factory.json is left alone.
+
+--sessions creates the sessions App instead (process/factory.md, Enablement step 13): the identity Claude Code
+sessions on CD's machine work as in the product's repositories (session_identity.py). It may write contents, pull
+requests and issues and read Actions, checks and statuses; never workflows, administration, secrets or
+environments, which are infra and setup, CD's own login. Its key stays on CD's machine (by default
+~/.config/agent-sessions/<organization>.pem). factory.json is left alone.
 """
 import argparse
 import html
@@ -39,11 +46,14 @@ import urllib.parse
 import urllib.request
 import webbrowser
 
+import session_identity
+
 FACTORY = pathlib.Path(__file__).resolve().parent
 API = "https://api.github.com"
 PERMISSIONS = {"contents": "write", "issues": "write", "pull_requests": "write", "metadata": "read"}
 RUNNER_PERMISSIONS = {"organization_self_hosted_runners": "write"}
 AUDITOR_PERMISSIONS = {"organization_self_hosted_runners": "read"}
+SESSIONS_PERMISSIONS = dict(session_identity.SESSION_PERMISSIONS)
 
 
 def manifest(name, org, port, permissions=PERMISSIONS):
@@ -143,16 +153,24 @@ def main(argv=None):
     kind = ap.add_mutually_exclusive_group()
     kind.add_argument("--runners", action="store_true", help="the CI tier's runner-registration App instead")
     kind.add_argument("--auditor", action="store_true", help="the runner audit's read-only App instead")
+    kind.add_argument("--sessions", action="store_true", help="the App Claude Code sessions work as instead")
     args = ap.parse_args(argv)
-    suffix = "-runners" if args.runners else "-runner-audit" if args.auditor else ""
-    name = args.name or f"{args.organization}-factory{suffix}"
+    if args.sessions:
+        name = args.name or f"{args.organization}-agent-sessions"
+        default_key = pathlib.Path.home() / ".config" / "agent-sessions" / f"{args.organization}.pem"
+    else:
+        suffix = "-runners" if args.runners else "-runner-audit" if args.auditor else ""
+        name = args.name or f"{args.organization}-factory{suffix}"
+        default_key = pathlib.Path.home() / f"{name}.private-key.pem"
     # Outside the repository by default, so no `git add` can pick the key up.
-    args.key_out = args.key_out or str(pathlib.Path.home() / f"{name}.private-key.pem")
+    args.key_out = args.key_out or str(default_key)
     if pathlib.Path(args.key_out).exists():
         raise SystemExit(f"create_app: {args.key_out} exists; move it or pass --key-out")
-    permissions = RUNNER_PERMISSIONS if args.runners else AUDITOR_PERMISSIONS if args.auditor else PERMISSIONS
+    permissions = (RUNNER_PERMISSIONS if args.runners else AUDITOR_PERMISSIONS if args.auditor
+                   else SESSIONS_PERMISSIONS if args.sessions else PERMISSIONS)
     app = convert(wait_for_code(args.organization, name, permissions=permissions))
     key = pathlib.Path(args.key_out)
+    key.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     # Created here, readable only by you; an existing file is never overwritten.
     with os.fdopen(os.open(key, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w") as f:
         f.write(app["pem"])
@@ -160,6 +178,8 @@ def main(argv=None):
         return runners_done(app, key)
     if args.auditor:
         return auditor_done(app, key, args.organization)
+    if args.sessions:
+        return sessions_done(app, key, args.organization)
     user_id = bot_user_id(app["slug"])
     write_app(FACTORY / "factory.json", app["slug"], user_id)
     repo = repository()
@@ -214,6 +234,23 @@ them; a failed run also emails whoever last changed its schedule). Never a runne
      python3 .github/factory/runner_audit.py workflow expected.json > .github/workflows/factory-runner-audit.yml
    (in <repo>'s checkout for the second), and run it once: gh workflow run factory-runner-audit.yml --repo {org}/<repo>
    (process/factory.md, Enablement step 12).""")
+    return 0
+
+
+def sessions_done(app, key, org):
+    """The sessions App: where it's installed, and how CD's machine starts using it."""
+    granted = app.get("permissions") or {}
+    if granted and granted != SESSIONS_PERMISSIONS:
+        print(f"create_app: the App has {granted}, not {SESSIONS_PERMISSIONS}: fix it in its settings before use")
+    print(f"""
+Created {app['slug']}, the App Claude Code sessions on your machine work as in the product's repositories; its
+private key is {key}, readable by you only. Infra and setup stay your own login.
+1. Install it on the organization, for the product's repositories only (Only select repositories), never the
+   ones that hold infra or setup: https://github.com/apps/{app['slug']}/installations/new
+2. Record it on this machine, naming the same repositories; new sessions in their clones then work as the App:
+     python3 .github/factory/session_identity.py install {org} --client-id {app['client_id']} --key {key} \
+       --repo <repository> [--repo <repository> ...]
+   (process/factory.md, Enablement step 13).""")
     return 0
 
 

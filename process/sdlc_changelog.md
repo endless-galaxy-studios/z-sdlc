@@ -37,6 +37,27 @@ Each entry contains:
 
 ---
 
+## 2026-11-12: The factory imported from the incubator (7c07be1..cbfcde0): the sessions App's helper, one review standard
+
+**Origin:** CD merged the incubator's two PRs for the three entries below. The first handed back z-sdlc's changes since the last import. The second, the sessions App and the review standard, was stacked on it and merged into it before it reached the default branch.
+
+**What happened:** The report found `bootstrap.py` and its tests changed on both sides. The hand-back had made the incubator's copies identical to z-sdlc's (checked at its head before the second PR merged into it), and the review standard was built on them, so `--apply --accept` takes the incubator's, z-sdlc's change included. The incubator's own CODEOWNERS test changed too: it's the bundle's seed with the incubator's paths filled in, so the seed needs nothing. Nothing was flagged as incubator-specific, and the skills and process docs were already in sync.
+
+The proof passed in the incubator. In the empty project one test failed, `tests/test_ci_launcher.py`'s `test_a_cycle`, which counts the launcher's polls of its runner while a fake container runs. The launcher polls every 0.1 seconds, and the fake `docker wait` is a Python script that exits as soon as it starts. On CD's Mac, starting it took longer than that, so the launcher polled two to four times where the test expects one. Run alone, it failed five times out of five on this import's bundle and twice out of three on the bundle before it; the import changes neither the launcher nor its test, and the incubator's CI passed it. CD had the import committed anyway and the test fixed in the incubator first, to come with the next import.
+
+**Changes made:**
+1. **`bundles/factory/tree/`:**
+   - `session_identity.py` and `tests/test_session_identity.py` (new): the sessions App's helper, Enablement step 13.
+   - `create_app.py`: `--sessions`.
+   - `bootstrap.py` and its tests: every default branch needs one approving review, dismissed by a new push, no last-push approval and merge commits only.
+2. **`.claude/skills/zsdlc-import-factory/import.json`:** `last_import` is `cbfcde0`.
+
+**Installed projects:** a migration brings the files. The review standard's and the sessions App's entries below say what each asks of a project: `bootstrap.py` reports a default branch that differs from the standard, and the helper does nothing until CD runs its `install`.
+
+**Rationale:** The factory's code comes only from its incubator, and an import that takes a file changed on both sides has to find z-sdlc's side already there.
+
+---
+
 ## 2026-11-12: The sessions App's name, description and logo, and what renaming it does
 
 **Origin:** CD renamed the organization's sessions App the same day, gave it a description and a logo, and said "document it".
