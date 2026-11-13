@@ -37,6 +37,31 @@ Each entry contains:
 
 ---
 
+## 2026-11-12: Sessions on CD's machine work as the sessions App in the product's repositories
+
+**Origin:** The App trial of 2026-11-11 (the entry below that one) wired one scratch session to an App by hand. CD (2026-11-12): "create the token helper and yes, i want sessions on product repos authoring as the app instaed of me. as far as permissions, I would say that app sessions should deal with app code, and use my login for anything dealing with infra/setup changes."
+
+**On migrating:** Nothing changes for a project until CD sets it up (Enablement step 13): the sessions App, created once per organization with `create_app.py --sessions` and installed on the product's repositories only, then `session_identity.py install` on CD's machine. After that, CD's new sessions in those repositories commit, push and open PRs as the App, which CD approves and merges like any PR. Infra and setup PRs stay CD's, merged with the bypass. `session_identity.py` and `create_app.py --sessions` are written in the incubator first and reach the bundle with its next import; until then, a project takes them from the incubator.
+
+**What happened:** The trial's helper was a scratch script that made a whole clone the App: its remote, credential helper and commit author. That made CD's own terminal in the clone the App too, and left no way to do infra work as CD in the same session. Its one session commit carried CD's signature under the App's name, which GitHub shows as unverified (CD signs every commit). And when no token could be had, `GH_TOKEN` was empty, so `gh` would quietly fall back to CD's login.
+
+**Changes made:**
+1. **`process/factory.md`:**
+   - Enablement step 13, sessions' identity: what is the App's (the product's code) and what is CD's own login (a path CODEOWNERS gives an owner, and anything outside the repository's files). It covers how `session_identity.py` sets a session up and what that contains (nothing, while CD's login is in reach), and the setup.
+   - D2 rule 6: the sessions App has no `workflows` permission, and a session's token is narrowed to one repository and the session's permissions.
+2. **`process/factory-runbook.md`:**
+   - § 1 A3: the sessions App is the usual answer, with infra and setup on CD's login.
+   - § 3.3 item 8: step 13 in sitting 1.
+   - § 4.5: the sessions App among the organization's pieces.
+   - § 5: two pitfalls, an App installed on every repository and a session's commits signed with CD's key.
+3. **The incubator's `.github/factory/` (code, imported next):**
+   - `session_identity.py`, with its tests. Its SessionStart hook, in CD's user settings only, puts the App's identity in the session's environment (`CLAUDE_ENV_FILE`), never the clone's git config: `GH_TOKEN`, the bot as commit author, and git's credential helper, HTTPS for SSH remotes and signing off, through `GIT_CONFIG_*`. A token is minted for one repository with the session's permissions, whatever else the App holds, and cached until ten minutes before it expires. Without one, `gh` and git fail, and the session is told why. `as-owner -- <command>` runs one command as CD's login. `install` records the App and adds the hook once.
+   - `create_app.py --sessions`.
+
+**Rationale:** The App's PRs carry a person's approval, CD's, while CD's own PRs show as bypasses, so the record says who wrote what. Putting the identity in the session's environment, not the clone, lets the session work as both the App and CD, and leaves CD's own terminal alone. Infra and setup stay with CD's login because GitHub refuses the App workflow changes, and settings, rulesets and secrets are beyond a product change's reach. It contains nothing: a session can still reach CD's login, and the docs say so.
+
+---
+
 ## 2026-11-12: Every factory project's default branch takes the same review
 
 **Origin:** After the bypasses were standardized, the four factory repositories' default-branch rulesets still differed. CD (2026-11-12): "standardize the remaining ruleset differences too - 1 approving review, disallow squashing/rebase merges (i'll handle that via driving sessions), no last approval push and the runner audit should require code owner review".

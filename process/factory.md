@@ -131,6 +131,7 @@ Agent jobs run on self-hosted runners, and a runner host may also run production
    - CODEOWNERS on `.github/`, `.claude/`, `CLAUDE.md`, `.mcp.json`, other agents' and tools' configuration, `[sdlc-root]/` and the test and build config, enforced by the `main` ruleset. The discipline parking lots (`[sdlc-root]/disciplines/*.md`) and the knowledge YAMLs other than the governing ones are the exception: an owner-less line unowns them so agents can add entries. The writer's guard follows GitHub's last-match-wins rule, and CD still sees each entry in the PR diff. Unlike GitHub, the guard matches an owned line in any case and Unicode normalization, refuses agent configuration by name in any case, and refuses a path that collides with another on a case-insensitive checkout: on CD's Mac, `.Claude/settings.local.json` is `.claude/settings.local.json`;
    - a team of people approving every file, in the `main` ruleset's pull-request rule (its required reviewers: file pattern `*`, at least one approval). GitHub asks no code-owner review of a PR when the PR's author is the only code owner of what it changes, and it counts an App's approval toward the required approvals. Without the team, then, an App that can review PRs (the factory's own, an agent session's, any other the organization installs) can approve a PR CD opened, and with contents write merge it, and the ruleset's history records a pass. A team holds accounts, never an App. With it, every merge into `main` carries a person's approval or is recorded as a bypass. A session acting as CD can still merge with CD's bypass, and only that record shows it (proven on a scratch repository, 2026-11-11);
    - the factory's own GitHub App (Z Software Factory) has no `workflows` permission, so no factory token can push a workflow change. Its key is in the `factory-writer` environment, which only `main` can use, so a factory branch can't mint the token;
+   - the sessions App, which Claude Code sessions on CD's machine work as in the product's repositories (Enablement step 13), has none either, and a session's token is narrowed to one repository and to the product's code, its PRs and issues, and reading CI. Infra and setup, workflows included, are CD's own login;
    - the runtime sandbox probe (rule 5).
 
    CI's `workflow-policy` check catches accidental drift from these rules on every PR. It is not a security control: a workflow is a program (expressions, `$GITHUB_ENV` writes, other actions), so a static check can't be complete against someone editing workflows on purpose. Its known gaps are under Leaves open.
@@ -1025,3 +1026,38 @@ needs an organization owner's `gh` login (`admin:org`) for the runner groups and
        runs late or not at all (an hourly schedule was measured starting in about one slot in five,
        with gaps of up to eleven hours), so a quiet audit is no all-clear: pair it with an outside
        heartbeat that alarms when runs stop, with its grace sized from measured gaps.
+13. **Sessions' identity** (CD, 2026-11-12, for every project the factory runs in): a Claude Code
+    session CD starts in a clone of the product's repository works as the sessions App, so what it
+    writes is the App's, and CD reviews and approves it like any PR. Infra and setup stay CD's own
+    login. What's which:
+    - **The App's: the product's code.** The session's git commits, pushes and `gh` calls go out as
+      the App's bot, with a token for that one repository that lasts an hour, narrowed to contents,
+      pull requests and issues (write) and Actions, checks and statuses (read), whatever else the App
+      holds. Its commits aren't signed: CD's key would sign them otherwise.
+    - **CD's own login: infra and setup.** A change to a path CODEOWNERS gives an owner (step 9's
+      list: `.github/`, `.claude/`, `CLAUDE.md`, `[sdlc-root]/`'s owned files, the test and build
+      configuration), and anything outside the repository's files: settings, rulesets, secrets,
+      environments, Apps, hosts. The session makes those in a branch and PR of their own and runs each
+      `git` or `gh` command for them through `session_identity.py as-owner -- <command>`. GitHub refuses
+      the App a push that changes `.github/workflows/` anyway. CD can't approve a PR CD opened, so CD
+      merges those with the bypass (step 9).
+
+    `session_identity.py`'s SessionStart hook does it, from CD's own Claude Code settings, never a
+    project's: a project's settings would also load in the factory's runner jobs. It puts the App's
+    identity in the session's environment (`CLAUDE_ENV_FILE`: `GH_TOKEN`, the commit author, and git's
+    credential helper, HTTPS for SSH remotes and signing off, as `GIT_CONFIG_*`), never in the clone's
+    git config, so CD's own terminal in the same clone is CD's. It tells the session which identity is
+    which. A session in any other repository is CD's, as before. When the App's token can't be had, the
+    session's GitHub and git commands fail rather than use CD's login, and the session is told why.
+    An identity of its own shows who acted, but contains nothing: the session can still reach CD's
+    login (its keychain, its SSH keys, `as-owner`). Setup, once per organization and once per project:
+    1. **Once per organization:** `create_app.py <org> --sessions` creates the App with exactly those
+       permissions; its key stays on CD's machine (`~/.config/agent-sessions/<org>.pem`, mode 600).
+    2. **Install it on the product's repositories only** (Only select repositories): never one that
+       holds infra or setup, such as the runner host's or the runner audit's (step 12: no App that can
+       write contents or issues may be installed there).
+    3. **On CD's machine:** `session_identity.py install <org> --client-id <id> --key <key> --repo
+       <repository>`, naming every repository whose sessions work as the App, this project's
+       included. It copies itself to `~/.config/agent-sessions/`, records the App there, and adds the
+       hook to Claude Code's user settings once. New sessions pick it up; `session_identity.py status
+       <a clone>` says which identity a session there gets.

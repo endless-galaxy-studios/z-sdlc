@@ -65,7 +65,7 @@ changed answer undoes later: ask the high ones carefully, once.
 |---|---|---|---|---|---|
 | A1 | How is the install tracked? | An SDLC deliverable; direct dispatch | Direct dispatch, with the Enablement record | Low | CD |
 | A2 | What may the agent do without asking? | Everything but credentials and host root; ask per step | Everything but credentials, root and dashboards | Low | CD |
-| A3 | Whose GitHub identity do agent sessions use? | CD's login (every agent PR is CD's, so CD merges with the ruleset bypass and can't approve); a GitHub App of their own (no seat: its key on CD's machine mints a token for one repository; CD reviews and approves; the token helper isn't in the bundle yet); a second account's fine-grained token (a paid seat; CD reviews and approves). An identity of their own names who acted; it contains nothing while a session can still reach CD's login | Decide now; the rulesets depend on it. Whichever is chosen, step 9's team of required reviewers is needed: without it, an App's approval merges CD's own PRs | Medium | CD |
+| A3 | Whose GitHub identity do agent sessions use? | The sessions App for the product's code, CD's login for infra and setup (factory.md step 13: no seat; its key on CD's machine mints a token for one repository; CD reviews and approves the App's PRs and merges CD's own with the bypass); CD's login for everything (every agent PR is CD's, so CD merges with the ruleset bypass and can't approve); a second account's fine-grained token (a paid seat; CD reviews and approves). An identity of their own names who acted; it contains nothing while a session can still reach CD's login | The sessions App, with infra and setup on CD's login (CD, 2026-11-12). Whichever is chosen, step 9's team of required reviewers is needed: without it, an App's approval merges CD's own PRs | Medium | CD |
 | A4 | Who runs root steps on hosts, and who writes host tokens? | CD; the agent with temporary sudo, removed after | CD writes every token; root steps by CD, or by the agent under temporary sudo CD grants and removes | Low | CD |
 | A5 | What may be pushed to the default branch during the install, and when may a push that deploys go out? | Hold; allow; a window | Name what may ship, and the project's deploy windows | Low | CD |
 | B1 | Does an existing stack profile fit? (§ 2's stack-fit table answers it) | Existing; a new profile upstream (§ 4.1) | Whatever § 2 shows | Medium once workflows render | Agent proposes, CD confirms |
@@ -205,6 +205,11 @@ batching). Check: the migration's tests pass in the project, and `render.py --ch
    which is then CD's to fix. Any other environment the project adds (an alarm's, say) is created with
    its branch policy before the workflow that names it lands: a custom policy naming the default
    branch only, since "protected branches" also admits a ruleset-protected release branch.
+8. **Step 13, sessions' identity,** with § 1 A3's usual answer: **[CD]** adds the repository to the
+   sessions App's installation (selected repositories), then runs `session_identity.py install` on
+   CD's machine with every repository whose sessions work as the App, this one included. Check with
+   `session_identity.py status <the clone>`, then in a new session: its first commit is the App's bot's
+   and unsigned, and `gh api user` fails (an App's token has no user).
 
 **Check:** `bootstrap.py` (read-only) reports nothing missing, and the audit's next run passes.
 
@@ -346,7 +351,8 @@ previews of `factory/**` are off. List it in the Enablement record, and in the r
 
 Before § 3, the organization's own pieces: an organization on Team or above (step 1); the App
 (`create_app.py`, step 5); the echo service (step 4); the shared runner host and its own repository
-(step 8); the runner audit and its App (step 12); the job image's package for the profile (step 3).
+(step 8); the runner audit and its App (step 12); the job image's package for the profile (step 3);
+the sessions App (`create_app.py --sessions`, step 13), installed on selected repositories only.
 Record each one's values where the next project's install will look.
 
 
@@ -388,6 +394,8 @@ Record each one's values where the next project's install will look.
 | Last-push approval: CD's push to an App's PR stops CD approving it, so it needs the bypass | Off; stale approvals dismissed on push make every push need a fresh approval | § 3.3; `bootstrap.py` checks both |
 | Merge commits only, with a linear-history rule: no PR can merge | Drop the linear-history rule; allow merge commits in the repository's settings too | § 3.3 |
 | Code-owner review required, but no CODEOWNERS file: it asks nothing | `* @<CD>` in a repository with no owners of its own | § 3.3 |
+| An App installed on all of the organization's repositories (a sessions App, a coding assistant's) can write the infra repositories and the runner audit's | Selected repositories: the product's only | step 12; step 13 |
+| A session working as an App signs its commits with CD's key, and GitHub shows them unverified | `session_identity.py` turns signing off for the App's commits | step 13 |
 | Squash or rebase merges where provenance is checked | Merge commits only | D4 rule 13 |
 | A service's "read-only" mode running as a superuser | Verify as the role | § 4.2; D3 rule 3 |
 | A public database without TLS | TLS, or another route | § 4.2; `planning-services.sh` |
