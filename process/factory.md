@@ -1053,6 +1053,12 @@ needs an organization owner's `gh` login (`admin:org`) for the runner groups and
     login (its keychain, its SSH keys, `as-owner`). Setup, once per organization and once per project:
     1. **Once per organization:** `create_app.py <org> --sessions` creates the App with exactly those
        permissions; its key stays on CD's machine (`~/.config/agent-sessions/<org>.pem`, mode 600).
+       It's `<org>-agent-sessions` unless `--name` says otherwise (App names are unique across
+       GitHub). In its settings, give it a one-line description of whose sessions it is and a logo
+       that pairs with the factory App's: they're what a reviewer sees on every PR it opens. Renaming it
+       changes the bot's login, not its ID, key or installation, so run step 3's `install` again with
+       the same repositories, or new sessions keep committing under the old name. Commits made under
+       the old name still show as the bot, since GitHub matches its address by the ID.
     2. **Install it on the product's repositories only** (Only select repositories): never one that
        holds infra or setup, such as the runner host's or the runner audit's (step 12: no App that can
        write contents or issues may be installed there).

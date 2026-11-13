@@ -37,6 +37,20 @@ Each entry contains:
 
 ---
 
+## 2026-11-12: The sessions App's name, description and logo, and what renaming it does
+
+**Origin:** CD renamed the organization's sessions App the same day, gave it a description and a logo, and said "document it".
+
+**What happened:** The rename changed the App's slug and its bot's login, but not its ID, key, client ID or installation. The helper's recorded login, and so the commit author of every new session, stayed the old one until `session_identity.py install` ran again. A commit made under the old name still showed as the bot, since GitHub matches the bot's noreply address by its ID. The first name CD wanted was already another account's: App names are unique across GitHub.
+
+**Changes made:**
+1. **`process/factory.md`:** Enablement step 13, setup item 1: the App's default name, a description and a logo that pairs with the factory App's, and running `install` again after a rename.
+2. **`process/factory-runbook.md`:** § 5: a pitfall, a renamed sessions App whose new sessions still commit under the old login.
+
+**Rationale:** The App's name and logo are what a reviewer sees on every PR a session opens, and a rename is the one change to the App that the machine running the sessions doesn't pick up by itself.
+
+---
+
 ## 2026-11-12: Sessions on CD's machine work as the sessions App in the product's repositories
 
 **Origin:** The App trial of 2026-11-11 (the entry below that one) wired one scratch session to an App by hand. CD (2026-11-12): "create the token helper and yes, i want sessions on product repos authoring as the app instaed of me. as far as permissions, I would say that app sessions should deal with app code, and use my login for anything dealing with infra/setup changes."

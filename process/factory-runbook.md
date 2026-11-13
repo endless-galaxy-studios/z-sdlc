@@ -396,6 +396,7 @@ Record each one's values where the next project's install will look.
 | Code-owner review required, but no CODEOWNERS file: it asks nothing | `* @<CD>` in a repository with no owners of its own | § 3.3 |
 | An App installed on all of the organization's repositories (a sessions App, a coding assistant's) can write the infra repositories and the runner audit's | Selected repositories: the product's only | step 12; step 13 |
 | A session working as an App signs its commits with CD's key, and GitHub shows them unverified | `session_identity.py` turns signing off for the App's commits | step 13 |
+| A renamed sessions App: new sessions still commit under its old login | Run `session_identity.py install` again with the same repositories | step 13 |
 | Squash or rebase merges where provenance is checked | Merge commits only | D4 rule 13 |
 | A service's "read-only" mode running as a superuser | Verify as the role | § 4.2; D3 rule 3 |
 | A public database without TLS | TLS, or another route | § 4.2; `planning-services.sh` |
