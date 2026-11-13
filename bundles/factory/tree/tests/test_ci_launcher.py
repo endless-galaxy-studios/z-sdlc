@@ -292,10 +292,14 @@ class Launcher(unittest.TestCase):
     def test_a_cycle(self):
         with mock.patch.dict(os.environ, {"LAUNCHER_ONLY": "secret"}):
             self.assertEqual(launcher.run(self.conf, 1), 0)
-        # One token for the cycle; GitHub removed the runner after its job, so there's nothing to deregister.
-        self.assertEqual(self.github(), [("POST", "/app/installations/9/access_tokens"),
-                                         ("POST", "/orgs/acme/actions/runners/generate-jitconfig"),
-                                         ("GET", "/orgs/acme/actions/runners/42")])
+        # One token for the cycle; GitHub removed the runner after its job, so there's nothing to deregister. The
+        # launcher polls the runner every poll_seconds until docker wait returns, so the polls before the fake docker
+        # has started and returned depend on how fast the machine starts a process: one or more, and nothing else.
+        calls = self.github()
+        self.assertEqual(calls[:2], [("POST", "/app/installations/9/access_tokens"),
+                                     ("POST", "/orgs/acme/actions/runners/generate-jitconfig")])
+        self.assertGreaterEqual(len(calls), 3)
+        self.assertEqual(set(calls[2:]), {("GET", "/orgs/acme/actions/runners/42")})
         self.assertEqual(FakeGitHub.calls[0][3], {"permissions": {"organization_self_hosted_runners": "write"}})
         jit_body = FakeGitHub.calls[1][3]
         # self-hosted too: a just-in-time runner gets only the labels it's registered with, and the tier's jobs ask

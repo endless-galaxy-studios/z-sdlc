@@ -37,6 +37,20 @@ Each entry contains:
 
 ---
 
+## 2026-11-12: The factory imported from the incubator (cbfcde0..cccad04): the CI launcher's cycle test
+
+**Origin:** The fix for the test the last import's proof failed (the entry below), merged in the incubator.
+
+**What happened:** One bundle file changed and nothing needed a person.
+
+**Changes made:**
+1. **`bundles/factory/tree/tests/test_ci_launcher.py`:** `test_a_cycle` checks the token and the registration exactly, then one or more polls of the runner and nothing else. How many polls fit before the fake container exits depends on how fast the machine starts a process.
+2. **`.claude/skills/zsdlc-import-factory/import.json`:** `last_import` is `cccad04`.
+
+**Rationale:** A proof that fails on a machine's speed hides a real failure behind a known one.
+
+---
+
 ## 2026-11-12: The factory imported from the incubator (7c07be1..cbfcde0): the sessions App's helper, one review standard
 
 **Origin:** CD merged the incubator's two PRs for the three entries below. The first handed back z-sdlc's changes since the last import. The second, the sessions App and the review standard, was stacked on it and merged into it before it reached the default branch.
