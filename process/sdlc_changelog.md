@@ -37,6 +37,46 @@ Each entry contains:
 
 ---
 
+## 2026-11-13: The import tooling names no project; research dispatches suggest; skills here stop routing to skills that don't load here
+
+**Origin:** CD's decisions on the open items of the prompt audit in the entry below.
+
+**What happened:** `zsdlc-import-factory`'s skill, script and `import.json` named the incubator, against § z-sdlc is public in `CLAUDE.md`. `zsdlc-research` required the dispatch to prescribe search queries and entry points, and also said search method is the agent's. Anti-triggers in the framework-development skills sent work to installed-project skills (`sdlc-idea`, `sdlc-plan`, `sdlc-lite-plan`, `sdlc-playbook-generate`, `sdlc-develop-agent`) that never load in z-sdlc source. `zsdlc-audit-adapter-installation` hard-coded a home path for z-sdlc's clone, and one of its sentences was garbled.
+
+**Changes made:**
+1. **`.claude/skills/zsdlc-import-factory/scripts/import_factory.py`:** the incubator's clone is the argument, or else the path in the untracked `.claude/incubator-clone.txt`; with neither, it exits 2. Every name in `.claude/private-names.txt` is checked like a `specific` pattern and kept out of the rules `--apply` writes back. A missing or empty names file is a [fix first] item, so `--apply` refuses. The report and the changelog hint say "the incubator".
+2. **`.claude/skills/zsdlc-import-factory/import.json`:** no `incubator` key and no name among `specific`; `_doc` says where both come from now.
+3. **`.claude/skills/zsdlc-import-factory/SKILL.md`:** "the incubator" throughout, so the trigger that named it is now "import from the incubator". The commands take no path, and the argument, preconditions, exit codes and Integration name the two untracked files.
+4. **`tests/test_import_factory.py`:** a name from the names file is flagged and never written to `import.json`; a missing names file blocks `--apply`; the clone defaults to the local file; no clone and no file is exit 2.
+5. **`CLAUDE.md`** § z-sdlc is public: the import checks for the names in check 6's file too.
+6. **`.claude/skills/zsdlc-research/SKILL.md`:** a dispatch carries suggested queries and entry points the agent may change, in place of required ones, which matches its rule that search method is the agent's.
+7. **`.claude/skills/zsdlc-research/`, `zsdlc-ingest/`, `zsdlc-audit/` and `zsdlc-create-skill/` `SKILL.md`:** anti-triggers, agent-creation lines and `zsdlc-audit`'s playbook-proposal line keep their boundary and no longer name a skill that doesn't load here.
+8. **`.claude/skills/zsdlc-audit-adapter-installation/SKILL.md`**, **`references/exempt-file-list.md`** and **`references/classification-framework.md`:** source paths are relative to the z-sdlc root the skill runs from. Step 2a's count reads "recent runs against the target".
+
+**Rationale:** Tooling in a public repo that carries a private name publishes it with every commit that touches it; it now reads the name where check 6 does. A pointer to a skill that can't load sends a session nowhere.
+
+---
+
+## 2026-11-13: The framework subagents are told they're in the source repo; the framework-development skills catch up with the consolidations
+
+**Origin:** A prompt audit of the Claude Code configuration that loads in this repo.
+
+**What happened:** `.claude/agents` has been a symlink to `agents/` since 2026-04-22, so `sdlc-compliance-auditor` and `sdlc-reviewer` load here with their installed-project brief (`.claude/skills/sdlc-*`, `docs/_index.md`, `[sdlc-root]` as `ops/sdlc`), while `CLAUDE.md`'s location table said neither runs in z-sdlc source. `zsdlc-audit` and `zsdlc-create-skill` dispatched them without saying where they were. The framework-development skills also still named `setup.sh` (removed), `enrich-agent`, `sdlc-reconcile`, `design-consult` and `sdlc-review` (consolidated), `sdlc-create-skill` (folded into `sdlc-develop-skill`), the installed-project `sdlc-ingest` where `zsdlc-ingest` is meant, and an `audit` skill that doesn't exist.
+
+**Changes made:**
+1. **`CLAUDE.md`** § Skill/Agent Location Convention: `agents/` gets its own row. Its subagents load here too, through the symlink, and a z-sdlc skill that dispatches one tells it it's in the source repo.
+2. **`.claude/skills/zsdlc-audit/SKILL.md`:** the dispatch prompt names this skill's methodology and its 10 dimensions, and says `[sdlc-root]` is the repo root. Dimension 9 is installer correctness (`sdlc-initialize`, `sdlc-migrate`). The bulk-import anti-trigger names `zsdlc-ingest`, and the reference list says 10 dimensions. The improvement mode's "looks fine" red flag allows a clean result.
+3. **`.claude/skills/zsdlc-audit/references/compliance-methodology.md`:** 10 dimensions. Dimension 9 checks `process/path-mappings.md`, `sdlc-initialize` Phase 1 and `sdlc-migrate` §2.1 instead of `setup.sh`, in the sequence, the report format and the severity levels. **`session-reading.md`** and **`improvement-methodology.md`:** their `setup.sh` lines name the installers, and the example proposal names `zsdlc-create-skill`.
+4. **`.claude/skills/zsdlc-create-skill/SKILL.md`:** the quality gate tells `sdlc-reviewer` it's in the source repo, that `skills/{name}/SKILL.md` is a skill and that `[sdlc-root]` is the repo root. The type examples drop `sdlc-reconcile` and name `sdlc-design-consult`. Integration names the installers and `sdlc-reviewer`. The frontmatter rule is stated plainly, with its reason.
+5. **`.claude/skills/zsdlc-ingest/SKILL.md`:** skills go to `zsdlc-create-skill`, and child projects receive changes through `sdlc-migrate`.
+6. **`.claude/skills/zsdlc-research/SKILL.md`:** `zsdlc-ingest` throughout.
+7. **`.claude/skills/zsdlc-audit-adapter-installation/SKILL.md`:** z-sdlc source is audited with `zsdlc-audit`, and a bare install goes to the target's own `sdlc-audit`. Scans 3b and 3c keep the reason they exist and lose the story of the migration that prompted them. The report template's instruction loses its capitals.
+8. **`process/path-mappings.md`:** `zsdlc-audit`'s row says installer correctness, not `setup.sh`.
+
+**Rationale:** A subagent follows its own brief unless the dispatch says otherwise, and a skill that names something removed sends the next session looking for it.
+
+---
+
 ## 2026-11-12: The factory imported from the incubator (cbfcde0..cccad04): the CI launcher's cycle test
 
 **Origin:** The fix for the test the last import's proof failed (the entry below), merged in the incubator.

@@ -9,7 +9,7 @@ description: >
   agent-dispatching skills, and mandatory sections. Dispatches sdlc-reviewer for quality gate.
   Triggers on "create a new skill", "new skill", "add a skill", "scaffold a skill",
   "I need a skill for", "make a skill", "create a framework skill", "/zsdlc-create-skill".
-  Do NOT use for creating agents — use sdlc-develop-agent.
+  Do NOT use for creating agents.
   Do NOT use for modifying existing skills — edit directly.
 ---
 
@@ -27,8 +27,8 @@ Clarify with the user:
 - **What does this skill do?** (one sentence)
 - **What skill type?**
   - **Orchestration** — dispatches domain agents, has agent selection criteria, review loops (e.g., sdlc-plan, sdlc-execute, sdlc-review-code)
-  - **Utility** — step-by-step procedure, may or may not dispatch agents (e.g., sdlc-archive, sdlc-reconcile, sdlc-ingest)
-  - **Exploration** — open-ended flow, no hard gates, user-directed iteration (e.g., sdlc-idea, design-consult)
+  - **Utility** — step-by-step procedure, may or may not dispatch agents (e.g., sdlc-archive, sdlc-ingest)
+  - **Exploration** — open-ended flow, no hard gates, user-directed iteration (e.g., sdlc-idea, sdlc-design-consult)
   - **Domain-specific** — focused on a specific technical domain (e.g., sdlc-tests-create, sdlc-tests-run)
 - **What triggers this skill?** (natural language phrases users would say)
 - **What should NOT trigger this skill?** (anti-triggers — which existing skills handle adjacent concerns)
@@ -44,9 +44,9 @@ Read `skeleton/manifest.json` → `source_files.skills` to list existing skill n
 
 ### 3. Frontmatter Generation
 
-**CRITICAL:** The `description` field MUST use `>` (folded scalar) for readability. Multi-line quoted strings and block scalars (`|`) break Claude Code's frontmatter parser in some contexts.
+The `description` field uses `>` (folded scalar), the form `sdlc-reviewer` checks for: multi-line quoted strings and `|` block scalars can break Claude Code's frontmatter parser.
 
-The description MUST include:
+The description includes:
 - What the skill does (1-2 sentences)
 - Explicit trigger phrases (`Triggers on "phrase1", "phrase2", ...`)
 - Anti-triggers (`Do NOT use for X — use Y.`)
@@ -147,7 +147,7 @@ Generate:
 
 ### 9. Quality Gate
 
-Dispatch the `sdlc-reviewer` subagent on the created skill file. Present its findings. Fix any convention violations before finalizing.
+Dispatch the `sdlc-reviewer` subagent on the created skill file. Its brief is written for an installed project, so the dispatch prompt says this is the z-sdlc source repo: `skills/{name}/SKILL.md` is a skill, and `[sdlc-root]` is the repo root (not the `ops/sdlc` that the root `.sdlc-manifest.json` template names). Present its findings. Fix any convention violations before finalizing.
 
 ## Red Flags
 
@@ -165,7 +165,7 @@ Dispatch the `sdlc-reviewer` subagent on the created skill file. Present its fin
 
 ## Integration
 
-- **Feeds into:** The created skill becomes part of the z-sdlc framework skill library (installed to child projects via setup.sh)
+- **Feeds into:** The created skill becomes part of the z-sdlc framework skill library (installed to child projects by `sdlc-initialize` and `sdlc-migrate`)
 - **Uses:** `skeleton/manifest.json` (registration), `CLAUDE-SDLC.md` (command table), `sdlc-reviewer` (quality gate), existing skills (as reference patterns)
-- **Complements:** `sdlc-develop-agent` (agents vs skills), `sdlc-review` (review existing skills)
+- **Complements:** `sdlc-develop-agent` (agents vs skills), `sdlc-reviewer` (review an existing skill file)
 - **Does NOT replace:** Direct editing of existing skills (this creates new ones only)

@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""Import the software factory from its incubator (quantile) into z-sdlc's `factory` bundle.
+"""Import the software factory from its incubator into z-sdlc's `factory` bundle.
 
-    python3 .claude/skills/zsdlc-import-factory/scripts/import_factory.py ~/Projects/quantile
-    python3 .claude/skills/zsdlc-import-factory/scripts/import_factory.py ~/Projects/quantile --apply
-    python3 .claude/skills/zsdlc-import-factory/scripts/import_factory.py ~/Projects/quantile --to-incubator
-    python3 .claude/skills/zsdlc-import-factory/scripts/import_factory.py ~/Projects/quantile --prove
+    python3 .claude/skills/zsdlc-import-factory/scripts/import_factory.py
+    python3 .claude/skills/zsdlc-import-factory/scripts/import_factory.py --apply
+    python3 .claude/skills/zsdlc-import-factory/scripts/import_factory.py --to-incubator
+    python3 .claude/skills/zsdlc-import-factory/scripts/import_factory.py --prove
+
+The incubator's local clone is the first argument, or else the path in the untracked .claude/incubator-clone.txt,
+so no public file names it.
 
 It reads the incubator at a commit (default HEAD), never its working tree, and sorts every file under its
 .github/factory/ with import.json's rules: excluded (the project's own), a seed (the bundle keeps its own
@@ -13,7 +16,7 @@ three ways (the incubator now, the bundle now, the incubator at the last import)
 incubator added, changed and removed; what z-sdlc changed itself (a fix found in a project that installed
 the bundle goes straight into z-sdlc, CD 2026-10-12), which is never overwritten; and conflicts, changed
 on both sides. It also reports settings the incubator's JSON seeds have and the bundle's don't; other seeds the incubator changed since the last import; incubator-specific text an import would
-add; and whether the incubator's copies of z-sdlc's skills and process docs still match z-sdlc's.
+add (import.json's `specific` patterns and every name in the untracked .claude/private-names.txt); and whether the incubator's copies of z-sdlc's skills and process docs still match z-sdlc's.
 
 --apply writes the bundle code and records the imported commit in import.json. It refuses while an item
 marked [fix first] is open (a missing seed setting, an incubator edit to z-sdlc's text), since recording the
@@ -43,6 +46,8 @@ import tempfile
 HERE = pathlib.Path(__file__).resolve()
 ROOT = HERE.parents[4]
 RULES = HERE.parents[1] / "import.json"
+CLONE_FILE = ".claude/incubator-clone.txt"  # untracked: the path of the incubator's local clone
+NAMES_FILE = ".claude/private-names.txt"  # untracked: names no public file carries (CLAUDE.md, check 6)
 
 # The CODEOWNERS Enablement step 9 asks for (process/factory.md), for the empty project's seeded test: the
 # factory's and other agents' and tools' paths, what each profile's tools load just because it exists (§ Stack
@@ -210,6 +215,10 @@ class Import:
         last = (self.rules.get("last_import") or {}).get("commit") or ""
         self.last = git(self.incubator, "rev-parse", "--verify", f"{last}^{{commit}}").strip() if last else ""
         self.needs, self.notes = [], []  # needs: (what --apply does about it, text)
+        # Never in self.rules: --apply writes the rules back to import.json, which is public.
+        names = self.root / NAMES_FILE
+        self.private_names = [n.strip() for n in names.read_text().splitlines() if n.strip()] \
+            if names.is_file() else []
 
     # ---- reading the incubator
     def listing(self, commit):
@@ -309,7 +318,10 @@ class Import:
         return any(line.split()[3] == blob for line in r.stdout.splitlines() if line.startswith(":"))
 
     def check_specific(self):
-        patterns = self.rules.get("specific") or []
+        if not self.private_names:
+            self.needs.append((FIX, f"{NAMES_FILE} is missing or empty, so bundle code can't be checked for "
+                                    "private names (CLAUDE.md, check 6)"))
+        patterns = list(self.rules.get("specific") or []) + [re.escape(n) for n in self.private_names]
         if not patterns:
             return
         pattern = re.compile("|".join(patterns), re.I)
@@ -391,7 +403,7 @@ class Import:
 
     def report(self):
         short = self.commit[:7]
-        print(f"{self.rules['incubator']} {self.source}/ at {short}"
+        print(f"The incubator's {self.source}/ at {short}"
               + (f" (last import {self.last[:7]})" if self.last else " (no import recorded yet)"))
         print(f"\nBundle code ({self.tree_dir.relative_to(self.root)}/): {len(self.tree)} files")
         for label, files in (("added", self.added), ("changed", self.changed), ("removed", self.removed),
@@ -438,7 +450,7 @@ class Import:
               + (f", {len(self.conflicts)} conflicts taken from the incubator" if self.conflicts else "")
               + f"; last import is now {self.commit[:7]}."
               + (f" {len(self.ahead)} files z-sdlc changed are kept." if self.ahead else ""))
-        print(f"For the changelog entry: imported from {self.rules['incubator']} "
+        print("For the changelog entry: imported from the incubator "
               + (f"{self.last[:7]}..{self.commit[:7]}" if self.last else self.commit[:7]) + ".")
 
     def to_incubator(self):
@@ -563,9 +575,18 @@ class Import:
         return passed
 
 
+def clone_path(root):
+    """The incubator's local clone, from the untracked CLONE_FILE when no argument names one."""
+    path = pathlib.Path(root) / CLONE_FILE
+    lines = [l.strip() for l in path.read_text().splitlines() if l.strip()] if path.is_file() else []
+    if not lines:
+        raise Stop(f"no clone given and {path} is missing or empty: pass the incubator's clone, or write its path there")
+    return str(pathlib.Path(lines[0]).expanduser())
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("incubator", help="a local clone of the incubator (quantile)")
+    ap.add_argument("incubator", nargs="?", help=f"a local clone of the incubator (default: the path in {CLONE_FILE})")
     ap.add_argument("--commit", default="HEAD", help="the incubator commit to import (default HEAD)")
     ap.add_argument("--apply", action="store_true", help="write the bundle code and record the import")
     ap.add_argument("--accept", action="store_true", help="with --apply: allow files added to or removed from the bundle")
@@ -576,7 +597,7 @@ def main(argv=None):
     ap.add_argument("--rules", default=str(RULES), help=argparse.SUPPRESS)
     args = ap.parse_args(argv)
     try:
-        imp = Import(args.root, args.rules, args.incubator, args.commit).analyze()
+        imp = Import(args.root, args.rules, args.incubator or clone_path(args.root), args.commit).analyze()
         imp.report()
         if args.apply:
             imp.apply(args.accept)

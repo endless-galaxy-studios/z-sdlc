@@ -47,7 +47,7 @@ During migration, these skills use **additive-only merge**: propagate genuinely 
 
 | Installed Skill | Framework Counterpart | Why Dual-Audience |
 |-----------------|----------------------|-------------------|
-| `sdlc-audit` | `zsdlc-audit` | Project audits deliverable catalogs, artifact chains. Framework audits manifest completeness, setup.sh, CLAUDE-SDLC.md commands. |
+| `sdlc-audit` | `zsdlc-audit` | Project audits deliverable catalogs, artifact chains. Framework audits manifest completeness, installer correctness, CLAUDE-SDLC.md commands. |
 | `sdlc-ingest` | `zsdlc-ingest` | Project ingests into project knowledge stores. Framework ingests into z-sdlc source artifacts. |
 | `sdlc-develop-skill` | `zsdlc-create-skill` | Project creates project skills with PROJECT-SECTION awareness. Framework creates source skills with manifest registration. |
 | `sdlc-research` | `zsdlc-research` | Project researches for project knowledge. Framework researches for framework enrichment. |

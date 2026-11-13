@@ -1,7 +1,6 @@
 {
-  "_doc": "How zsdlc-import-factory sorts the incubator's .github/factory/ (CD, 2026-10-12: a private project of the organization's, the incubator, incubates the factory and z-sdlc imports it). Every file there is bundle code (copied into bundles/factory/tree/) unless it is a seed (the bundle keeps its own generic version in bundles/factory/seed/) or excluded (the project's own, never imported). free_settings: JSON seed settings whose keys are the project's own data, not compared. optional_settings: JSON seed settings the bundle's code reads only when they're there, which the incubator may leave out (it doesn't use them). specific: patterns that mark incubator-specific text (its name, private and VPN address ranges, home directories), flagged when an import adds them. last_import: the incubator commit the bundle code was last imported from; the tool updates it.",
+  "_doc": "How zsdlc-import-factory sorts the incubator's .github/factory/ (CD, 2026-10-12: a private project of the organization's, the incubator, incubates the factory and z-sdlc imports it). Every file there is bundle code (copied into bundles/factory/tree/) unless it is a seed (the bundle keeps its own generic version in bundles/factory/seed/) or excluded (the project's own, never imported). free_settings: JSON seed settings whose keys are the project's own data, not compared. optional_settings: JSON seed settings the bundle's code reads only when they're there, which the incubator may leave out (it doesn't use them). specific: patterns that mark incubator-specific text (private and VPN address ranges, home directories), flagged when an import adds them; the script adds every name in the untracked .claude/private-names.txt, the incubator's among them, so this file names none. The incubator's local clone is the script's argument, or the path in the untracked .claude/incubator-clone.txt. last_import: the incubator commit the bundle code was last imported from; the tool updates it.",
   "bundle": "factory",
-  "incubator": "endless-galaxy-studios/quantile",
   "source": ".github/factory",
   "seed": [
     "factory.json",
@@ -42,7 +41,6 @@
     ]
   },
   "specific": [
-    "quantile",
     "192\\.168\\.",
     "\\b10\\.[0-9]+\\.[0-9]+\\.[0-9]+\\b",
     "\\b100\\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\\.",

@@ -14,9 +14,9 @@ description: >
   "enrich the framework", "add to z-sdlc from", "distill these into the framework",
   "what should we add from these", "absorb these into z-sdlc".
   Do NOT use for single-file reads or ad-hoc research — use direct reads or WebSearch.
-  Do NOT use for exploring ideas — use sdlc-idea.
-  Do NOT use for creating specs or plans — use sdlc-plan or sdlc-lite-plan.
-  Do NOT use for enriching a single existing agent — use enrich-agent.
+  Do NOT use for exploring ideas.
+  Do NOT use for creating specs or plans.
+  Do NOT use for enriching a single existing agent.
 ---
 
 # Framework Ingestion
@@ -42,8 +42,8 @@ Signs this skill is appropriate:
 Signs this skill is NOT appropriate:
 - Single file or single insight → add directly to the relevant artifact
 - Project-specific patterns that wouldn't generalize → child project's local knowledge
-- The user wants to explore an idea → `sdlc-idea`
-- The user wants to enrich one specific agent → `enrich-agent`
+- The user wants to explore an idea → not this skill
+- The user wants to enrich one specific agent → not this skill
 - Competitive analysis → product research tools
 
 ## Artifact Routing Map
@@ -68,7 +68,7 @@ Ingested content can land in any of these framework artifacts:
 
 **Think cross-project.** Everything entering the framework will be consumed by every child project. Filter for patterns that generalize. Project-specific tips belong in that project's local knowledge, not here.
 
-**Respect existing conventions.** Each artifact type has established conventions. Read existing examples before writing new entries. Agent suggestions follow the format in `AGENT_SUGGESTIONS.md`. Knowledge YAML follows the patterns in existing stores. Skills follow the structure in `skills/sdlc-create-skill/SKILL.md`.
+**Respect existing conventions.** Each artifact type has established conventions. Read existing examples before writing new entries. Agent suggestions follow the format in `AGENT_SUGGESTIONS.md`. Knowledge YAML follows the patterns in existing stores. Skills follow the structure in `.claude/skills/zsdlc-create-skill/SKILL.md`.
 
 **Source attribution is mandatory.** Every extracted insight must trace back to its source file.
 
@@ -188,9 +188,9 @@ Route each extracted insight to its target artifact type. This is the step that 
 | A structural addition to document formats | Template improvement |
 | Cross-discipline but useful | Adjacent artifact's parking lot |
 
-**Do NOT auto-create skills.** Skill candidates are noted in the report with a proposed structure. The user decides whether to invoke `/sdlc-create-skill` for them. Skills are complex artifacts that need intentional design.
+**Do NOT auto-create skills.** Skill candidates are noted in the report with a proposed structure. The user decides whether to invoke `/zsdlc-create-skill` for them. Skills are complex artifacts that need intentional design.
 
-**Do NOT auto-create new agent files.** Agent suggestions go into `AGENT_SUGGESTIONS.md`. Creating actual agent `.md` files requires `/sdlc-develop-agent`.
+**Do NOT auto-create new agent files.** Agent suggestions go into `AGENT_SUGGESTIONS.md`. Creating actual agent `.md` files is a separate, deliberate step.
 
 ### 5. Structure
 
@@ -327,7 +327,7 @@ SPEC RELEVANCE
 DOWNSTREAM IMPACT
   New files need adding to skeleton/manifest.json
   New knowledge files may need wiring in knowledge/agent-context-map.yaml
-  Child projects will receive these on next migration via setup.sh
+  Child projects will receive these on next migration via `sdlc-migrate`
 ```
 
 ### 8. Changelog Update
@@ -371,8 +371,8 @@ After writing artifacts:
 |---------|---------|
 | "I'll summarize the content" | Extract actionable artifacts, not summaries. |
 | "Everything in here is useful" | Filter aggressively. Most external content doesn't meet the bar. |
-| "I'll auto-create a skill from this" | Note skill candidates in the report. Skills need intentional design via `/sdlc-create-skill`. |
-| "I'll create a new agent .md file" | Agent suggestions go to `AGENT_SUGGESTIONS.md`. Creating agent files requires `/sdlc-develop-agent`. |
+| "I'll auto-create a skill from this" | Note skill candidates in the report. Skills need intentional design via `/zsdlc-create-skill`. |
+| "I'll create a new agent .md file" | Agent suggestions go to `AGENT_SUGGESTIONS.md`. Creating agent files is a separate, deliberate step. |
 | "I'll skip reading existing artifacts" | Deduplication is mandatory. Don't create entries that already exist. |
 | "I'll put everything in knowledge YAML" | Route to the right artifact type. A workflow isn't a rule. A checklist isn't a rule. |
 | "This content spans 5 artifact types" | That's fine — classify and route each insight independently. |
@@ -384,6 +384,6 @@ After writing artifacts:
 - **Feeds into:** discipline parking lot triage, knowledge store maturation, playbook creation, agent suggestion adoption, skill creation, child project migrations
 - **Uses:** file reading, existing framework artifacts (for deduplication and convention-matching)
 - **Complements:** discipline capture protocol (organic, per-session in child projects) — this skill handles bulk external import into the framework
-- **Does NOT replace:** organic discipline capture in child projects, or targeted enrichment of individual agents (use `enrich-agent` for that)
-- **Downstream:** after ingestion, `/zsdlc-audit` can assess freshness and coverage. Child projects receive new artifacts via `setup.sh` migration.
+- **Does NOT replace:** organic discipline capture in child projects, or targeted enrichment of individual agents
+- **Downstream:** after ingestion, `/zsdlc-audit` can assess freshness and coverage. Child projects receive new artifacts via `sdlc-migrate`.
 - **DRY notes:** This is the framework-level ingest skill (`.claude/skills/zsdlc-ingest/`). The child-project version (`skills/sdlc-ingest/`) imports into `ops/sdlc/` paths only. The boundary: this version enriches the framework itself across all artifact types; the child version enriches a specific project's discipline/knowledge layer.

@@ -60,7 +60,7 @@ Scan the conversation for moments where framework skills either helped or hinder
 
 **Convention enforcement gaps:**
 - Consistency checks that miss important validations
-- Setup.sh not handling edge cases
+- `sdlc-initialize` or `sdlc-migrate` not handling an install edge case
 - CLAUDE-SDLC.md guidance that doesn't match actual skill behavior
 - Manifest not updated when files are added/removed
 
@@ -107,7 +107,7 @@ For significant commits, read the full diff:
 - **New knowledge YAML files:** Do they follow store conventions? Are they wired in context map?
 - **Agent modifications:** Were corresponding skills updated if agent behavior changed?
 - **Process doc changes:** Is there a changelog entry?
-- **Setup.sh changes:** Do they handle all manifest files?
+- **Installer changes:** Do `sdlc-initialize` and `sdlc-migrate` still handle all manifest files?
 
 ### Cross-referencing with Playbooks
 
@@ -153,7 +153,7 @@ Every finding gets categorized for actionability:
 - Process doc update (guidance missing or wrong)
 - Consistency check addition (validation that should happen automatically)
 - CLAUDE-SDLC.md update (command documentation drift)
-- Setup.sh fix (installation gap)
+- Installer fix in `sdlc-initialize` or `sdlc-migrate` (installation gap)
 
 **Severity:**
 - **High:** Friction that caused errors, wasted significant time, or forced convention bypass
@@ -187,8 +187,8 @@ Each proposal must include:
 
 ### Proposal Quality Bar
 
-- **Specific:** "Add manifest update reminder to sdlc-create-skill after file creation step" not "improve the skill creation process"
-- **Evidenced:** "In session X, a new skill was created but not added to manifest, breaking setup.sh for child projects" not "manifest should be kept in sync"
+- **Specific:** "Add manifest update reminder to zsdlc-create-skill after file creation step" not "improve the skill creation process"
+- **Evidenced:** "In session X, a new skill was created but not added to manifest, so child projects never received it" not "manifest should be kept in sync"
 - **Proportional:** Don't propose skill rewrites for single-session friction. Don't propose parking lot entries for established patterns.
 - **Non-duplicative:** Check existing knowledge stores and parking lots before proposing additions
 

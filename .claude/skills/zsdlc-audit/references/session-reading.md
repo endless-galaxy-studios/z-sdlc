@@ -89,4 +89,4 @@ When auditing sessions in the z-sdlc source repo, additionally look for:
 - **CLAUDE-SDLC.md drift:** Skills added or renamed without updating command documentation
 - **Context map neglected:** Knowledge files added without wiring in `knowledge/agent-context-map.yaml`
 - **Consistency checks skipped:** Session ended without running the mandatory consistency checks from CLAUDE.md
-- **Setup.sh not updated:** New files added to manifest but setup.sh copy logic not verified
+- **Installer not checked:** New files added to manifest but not checked against `sdlc-initialize` and `sdlc-migrate`

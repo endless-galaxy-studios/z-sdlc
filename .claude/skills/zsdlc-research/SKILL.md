@@ -8,8 +8,8 @@ description: >
   Triggers on "research [company] blog", "find articles from [source]", "what has [company] published",
   "look into [company] engineering", "curate [source] for the framework", "find SDLC methodology sources",
   "research testing patterns from [source]", "/zsdlc-research".
-  Do NOT use for ingesting content into knowledge stores — use sdlc-ingest.
-  Do NOT use for exploring framework ideas — use sdlc-idea.
+  Do NOT use for ingesting content into knowledge stores — use zsdlc-ingest.
+  Do NOT use for exploring framework ideas.
   Do NOT use for web searches about specific bugs or library APIs — use direct WebSearch or Context7.
 ---
 
@@ -33,8 +33,8 @@ Signs this skill is appropriate:
 - The user wants a structured inventory of external knowledge, not a single answer
 
 Signs this skill is NOT appropriate:
-- Already have the content and want to extract rules into knowledge stores -> `sdlc-ingest`
-- Exploring a framework enhancement idea -> `sdlc-idea`
+- Already have the content and want to extract rules into knowledge stores -> `zsdlc-ingest`
+- Exploring a framework enhancement idea -> not this skill
 - Looking up a specific API or library question -> Context7 or WebSearch directly
 - Researching something unrelated to SDLC disciplines or framework domains -> not this skill
 
@@ -102,12 +102,11 @@ Dispatch `research-analyst` agent(s) for each source.
 
 #### Dispatch Protocol (required context for every agent)
 
-Every research-analyst dispatch prompt MUST include all of the following:
+Every research-analyst dispatch prompt includes:
 
 - [ ] **Source URL** and any discovery entry points found in step 2
 - [ ] **Framework's domain list** (from step 1) as the classification lens
-- [ ] **Web search queries** — at minimum: `site:{domain} {topic}` for each relevant framework domain
-- [ ] **Discovery instructions** — which entry points to try (RSS, sitemap, tag pages, web search)
+- [ ] **Suggested starting points** — web search queries (for example `site:{domain} {topic}` for each relevant framework domain) and entry points worth trying (RSS, sitemap, tag pages, web search), as suggestions the agent may change
 - [ ] **Output format:**
   - For each article: title, URL, 1-2 sentence summary, key technologies
   - Classify into three tiers:
@@ -180,8 +179,8 @@ Present a summary to the user:
 ## Integration
 
 - **Depends on:** `docs/research/` directory (created if missing), framework domain knowledge (from agent definitions in `agents/`, knowledge stores in `knowledge/`, or user input)
-- **Feeds into:** `sdlc-ingest` (when you want to extract rules from discovered articles into knowledge stores)
+- **Feeds into:** `zsdlc-ingest` (when you want to extract rules from discovered articles into knowledge stores)
 - **Uses:** `research-analyst` agent (primary), `general-purpose` agent (doc writing), WebFetch, WebSearch
-- **Complements:** `sdlc-ingest` (this discovers, ingest absorbs), `sdlc-idea` (research may spark ideas)
-- **Does NOT replace:** `sdlc-ingest` (that extracts rules into knowledge stores; this catalogs external articles), direct WebSearch (for specific one-off questions)
-- **DRY notes:** This skill discovers and catalogs external content. `sdlc-ingest` takes content (potentially discovered by this skill) and extracts structured knowledge rules into SDLC disciplines. The boundary: this skill produces reference docs; `sdlc-ingest` produces knowledge YAML in `knowledge/`.
+- **Complements:** `zsdlc-ingest` (this discovers, ingest absorbs), `sdlc-idea` (research may spark ideas)
+- **Does NOT replace:** `zsdlc-ingest` (that extracts rules into knowledge stores; this catalogs external articles), direct WebSearch (for specific one-off questions)
+- **DRY notes:** This skill discovers and catalogs external content. `zsdlc-ingest` takes content (potentially discovered by this skill) and extracts structured knowledge rules into SDLC disciplines. The boundary: this skill produces reference docs; `zsdlc-ingest` produces knowledge YAML in `knowledge/`.

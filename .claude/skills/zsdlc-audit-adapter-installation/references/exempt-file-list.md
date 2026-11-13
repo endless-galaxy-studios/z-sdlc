@@ -31,12 +31,12 @@ Earlier audits (`migrate-f01a70`, 2026-04-22) treated a transformed `knowledge-r
 For each file in the list:
 
 1. **Locate both copies:**
-   - Source: `~/Projects/z-sdlc/<source-path>`
+   - Source: `<source-path>`, relative to the z-sdlc root this skill runs from
    - Target: `<target-path>/<install-path>`
 
 2. **Diff them:**
    ```bash
-   diff -u ~/Projects/z-sdlc/agents/sdlc-compliance-auditor.md <target>/.claude/agents/sdlc-compliance-auditor.md
+   diff -u agents/sdlc-compliance-auditor.md <target>/.claude/agents/sdlc-compliance-auditor.md
    ```
 
 3. **Evaluate the diff:**

@@ -1,6 +1,6 @@
 # Framework Compliance Audit Methodology
 
-Full methodology for z-sdlc framework source repo compliance auditing. Covers all 9 audit dimensions, report format, severity levels, and guiding principles.
+Full methodology for z-sdlc framework source repo compliance auditing. Covers all 10 audit dimensions, report format, severity levels, and guiding principles.
 
 ## Audit Methodology Sequence
 
@@ -12,7 +12,7 @@ Full methodology for z-sdlc framework source repo compliance auditing. Covers al
 6. **Knowledge Store Scan**: Audit YAML structure, README files, `spec_relevant` fields, conventions
 7. **Discipline Health Scan**: Check parking lot entries, triage markers, active validation of `[NEEDS VALIDATION]` entries, cross-discipline flow
 8. **Skill/Agent Convention Scan**: Verify frontmatter format, required sections, anti-triggers, tools lists
-9. **Setup.sh Verification**: Verify installation script handles all manifest files correctly
+9. **Installer Verification**: Verify `sdlc-initialize` and `sdlc-migrate` handle all manifest files correctly
 10. **Cross-Skill DRY Scan**: Detect substantive prose duplicated verbatim or near-verbatim across sibling skills
 11. **Report Generation**: Produce structured inline report
 12. **Interactive Triage**: Present promotion candidates from disciplines for triage decisions
@@ -254,19 +254,19 @@ Audit every agent in `agents/` for convention adherence.
 - Agent references correct file paths for the source repo
 - Agent doesn't reference child-project-only concepts (deliverables, catalog, chronicle)
 
-## Dimension 9: Setup.sh Correctness
+## Dimension 9: Installer Correctness
 
-Verify the installation script handles all framework files correctly.
+Verify the installer skills handle all framework files correctly. `sdlc-initialize` installs (`BOOTSTRAP.md` copies it into the target first); `sdlc-migrate` updates existing installs.
 
 **What to check:**
-- `setup.sh` copies all files listed in `skeleton/manifest.json`
+- Every `source_files` category in `skeleton/manifest.json` has a source → target mapping in `process/path-mappings.md` (`sdlc-initialize` Phase 1 copies files by those mappings)
 - Skills install to target's `.claude/skills/` (not `ops/sdlc/skills/`)
 - Agents install to target's `.claude/agents/` (not `ops/sdlc/agents/`)
 - Knowledge, process, templates, disciplines, plugins, playbooks install to target's `ops/sdlc/<type>/`
-- New files added to manifest are handled by setup.sh's copy logic
-- setup.sh creates all directories listed in manifest's `directories` array
+- Every category new files were added to has a migration strategy in `sdlc-migrate` (§2.1 direct copy, or its merge rules)
+- `sdlc-initialize` Phase 1 creates every directory in the manifest's `directories` array
 
-**Method:** Read `setup.sh` and trace its copy logic. Compare against manifest entries. Flag any manifest file that wouldn't be copied by the current script logic.
+**Method:** Read `process/path-mappings.md`, `sdlc-initialize` Phase 1 and `sdlc-migrate` §2.1. Compare against manifest entries. Flag any manifest file that neither installer would place. `sdlc-initialize` itself is deliberately not in the manifest; don't flag it.
 
 ## Dimension 10: Cross-Skill DRY
 
@@ -431,7 +431,7 @@ Promoted: N | Deferred: N | Skipped: N
 ### Dimension 8: Agent Convention Compliance
 [per-agent findings — frontmatter, content, paths]
 
-### Dimension 9: Setup.sh Correctness
+### Dimension 9: Installer Correctness
 - Unhandled manifest files: [list or none]
 - Path mapping issues: [list or none]
 - Missing directory creation: [list or none]
@@ -457,7 +457,7 @@ Promoted: N | Deferred: N | Skipped: N
 
 ## Severity Levels
 
-- **Critical**: Manifest entries pointing to nonexistent files, setup.sh not copying required files, skills referencing deleted agents, CLAUDE-SDLC.md missing commands for active skills
+- **Critical**: Manifest entries pointing to nonexistent files, an installer not placing required files, skills referencing deleted agents, CLAUDE-SDLC.md missing commands for active skills
 - **Warning**: Stale references outside changelog, process commits without changelog entries, knowledge files not wired in context map, skills missing required sections, agents with incorrect paths
 - **Info**: Minor naming inconsistencies, optional improvements, unmarked parking lot entries. Note: promotion candidates are handled interactively in step 11 (triage), not reported as INFO findings.
 

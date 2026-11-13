@@ -24,7 +24,7 @@ MANIFEST = {"bundles": {"factory": {
     "tree": {"from": "bundles/factory/tree", "to": ".github/factory"},
     "seed": {"from": "bundles/factory/seed", "to": ".github/factory"},
     "render": "python3 .github/factory/render.py", "requires": {"sdlc_root": "ops/sdlc"}}}}
-RULES = {"bundle": "factory", "incubator": "acme/incubator", "source": ".github/factory",
+RULES = {"bundle": "factory", "source": ".github/factory",
          "seed": ["factory.json", "README.md"], "excluded": ["production/*", "*__pycache__*"],
          "free_settings": {"factory.json": ["stack.env"]}, "specific": ["acme-only", "/home/"],
          "last_import": {"commit": "", "date": ""}}
@@ -62,6 +62,8 @@ class ImportFactory(unittest.TestCase):
         self.put(self.z, PROCESS, "rules\n")
         self.rules = self.z / "import.json"
         self.rules.write_text(json.dumps(RULES))
+        # The untracked names file (CLAUDE.md, check 6), with an invented name.
+        self.put(self.z, ".claude/private-names.txt", "Hushproject\n")
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -227,6 +229,38 @@ class ImportFactory(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("incubator-specific text added to guard.py: path = '/home/acme-only/x'", out)
         self.assertEqual((self.z / "bundles/factory/tree/guard.py").read_text(), "x = 1\n")
+
+    def test_a_private_name_is_flagged_and_never_written_to_import_json(self):
+        self.put(self.inc, ".github/factory/guard.py", "x = 1\nhost = 'hushproject-db'\n")
+        self.commit("names the project")
+        code, out = self.run_it("--apply")
+        self.assertEqual(code, 1)
+        self.assertIn("incubator-specific text added to guard.py: host = 'hushproject-db'", out)
+        code, out = self.run_it("--apply", "--accept")
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("hushproject", self.rules.read_text().lower())
+
+    def test_a_missing_names_file_blocks_apply(self):
+        (self.z / ".claude/private-names.txt").unlink()
+        code, out = self.run_it("--apply")
+        self.assertEqual(code, 1)
+        self.assertIn(".claude/private-names.txt is missing or empty", out)
+        self.assertEqual(self.recorded(), "")
+
+    def test_the_clone_defaults_to_the_local_file(self):
+        self.put(self.z, ".claude/incubator-clone.txt", f"{self.inc}\n")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+            code = imf.main(["--root", str(self.z), "--rules", str(self.rules)])
+        self.assertEqual(code, 0, out.getvalue())
+        self.assertIn("in sync", out.getvalue())
+
+    def test_no_clone_and_no_local_file_is_a_usage_error(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+            code = imf.main(["--root", str(self.z), "--rules", str(self.rules)])
+        self.assertEqual(code, 2)
+        self.assertIn("incubator-clone.txt is missing or empty", out.getvalue())
 
     def test_a_newer_z_sdlc_mirror_is_reported_but_never_blocks(self):
         self.run_it("--apply")

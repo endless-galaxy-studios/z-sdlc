@@ -4,7 +4,7 @@ description: >
   Unified auditing skill for the z-sdlc framework source repo with two modes: compliance and
   improvement. Compliance mode audits manifest completeness, cross-reference consistency, stale
   references, changelog freshness, knowledge store conventions, discipline health, skill/agent
-  convention compliance, setup.sh correctness, and cross-skill DRY (verbatim or near-verbatim
+  convention compliance, installer correctness, and cross-skill DRY (verbatim or near-verbatim
   prose duplicated across sibling skills that should be extracted to a shared location).
   Improvement mode analyzes sessions and/or
   commits to identify framework gaps — skill deficiencies, knowledge store gaps, process doc
@@ -15,8 +15,8 @@ description: >
   "validate the framework", "check sdlc compliance", "audit these commits",
   "process improvement audit", "triage parking lot", "triage disciplines",
   "validate parking lot entries".
-  Do NOT use for generating playbooks from sessions — use sdlc-playbook-generate.
-  Do NOT use for bulk knowledge import — use sdlc-ingest.
+  Do NOT use for generating playbooks from sessions.
+  Do NOT use for bulk knowledge import — use zsdlc-ingest.
 ---
 
 # Framework Audit
@@ -65,7 +65,7 @@ Verify the framework's health across 10 audit dimensions. Full methodology in `r
 DISPATCH AUDITOR → REPORT → TRIAGE → FIX
 ```
 
-**Dispatch the `sdlc-compliance-auditor` subagent** to perform the 10-dimension scan. The subagent reads the methodology, scans all dimensions, and returns structured findings with a score. This skill then handles the interactive triage and fix phases.
+**Dispatch the `sdlc-compliance-auditor` subagent** to perform the 10-dimension scan. Its own brief is the installed-project audit (`.claude/skills/sdlc-audit/references/compliance-methodology.md`, `docs/_index.md`, 9 project dimensions), none of which exists in this repo, so the dispatch prompt names this skill's methodology (`.claude/skills/zsdlc-audit/references/compliance-methodology.md`) and its 10 dimensions as the ones to use, and says `[sdlc-root]` is the repo root. The subagent returns structured findings with a score. This skill then handles the interactive triage and fix phases.
 
 ### Audit Dimensions (summary)
 
@@ -77,7 +77,7 @@ DISPATCH AUDITOR → REPORT → TRIAGE → FIX
 6. **Discipline health** — Parking lot entries have triage markers, active validation of `[NEEDS VALIDATION]` entries against codebase evidence, cross-discipline flow
 7. **Skill convention compliance** — Frontmatter format (folded scalar descriptions), required sections, anti-triggers
 8. **Agent convention compliance** — Proper frontmatter, tools lists, when-to-use descriptions
-9. **Setup.sh correctness** — Installation script copies all manifest files, agent paths go to `.claude/agents/`
+9. **Installer correctness** — `sdlc-initialize` (which `BOOTSTRAP.md` copies) and `sdlc-migrate` install every manifest file; agent paths go to `.claude/agents/`
 10. **Cross-skill DRY** — Substantive prose blocks (paragraphs, framing sentences, principles) duplicated verbatim or near-verbatim across sibling skills. Findings recommend extraction targets (`process/`, `knowledge/`) so both skills can reference one source.
 
 ### Compliance with Session/Commit Input
@@ -123,7 +123,7 @@ LOCATE → EXTRACT → CATEGORIZE → PROPOSE → (optional) APPLY → CHANGELOG
 
 **Process friction** — moments where the framework's own process slowed work down:
 - Consistency checks that miss important validations
-- Setup.sh not handling edge cases
+- `sdlc-initialize` or `sdlc-migrate` not handling an install edge case
 - CLAUDE-SDLC.md guidance that doesn't match actual skill behavior
 - Process docs that contradict each other or are outdated
 
@@ -180,7 +180,7 @@ When the user approves proposals, apply changes directly:
 - Discipline entries → add to parking lot in `disciplines/` with `[NEEDS VALIDATION]`
 - Process doc updates → edit the relevant file in `process/`
 - Agent modifications → edit the agent file in `agents/`
-- New playbook proposals → note for `sdlc-playbook-generate` (don't auto-create)
+- New playbook proposals → note them in the report (don't auto-create)
 
 Update `process/sdlc_changelog.md` for every process change applied.
 
@@ -188,7 +188,7 @@ Update `process/sdlc_changelog.md` for every process change applied.
 
 | Thought | Reality |
 |---------|---------|
-| "The framework looks fine, no improvements needed" | Every session has friction. Look harder at correction signals and mid-stream discoveries. |
+| "The framework looks fine, no improvements needed" | Check the correction signals and mid-stream discoveries before concluding. If they show nothing, report the session as clean rather than proposing changes. |
 | "I'll fix everything without asking" | Present proposals first. The user decides what to change. |
 | "This is just a compliance audit with extra steps" | Compliance checks structure. Improvement analyzes behavior. Different inputs, different outputs. |
 | "I'll propose sweeping framework changes" | Proportional recommendations. Small friction gets small fixes. |
@@ -205,6 +205,6 @@ Update `process/sdlc_changelog.md` for every process change applied.
 
 ### Reference Files
 
-- **`references/compliance-methodology.md`** — Full 9-dimension framework compliance audit methodology, report format, severity levels, guiding principles
+- **`references/compliance-methodology.md`** — Full 10-dimension framework compliance audit methodology, report format, severity levels, guiding principles
 - **`references/improvement-methodology.md`** — Detailed patterns for extracting framework improvements from sessions and commits
 - **`references/session-reading.md`** — JSONL message type reference and extraction patterns for reading Claude Code session files

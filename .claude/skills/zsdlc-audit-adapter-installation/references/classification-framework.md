@@ -6,7 +6,7 @@ For each differing hunk between target installation and z-sdlc source, assign on
 
 | Verdict | Meaning | Fix destination |
 |---|---|---|
-| **upstream** | z-sdlc source has a bug the adapter-installed version corrected, OR z-sdlc source uses non-canonical phrasing | `~/Projects/z-sdlc/` — edit the source file, add changelog entry |
+| **upstream** | z-sdlc source has a bug the adapter-installed version corrected, OR z-sdlc source uses non-canonical phrasing | z-sdlc source (this repo) — edit the source file, add changelog entry |
 | **plugin** | Adapter transformation is wrong (bug, gap, or exemption violation) | `~/Projects/neuroloom/neuroloom-sdlc-plugin/` — edit Pattern Mapping, add guard, or fix transformer rule |
 | **both** | A single finding requires coordinated fixes in both repos | Both |
 | **neither** | Correct as-is: legitimate transformation, legitimate customization, or no-op | No action |
