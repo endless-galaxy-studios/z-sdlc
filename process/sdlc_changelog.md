@@ -37,6 +37,41 @@ Each entry contains:
 
 ---
 
+## 2026-11-12: Every factory project's default branch takes the same review
+
+**Origin:** After the bypasses were standardized, the four factory repositories' default-branch rulesets still differed. CD (2026-11-12): "standardize the remaining ruleset differences too - 1 approving review, disallow squashing/rebase merges (i'll handle that via driving sessions), no last approval push and the runner audit should require code owner review".
+
+**On migrating:** `bootstrap.py` reports a default branch that:
+- requires no approving review;
+- doesn't dismiss approvals on push;
+- requires last-push approval;
+- allows squash or rebase merges, now on every project, not only on the fallback with a production tier.
+
+Set each in the default branch's ruleset, and allow merge commits only in the repository's settings too. A linear-history rule refuses merge commits, so drop it. A repository with no CODEOWNERS file gets one, or code-owner review asks nothing. After that, every PR merges with a merge commit: a session squashes a PR's commits before review when they should be one.
+
+**What happened:**
+- One project required no approving review, which the team rule from 2026-11-11 covered in practice.
+- Two allowed squash and rebase merges and required last-push approval, and one of those also required linear history with merge commits turned off.
+- The runner audit's repository didn't require code-owner review, and had no CODEOWNERS file for it to read.
+- `bootstrap.py` checked merge methods only on the fallback with a production tier, and checked neither the approval count, stale-approval dismissal nor last-push approval.
+
+**Changes made:**
+1. **`process/factory.md`:**
+   - Enablement step 9: the same review on every project's `main`. That is one approving review, which a push dismisses; no last-push approval; and merge commits only, with no linear-history rule.
+   - Step 9's fallback bullet keeps the production reason for merge commits, now as a second reason.
+2. **`process/factory-runbook.md`:**
+   - § 3.3 item 6: the standard. A repository without a CODEOWNERS file gets `* @<CD>`.
+   - § 5: three pitfalls: last-push approval, linear history with merge commits only, and code-owner review without a CODEOWNERS file.
+3. **The incubator's `bootstrap.py` and its tests (imported next):** `check_branch_rules` reads the approval count, stale-approval dismissal and last-push approval, from rulesets and classic protection alike, and checks merge methods on every project. The ruleset's allowed methods settle the merge check when the repository's settings can't be read.
+
+**Rationale:**
+- Without the dismissal, a push after CD's approval keeps it, and an App could merge what CD never saw.
+- With the dismissal, last-push approval adds nothing but stopping CD from approving a PR CD last pushed to.
+- Merge commits keep a PR's commits and their authors as reviewed, and CD wants squashing done in the session that drives a PR.
+- One standard, checked by `bootstrap.py`, keeps the projects from drifting apart again.
+
+---
+
 ## 2026-11-12: Every bypass of the factory's default branch is in pull-request mode
 
 **Origin:** Adding the required-reviewers team showed two of the three factory projects with their default branch's bypass in mode "always". CD (2026-11-12): "switch the bypasses to pr mode - we should be standardized across all projects utilizing the software factory".

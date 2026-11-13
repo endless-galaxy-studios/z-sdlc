@@ -183,8 +183,10 @@ batching). Check: the migration's tests pass in the project, and `render.py --ch
    until then. With § 1 A3 answered "CD's login", CD can't approve that PR either, and merges it with
    the ruleset bypass.
 6. **Step 9, the rulesets:** the default branch's (code-owner review, a team of people as required
-   reviewers of every file, stale approvals dismissed on push, the aggregate check, bypass mode
-   `pull_request`; merge commits only on the fallback, D4 rule 13), the release branch's (merge
+   reviewers of every file, one approving review, stale approvals dismissed on push, no last-push
+   approval, merge commits only in the ruleset and the repository's settings and so no linear-history
+   rule, the aggregate check, bypass mode `pull_request`: every factory project's the same, CD
+   2026-11-12), the release branch's (merge
    commits only, which provenance reads), and the pinned branches' (`factory/release/**`, no bypass
    actor at all). Of the project's branches, restricted updates belong
    on the release branch and the pinned branches only. On its default branch they let only bypass
@@ -195,6 +197,8 @@ batching). Check: the migration's tests pass in the project, and `render.py --ch
    repository; the rule's file pattern is `*`, with one approval. Code-owner review alone lets an App
    approve and merge a PR CD opened, because GitHub asks no code-owner review of a PR whose author is
    the only code owner of what it changes (D2 rule 6).
+   A CODEOWNERS file must exist for code-owner review to ask anything: a repository without one (a
+   small one of the organization's own, such as the runner audit's) gets `* @<CD>`.
 7. **Environments before the workflows that name them:** a run naming an environment that doesn't
    exist creates it unprotected. `bootstrap.py --apply` creates the factory's own environments,
    deployable from the default branch only, and reports one that already exists without that policy,
@@ -381,6 +385,9 @@ Record each one's values where the next project's install will look.
 | Ruleset bypass mode "always" skips every rule | `pull_request` mode, proven on a scratch branch | § 3.3; `bootstrap.py` checks the default and release branches |
 | Restricted updates on the project's default branch: every merge, approved and green, needs the bypass | Restricted updates on the release branch and the pinned branches only | § 3.3 |
 | An App's approval merging a PR CD opened, recorded as a pass: code-owner review isn't asked of a PR whose author is the only code owner of what it changes | A team of people as required reviewers of every file on the default branch | § 3.3; `bootstrap.py` checks it |
+| Last-push approval: CD's push to an App's PR stops CD approving it, so it needs the bypass | Off; stale approvals dismissed on push make every push need a fresh approval | § 3.3; `bootstrap.py` checks both |
+| Merge commits only, with a linear-history rule: no PR can merge | Drop the linear-history rule; allow merge commits in the repository's settings too | § 3.3 |
+| Code-owner review required, but no CODEOWNERS file: it asks nothing | `* @<CD>` in a repository with no owners of its own | § 3.3 |
 | Squash or rebase merges where provenance is checked | Merge commits only | D4 rule 13 |
 | A service's "read-only" mode running as a superuser | Verify as the role | § 4.2; D3 rule 3 |
 | A public database without TLS | TLS, or another route | § 4.2; `planning-services.sh` |

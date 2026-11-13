@@ -711,6 +711,15 @@ needs an organization owner's `gh` login (`admin:org`) for the runner groups and
      and exempt let the actor push to `main` with no PR, every rule skipped. So nothing reaches `main`
      but a PR, CD's own changes included. `bootstrap.py` reports any other mode. A tag ruleset (release
      tags, which are pushed, not merged) is outside this.
+   - **The same review on every project's `main`** (CD, 2026-11-12): one approving review, which a
+     push dismisses (dismiss stale approvals on push); no last-push approval; and merge commits only,
+     in the repository's settings and the ruleset's allowed merge methods. Without the dismissal, a push
+     after CD approves keeps the approval, so an App could merge commits CD never saw. With it, every
+     push needs a fresh approval already, and last-push approval would only stop CD approving a PR CD
+     last pushed to, an App's included. Merge commits keep a PR's commits, and who made each, as they
+     were reviewed: a PR that should be one commit is squashed in the session that drives it, before
+     review. A ruleset's linear-history rule refuses merge commits, so it goes. `bootstrap.py` reports
+     each.
    - **What other agents and tools load on CD's machine:** `AGENTS.md`, `GEMINI.md`, `.codex/`,
      `.gemini/`, `.cursor/`, `.vscode/` (its tasks can run when the folder opens), `.devcontainer/`,
      `.envrc`, `.gitattributes` (`linguist-generated` collapses a file's diff in review),
@@ -741,11 +750,10 @@ needs an organization owner's `gh` login (`admin:org`) for the runner groups and
        in pull-request mode. No `exclude` of it may match the branch.
      - **Release gates' pinned branches** (`refs/heads/factory/release/**`): updates, deletion and force
        pushes restricted, creation allowed, and no bypass actor at all.
-   - **On the fallback with a production tier, `main` allows merge commits only,** in the repository's settings or
-     the ruleset's allowed merge methods. An execution PR merges with a merge commit (D4 rule 13):
-     a squash or rebase leaves production on a commit `main` doesn't contain, and the broker refuses
-     the next gate. `bootstrap.py` reports it. With a release branch, the merge method of `main` doesn't
-     matter for deploys: they follow the release branch's history.
+   - **On the fallback with a production tier, merge commits matter for deploys too.** An execution PR
+     merges with a merge commit (D4 rule 13): a squash or rebase leaves production on a commit `main`
+     doesn't contain, and the broker refuses the next gate. With a release branch, deploys follow the
+     release branch's history instead.
    - The seeded `tests/test_codeowners.py` checks the file against the guard, the governing list
      and the order included, and against GitHub's case-sensitive matching for the agent files' casings
      (`implement_guard.owner_on_github`). Until CODEOWNERS exists it fails. Its path lists are the project's to
