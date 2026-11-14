@@ -2,7 +2,7 @@
 
 Operational reference for running a local LLM behind OpenCode so the SDLC works without a hosted API (e.g. when Claude Code limits are exhausted). Focused on **llama.cpp (`llama-server`)** feeding OpenCode's OpenAI-compatible provider, on a 2× RTX 3090 / 48 GB-VRAM-class workstation.
 
-> **Confidence / freshness:** The Qwen3.6 family and the llama.cpp tool-call bugs below were released/filed in 2026 and verified from live primary sources (HuggingFace model cards, QwenLM GitHub, Unsloth, llama.cpp issues, OpenCode docs) — not from model training knowledge. Re-verify build numbers and the model card "Best Practices" before locking in, since llama.cpp fixes land incrementally. Items marked *(unverified)* could not be confirmed from a primary source.
+> **Confidence / freshness:** Verified on 2026-06-27. The Qwen3.6 family and the llama.cpp tool-call bugs below were released/filed in 2026 and verified from live primary sources (HuggingFace model cards, QwenLM GitHub, Unsloth, llama.cpp issues, OpenCode docs) — not from model training knowledge. Re-verify build numbers and the model card "Best Practices" before locking in, since llama.cpp fixes land incrementally. Items marked *(unverified)* could not be confirmed from a primary source.
 
 ## Why this matters for the SDLC
 
@@ -38,7 +38,7 @@ Sources: `huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF`, `huggingface.co/unsloth/
 `llama-server` exposes an OpenAI-compatible `/v1/chat/completions`. Function calling **requires `--jinja`** so it applies the model's chat template. But the Qwen3.5/3.6 family has **known template bugs that break tool calls** — fix them before blaming the model:
 
 - **Tool calls emitted inside `<think>` blocks**, and under long context with multi-optional-param tools, calls loop with a parameter always missing (llama.cpp issues #21158, #20164; PR #20424 only partial).
-- **Qwen3.6-27B cache-invalidation bug** forces full-prompt reprocessing — tied to the hybrid Gated-DeltaNet/SWA memory interacting with the chat template (issue #22746; PR #24785 in flight).
+- **Qwen3.6-27B cache-invalidation bug** forces full-prompt reprocessing — tied to the hybrid Gated-DeltaNet/SWA memory interacting with the chat template (issue #22746; PR #24785 was still open on 2026-06-27 — check whether it has merged).
 
 **Fix:** use a corrected chat template via `--chat-template-file`:
 - **`froggeric/Qwen-Fixed-Chat-Templates`** (HF) — Qwen3.6-specific drop-in (v8/v9/v10) that removes the spurious cache invalidations and auto-closes an unclosed `<think>` before a `tool_call`. A community report had an OpenCode agent run 20+ min without a malformed-tool-call failure after switching to it *(community-reported, not a vendor benchmark)*.

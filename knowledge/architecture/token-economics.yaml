@@ -68,8 +68,8 @@ constraint_dimensions:
 
 practical_guidelines:
   knowledge_file_sizing:
-    target: "< 200 lines per YAML knowledge file"
-    rationale: "Keeps individual file load cost manageable; allows loading 3-5 files per agent dispatch"
+    target: "One topic per YAML knowledge file; split a file when the roles mapped to it use only part of it"
+    rationale: "[sdlc-root]/knowledge/agent-context-map.yaml routes whole files, and each role loads many of them per dispatch, so a focused file keeps a dispatch from loading content its role does not use"
 
   agent_dispatch_budget:
     rule: "When dispatching an agent, estimate total context load: knowledge files + codebase reads + prompt + expected output"

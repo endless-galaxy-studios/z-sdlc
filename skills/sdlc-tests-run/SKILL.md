@@ -23,7 +23,7 @@ Run tests, classify failures, dispatch the right agents to fix them, re-run. Rep
 
 Tests must already exist. This skill does not write new tests — it runs existing tests and fixes what breaks. If no test files match the target pattern, stop:
 
-> No test files found matching `{pattern}`. Write tests first (use the SDET agent directly), then invoke this skill.
+> No test files found matching `{pattern}`. Write tests first (`sdlc-tests-create`, or the SDET agent directly for one pure function), then invoke this skill.
 
 ## Inputs
 
@@ -308,7 +308,7 @@ fix: resolve test failures in {test area}
 {N} test failures fixed across {M} rounds.
 {Brief summary of what was fixed}
 
-Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
+{Co-Authored-By trailer, if your harness specifies one}
 ```
 
 4. Output the final summary:

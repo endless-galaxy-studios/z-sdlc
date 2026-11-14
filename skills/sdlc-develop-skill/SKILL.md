@@ -93,10 +93,10 @@ Scan `.claude/skills/` to list existing skill names. Present the proposed name a
 
 The description MUST include:
 - What the skill does (1-2 sentences)
-- Explicit trigger phrases (`Triggers on "phrase1", "phrase2", ...`)
+- Explicit trigger phrases (`Triggers on "phrase1", "phrase2", ...`): a few phrasings, each covering a different way users ask, not near-synonyms of one another. The description rides in every request, so when the skill misses a request, broaden the intent a phrase covers rather than adding one more synonym
 - Anti-triggers (`Do NOT use for X — use Y.`)
 
-**Activation framing rule:** Use imperative/mandatory language in descriptions and trigger phrases. Advisory framing ("Best practices for X", "Guidance on X") causes agents to skip the skill — empirically measured at ~10% activation rate. Mandatory framing ("Rules that MUST be followed when working on X", "Required steps for X") achieves 57-83% activation. The description is the primary signal agents use to decide whether to invoke the skill — treat it as a trigger, not a summary. (Evidence: Tessl controlled experiment, 30 trials per configuration — `[sdlc-root]/knowledge/coding/context-engineering-patterns.yaml`, activation_engineering section.)
+**Activation framing rule:** The description is the primary signal agents use to decide whether to invoke the skill, so write it as a trigger, not a summary: say when the skill applies and name the situations ("Use when ...", "Required steps for X"). Advisory framing ("Best practices for X", "Guidance on X") reads as optional; in a controlled experiment it left a skill activating about 10% of the time, against 57-83% once the description named when the skill was required (Tessl, 30 trials per configuration — `[sdlc-root]/knowledge/coding/context-engineering-patterns.yaml`, activation_engineering section). Keep the wording plain: capitalized MUST/ALWAYS in a description is urgency current models apply as written, so the skill starts firing on adjacent work. If a skill still under-triggers, tune its trigger contexts with the test below rather than adding emphasis.
 
 **Triggering accuracy validation:** Before finalizing the description, read `[sdlc-root]/knowledge/dx/skill-quality-rubrics.yaml` and apply the SQR-01/SQR-02 mental test: write 5 prompts that should trigger the skill and 5 that should not. If 3+ of either set misfire, rewrite the trigger contexts.
 

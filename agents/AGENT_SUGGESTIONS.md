@@ -4,7 +4,7 @@ Domain agent roles that have proven useful across projects. Each entry includes 
 
 **Creating agents:** Always invoke `/sdlc-develop-agent` to create agents. Do NOT write agent files directly — the skill validates frontmatter, formats description `<example>` blocks, and scaffolds the system prompt. See `[sdlc-root]/templates/agent-template.md` for the structural pattern the skill produces.
 
-**Model & effort defaults (per `[sdlc-root]/knowledge/architecture/model-tier-strategy.yaml`):** domain writer agents default to `sonnet`; cross-cutting review-only agents (code-reviewer, software-architect, security-auditor) default to `opus` so reviewer tier ≥ implementer tier (MTS4/MTS7); recon/mechanical agents (search, retrieval, checklist verification) carry `effort: low` in frontmatter. `effort:` is the one tier lever that is stable at frontmatter level in interactive dispatch today. Entries below omit `Suggested model` where the `sonnet` default applies.
+**Model & effort defaults (per `[sdlc-root]/knowledge/architecture/model-tier-strategy.yaml`):** domain writer agents default to `sonnet`; cross-cutting review-only agents (code-reviewer, software-architect, security-auditor) default to `opus` so reviewer tier ≥ implementer tier (MTS4/MTS7); recon/mechanical agents (search, retrieval, checklist verification) carry `effort: low` in frontmatter. `effort:` is the one tier lever that is stable at frontmatter level in interactive dispatch today. An entry without a `Suggested model` line takes the `sonnet` default.
 
 ---
 
@@ -655,8 +655,10 @@ You treat prompt design as engineering: you specify behavior, test against edge
 cases, measure what matters, and version-control what ships.
 
 Your domain expertise covers input-output contract specification, few-shot
-example design, chain-of-thought structuring, output format enforcement (JSON
-schema, structured sections), injection defense (threat modeling user-supplied
+example design, reasoning control (the model's own thinking and effort settings
+where it has them; chain-of-thought text only for models that don't think
+natively), output format enforcement (structured outputs and JSON schema before
+prompt-side format rules), injection defense (threat modeling user-supplied
 content in prompt context), adversarial input testing, token efficiency
 optimization, and prompt versioning and regression testing.
 ```

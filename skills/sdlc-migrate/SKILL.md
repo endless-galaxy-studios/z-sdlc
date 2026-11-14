@@ -469,7 +469,7 @@ Check the z-sdlc changelog for files that were **deleted, moved, or renamed** si
      ```bash
      rm [sdlc-root]/CLAUDE-SDLC.md
      ```
-   - **Contract-driven cleanups:** Check `pending_changes` (from §1.2b) for entries that describe file relocations or removals. Apply them here — delete old-path files after verifying the new-path copy landed.
+   - **Contract-driven cleanups:** Check `pending_changes` (from §2.0) for entries that describe file relocations or removals. Apply them here — delete old-path files after verifying the new-path copy landed.
    
    Log any removals in the migration report.
 
@@ -594,7 +594,7 @@ Options:
 
 **Step 0 — Dual-audience skill detection.** Before content-merging any skill, check whether z-sdlc source has a framework-dev counterpart at `.claude/skills/zsdlc-{name}/` (e.g., `zsdlc-ingest` exists alongside `skills/sdlc-ingest/`). If a `zsdlc-*` counterpart exists, the installed skill is **dual-audience** — its source version is a generic template that projects customize heavily after installation. Dual-audience skills use **additive-only merge**: propagate genuinely new framework sections (sections that exist in upstream but not in the project at all) but never overwrite or content-merge existing sections. This prevents replacing a project's customized methodology with the generic template version.
 
-Current dual-audience skills: `sdlc-audit`, `sdlc-ingest`, `sdlc-develop-skill`, `sdlc-research`.
+Current dual-audience skills: `sdlc-audit`, `sdlc-ingest`, `sdlc-develop-skill` (its counterpart is `zsdlc-create-skill`), `sdlc-research`.
 
 Skills have two layers:
 1. **Framework structure** — dispatch patterns, gate logic, manager rules, cross-domain injection
@@ -648,7 +648,7 @@ Discipline files have:
 4. For `references/*.md`: add new reference files that don't exist in the project. For existing reference files, add only new sections (identified by H2/H3 headings not present in the project version). Never overwrite existing sections — the project's audit dimensions and methodology reflect its own structure.
 5. Preserve all project-specific audit dimensions, improvement categories, and report formats.
 
-**Migration note:** The `sdlc-compliance-auditor` agent has been restored as a subagent dispatched by `sdlc-audit`. If the project has an old version, update it to the current version. If the project removed it during a prior migration, re-install it.
+**Auditor agent:** `sdlc-audit` dispatches the `sdlc-compliance-auditor` subagent, so the project needs its current version in `.claude/agents/`. Update an old copy, and re-install it if a prior migration removed it.
 
 ### 2.5 Content-Merge Verification Gate
 
@@ -738,7 +738,7 @@ New or updated knowledge files and process docs may conflict with or improve the
 
 | Child Artifact | Where | What to Check Against New Knowledge |
 |----------------|-------|-------------------------------------|
-| Skill descriptions | `.claude/skills/*/SKILL.md` frontmatter | Activation framing rules — flag advisory descriptions ("best practices", "guidance for") that should use mandatory framing |
+| Skill descriptions | `.claude/skills/*/SKILL.md` frontmatter | Activation framing rules — flag advisory descriptions ("best practices", "guidance for") that should say when the skill applies |
 | Skill bodies | `.claude/skills/*/SKILL.md` content | AVOID example safety — flag unguarded anti-pattern examples missing the correct-pattern pairing |
 | Skill bodies | `.claude/skills/*/SKILL.md` content | Deterministic-first — flag procedural instructions (file scanning, API calls, pattern matching) that could be scripts |
 | Agent definitions | `.claude/agents/*.md` | New knowledge wiring — do any agents work in domains covered by newly added knowledge files but aren't wired to them? |
@@ -786,7 +786,7 @@ New knowledge landing this migration:
 SKILL FINDINGS ([count] skills scanned)
   Activation framing:
     [skill-name] — description uses advisory framing: "[current text]"
-      → Suggest: "[mandatory reframing]"
+      → Suggest: "[trigger reframing]"
   AVOID examples:
     [skill-name] — line N has unguarded anti-pattern
       → Suggest: pair with correct pattern
@@ -895,7 +895,7 @@ The project's `CLAUDE.md` contains CLAUDE-SDLC.md content — skill names, proce
 > - Agent-context-map paths all resolve
 > - Content-merge preserved project data (tracker levels, parking lot entries, skill customizations)
 > - CLAUDE-SDLC.md references in CLAUDE.md are valid
-> - `agents/sdlc-compliance-auditor.md` is present and current
+> - `.claude/agents/sdlc-compliance-auditor.md` is present and current
 >
 > **Context:** This audit runs immediately after migration applied changes. Uncommitted files in the working tree are expected — the user has not committed yet. Do NOT flag uncommitted migration files as findings.
 
@@ -1138,7 +1138,7 @@ If migration fails, crashes, or leaves the workspace inconsistent, see `referenc
 
 ## Red Flags
 
-Common anti-patterns and their corrections (20 entries covering direct-copy temptation, agent name assumptions, verbatim rule, guarded renames, marker staleness, and more): see `references/red-flags.md`.
+Common anti-patterns and their corrections (direct-copy temptation, agent name assumptions, verbatim rule, guarded renames, marker staleness, and more): see `references/red-flags.md`.
 
 ## Integration
 

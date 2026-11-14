@@ -65,6 +65,13 @@ prompt_patterns:
     zero_shot_cot: "Appending 'Let's think step by step' to the prompt without examples"
     benefit: "Dramatically improves accuracy on reasoning tasks; makes model logic auditable"
     tradeoff: "Higher token count; higher latency"
+    on_current_claude_models: >
+      Current Claude models think before they answer (adaptive thinking), so a
+      prompt for them needs no cue phrase: set the depth with the effort
+      parameter. Do not ask them to write their reasoning out in the response;
+      the newest models can decline that as reasoning extraction. Ask for a
+      short explanation of the answer instead, or read the thinking blocks
+      (display "summarized").
 
   tree_of_thought:
     description: "Model explores multiple reasoning branches simultaneously; selects best branch."
@@ -236,6 +243,16 @@ token_optimization:
       description: "Summarize or truncate conversation history rather than sending full history"
       when: "Conversation history exceeds 2,000 tokens"
       approach: "Keep last N turns verbatim; compress earlier turns to bullet summary"
+      on_claude: >
+        On Claude, prefer server-side compaction or context editing: neither
+        counts as an edit to the history. To compact client-side, summarize the
+        whole conversation into one message and replay nothing else. Keeping the
+        last N turns verbatim after a summary breaks the thinking blocks in those
+        turns, and where the API enforces its history check that request returns
+        a 400; strip the thinking blocks from the kept turns if you keep any.
+        Every compaction restarts the prompt cache, so compact when the history
+        nears the context window, not at a small fixed size. Outside compaction,
+        keep the history append-only.
 
     instruction_efficiency:
       description: "Remove redundant instructions; use examples to show instead of describe"
@@ -248,8 +265,8 @@ token_optimization:
     output_constraints:
       description: "Constrain output length and format explicitly"
       patterns:
-        - "Respond in JSON only, no additional text"
-        - "Maximum 3 sentences"
+        - "For JSON output, use the API's structured outputs (a JSON schema; an enum for a label set) rather than an instruction to respond in JSON only"
+        - "Say the length the reader needs ('a one-line summary', 'a short paragraph'); a hard numeric cap can cut off the reasoning a hard input needs"
         - "Return only the classification label, nothing else"
 
     caching:

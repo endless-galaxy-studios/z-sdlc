@@ -23,7 +23,7 @@ FRONTMATTER REFERENCE:
     that agent is ever spawned — it is a permanent per-session tax, unlike the agent body (which
     only costs tokens once spawned). Keep it lean: example economy, not example abundance.
     Format: single-line YAML double-quoted string using \\n (double-backslash n) for newlines, never a block scalar (|, >)
-    WARNING: In YAML double-quoted strings, \n = real newline (broke the parser in April 2026), \\n = literal \n (always worked; use it)
+    WARNING: In YAML double-quoted strings, \n = real newline; \\n = literal \n, the form every Claude Code version parses (use it)
     Must include:
     - Triggering conditions ("Use this agent when...")
     - Example count tiered by confusability: 1 <example> block if no other agent's domain could
@@ -39,7 +39,7 @@ FRONTMATTER REFERENCE:
     See the frontmatter above for the exact format.
 
   model:
-    Options: sonnet (default, balanced) | opus (most capable, for architectural decisions) | haiku (fast, for retrieval/search tasks)
+    Options: sonnet (default, balanced) | opus (for architectural decisions and high-risk review) | haiku (fast, for retrieval/search tasks)
     Use opus for agents that make design decisions or evaluate trade-offs — and for
     agents that review high-risk work implemented by cheaper tiers.
     Use haiku for agents that primarily search and retrieve.

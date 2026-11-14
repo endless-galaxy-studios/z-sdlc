@@ -100,7 +100,7 @@ Follow the state machine in `[sdlc-root]/process/deliverable_lifecycle.md`. Upda
 - **No semantic revert:** fixing a bug by removing the feature is not a fix — preserve the user's requested behavior.
 - **Session scope:** this rule stays active for the entire session. There is no post-commit wind-down mode.
 
-**No pre-dispatch narration.** Status comes from the gates (PRE-GATE, POST-GATE, REVIEW-GATE) — not from sentences around them. Do not type filler describing what you are about to do: "Plan loaded.", "Let me check the catalog.", "Proceeding to Phase N.", "Now updating the catalog and committing.", "Staged set looks correct. Committing." The gates ARE the protocol; commentary around them is noise the user has to scroll past. The two acceptable exceptions are: (1) a one-line note conveying genuinely new information — a deviation observed, a phase-bleeding decision, a serialization choice forced by mid-stream discovery, a triage rationale; (2) the explicit announcements other rules require ("Review loop complete — …", REVIEW-GATE block, etc.). When in doubt, prefer the gate over a sentence.
+**Status lives in the gates.** PRE-GATE, POST-GATE and REVIEW-GATE carry the run's status. Between them, write a line when it tells CD something new — a deviation observed, a phase-bleeding decision, a serialization choice forced by mid-stream discovery, a triage rationale — and make the announcements other rules require ("Review loop complete — …", the REVIEW-GATE line).
 
 ### Agent Dispatch Protocol
 
@@ -178,7 +178,7 @@ Verbose form (use when any of these triggers fires):
 - **Triage ≠ BUILD** — SKIP or REVISE_PLAN (stop and wait for user confirmation). **Headless run:** stop with status `needs-input`, giving the phase, SKIP or REVISE_PLAN, and the reason; completed phases stay, and the phase is neither skipped nor rewritten until CD answers (`[sdlc-root]/process/headless-mode.md`).
 - **Re-dispatch** — partial completion or stub fix within this same phase
 
-Verbose form — single phase. Emit as a table; the labeled-field block format is deprecated:
+Verbose form — single phase, as a table:
 
 ```
 **PRE-GATE Phase [N] — [phase name]**
@@ -443,9 +443,9 @@ If no triggers fired, emit `CLAUDE.md refresh: no changes needed` and proceed. D
    - Application code and test files
    - Result doc (`docs/current_work/sdlc-lite/dNN_*_result.md`)
    - Plan file (`docs/current_work/sdlc-lite/dNN_*_plan.md`) — status marker updated
-   - Idea brief (`docs/current_work/ideas/dNN_*_idea.md`) if associated with this deliverable
+   - Idea brief (`docs/current_work/ideas/*_idea-brief.md`) if associated with this deliverable
    - Discipline parking lot entries (`[sdlc-root]/disciplines/*.md`)
-   - Knowledge store updates (`[sdlc-root]/knowledge/*.md`)
+   - Knowledge store updates (`[sdlc-root]/knowledge/**/*.yaml`)
    - CLAUDE.md updates from step 3e (root and any module-level files)
    - Plan and result archive move (item 3 above)
    - Any other SDLC artifacts modified during execution
@@ -455,7 +455,7 @@ If no triggers fired, emit `CLAUDE.md refresh: no changes needed` and proceed. D
 
    {optional body — brief summary of what was changed and why}
 
-   Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
+   {Co-Authored-By trailer, if your harness specifies one}
    ```
    **Types:** `feat` (new feature), `fix` (bug fix), `refactor` (restructure, no behavior change), `docs` (documentation only), `test` (adding/updating tests), `chore` (build, config, tooling, dependencies), `style` (formatting, no logic change), `perf` (performance improvement), `ci` (CI/CD changes), `sdlc` (SDLC process, skills, agents, or framework changes)
    **Example:** `feat[D-042](auth): add session refresh endpoint`
@@ -561,7 +561,7 @@ The Manager Rule remains in effect per `[sdlc-root]/process/manager-rule.md` —
 | "I'll just merge the conflict / fix the loose ends myself" | Parallel conflict or partial completion is still an agent failure. Re-dispatch the affected agent. |
 | "This finding is about code I didn't modify in that file" | If the file is in the plan's Files list, the finding is in scope. File presence is the test, not function-level diff. |
 | "The review loop finished cleanly" | Output the exit announcement before proceeding. Silent state transitions cause drift. |
-| "Build passes, fixes are done — moving on" | Build-pass is not the review loop exit. After ANY fix round, re-run the verification gate and re-review with the roster the mechanical trigger picks. Only exit at the exit bar. Two audits caught this same skip. |
+| "Build passes, fixes are done — moving on" | Build-pass is not the review loop exit. After ANY fix round, re-run the verification gate and re-review with the roster the mechanical trigger picks. Only exit at the exit bar. |
 | "This is really a minor — I'll label it minor so the loop can exit" | Calibration applies impact × likelihood; it is never a lever for exiting. Downgrading severity to meet the exit bar is unilateral demotion. |
 | "We're at the cap — close enough, call it clean" | At the cap with critical or major findings open, stop and escalate via `AskUserQuestion` with the open-findings table. Never claim the loop is clean. |
 | "I'll resume last round's reviewer — it already has the context" | Every round uses fresh subagents. A resumed reviewer judges from memory of its own findings, and its growing context makes each round cost more. Pass the prior findings table and fix diff instead. |
@@ -578,7 +578,7 @@ The Manager Rule remains in effect per `[sdlc-root]/process/manager-rule.md` —
 | "Lite deliverables are too small to bother with CLAUDE.md refresh" | Step 3e is a scan, not a write. The common outcome for lite is `CLAUDE.md refresh: no changes needed`, but the explicit emission is what makes the gate auditable. Skip the scan and you skip the rare lite that does shift a path or convention. |
 | "Pasting the deliverable summary into CLAUDE.md" | CLAUDE.md describes how the codebase works, not deliverable history. Result docs hold "what shipped"; CLAUDE.md holds "what future agents need to know to navigate the code." |
 | "I know how this library works" | Verify external library APIs via Context7 before writing integration code. |
-| "Plan loaded. Let me check the catalog. Proceeding to Phase 1." | Pre-dispatch narration is noise. Read the plan, then emit the PRE-GATE — no filler sentences between tool calls and gates. |
+| "Plan loaded. Let me check the catalog. Proceeding to Phase 1." | Status lives in the gates. Read the plan, then emit the PRE-GATE; between gates, write only what is new. |
 | Two phases dispatched in parallel, two long PRE-GATE blocks emitted | Use the parallel comparison table form. One table with phase columns is faster to read than two stacked blocks. |
 | Triage emitted as "Will fix:" + "Out of scope:" bullet lists with `[agent-name]` brackets | Use the canonical Classification Table from finding-classification.md. Bullet lists force the reader to re-parse classification from prose. |
 

@@ -113,7 +113,7 @@ Each hit needs per-line classification (see `classification-framework.md`).
 
 ### 2.2 Known untransformed idioms (Pattern Mapping gap candidates)
 
-- ``- Knowledge store updates (`[sdlc-root]/knowledge/*.md`)`` — label-parenthetical with backticks
+- ``- Knowledge store updates (`[sdlc-root]/knowledge/**/*.yaml`)`` — label-parenthetical with backticks
 - ``- Files from the same discipline (e.g., `[sdlc-root]/knowledge/<discipline>/`)`` — `(e.g., ...)` variant
 - Table cells with `[sdlc-root]/knowledge/...` in non-first column
 - ``knowledge stores (`[sdlc-root]/knowledge/`)`` mid-sentence (e.g., `AGENT_TEMPLATE.md:134` pre-fix)

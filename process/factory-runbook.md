@@ -1,8 +1,8 @@
 # Installing the Software Factory: Runbook
 
 How to take a project from "the bundle is installed" to "a real issue has gone through the factory".
-The rules are `[sdlc-root]/process/factory.md` (D1 to D5); its Enablement section's twelve steps are
-what must be true. This runbook is the order to do them in, what to ask before starting, how to tell
+The rules are `[sdlc-root]/process/factory.md` (D1 to D5); its Enablement section's numbered steps
+are what must be true. This runbook is the order to do them in, what to ask before starting, how to tell
 each step worked, and what to build when the project brings something the factory hasn't seen.
 
 **Read this first.** On the third project, the twelve Enablement steps took about 2.5 hours. The other

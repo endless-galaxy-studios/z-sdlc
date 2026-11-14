@@ -1,6 +1,6 @@
 # Compliance Audit Methodology
 
-Full methodology for SDLC compliance auditing. Covers all 9 audit dimensions, report format, severity levels, and guiding principles. Migrated from the `sdlc-compliance-auditor` agent.
+Full methodology for SDLC compliance auditing. Covers all 9 audit dimensions, report format, severity levels, and guiding principles. The `sdlc-compliance-auditor` agent reads it as its source of truth.
 
 ## Audit Methodology Sequence
 
@@ -80,6 +80,8 @@ Check each discipline:
 | `data-modeling.md` | Data architecture, schema design |
 | `deployment.md` | CI/CD, infrastructure, release management |
 | `design.md` | UI/UX, visual design, interaction patterns |
+| `dx.md` | Developer experience: docs, getting-started flows, skill quality |
+| `observability.md` | Instrumentation, logging, metrics, tracing, alerting |
 | `process-improvement.md` | Meta-discipline: improving the SDLC itself |
 | `product-research.md` | Market, users, competitive landscape |
 | `testing.md` | Test strategy, automation, knowledge layers |
@@ -106,7 +108,9 @@ Check each discipline:
 | `coding/` | Code quality, TypeScript patterns, testability |
 | `data-modeling/` | UDM patterns, anti-patterns, assessment |
 | `design/` | UX modeling, ASCII conventions, accessibility |
+| `dx/` | Developer documentation patterns, skill quality rubrics |
 | `product-research/` | Competitive analysis, methodology, risk |
+| `search/` | Retrieval pipelines, scoring, retrieval evaluation |
 | `testing/` | Paradigm, gotchas, tool patterns, timing |
 
 **Check:** staleness, relevance to current stack, consumption by skills/agents, growth since seeding, cross-project vs project-specific content.
@@ -615,9 +619,12 @@ Pruned: N | Wired: N | Kept: N
 
 ## Severity Levels
 
+Four levels, the scale `sdlc-compliance-auditor` reports in. Where a dimension above says **Warning**, report it as **Major**.
+
 - **Critical**: Missing specs for completed features, deliverable ID conflicts, catalog entries pointing to nonexistent files
-- **Warning**: Incomplete artifact chains, stale docs, unarchived completed work, disconnected knowledge stores, dormant disciplines
-- **Info**: Minor naming inconsistencies, optional improvements, unmarked parking lot entries. Note: promotion candidates are no longer reported as INFO findings — they are handled interactively in step 11 (triage)
+- **Major**: Incomplete artifact chains, stale docs, unarchived completed work, disconnected knowledge stores, dormant disciplines
+- **Minor**: Naming inconsistencies, optional improvements, unmarked parking lot entries
+- **Info**: Observations. Promotion candidates are not findings: step 11 (triage) handles them
 
 ## Guiding Principles
 

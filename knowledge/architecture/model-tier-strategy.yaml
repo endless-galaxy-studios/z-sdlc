@@ -130,11 +130,10 @@ rules:
       deviates from the session default in one direction; omit it otherwise.
     rationale: |
       Model tier controls capability ceiling; effort controls how much of
-      that ceiling is spent per response. A sonnet worker at low effort is
-      cheaper than a haiku-tier model in some harnesses, and a top-tier
-      model at low effort wastes its advantage. Treating effort as part of
-      the role definition (frontmatter) rather than a per-dispatch decision
-      keeps the lever deterministic and auditable.
+      that ceiling is spent per response. When trading one lever against
+      the other, compare cost per completed task, not per token. Treating
+      effort as part of the role definition (frontmatter) rather than a
+      per-dispatch decision keeps the lever deterministic and auditable.
     checklist:
       - "Do recon/mechanical agents declare low effort in frontmatter (when the harness supports it)?"
       - "Do review agents for high-risk domains declare high+ effort?"
@@ -218,8 +217,7 @@ rules:
       interviewing, approach decisions, finding arbitration, spec/plan
       acceptance — so run the planning session's orchestrator on a top-tier
       model: Fable OR Opus, at CD's discretion (both are premium — choose by
-      task, quota, and preference; e.g. Fable 5 as flagship, or Opus 4.8's
-      1M-context variant for very large planning context). The framework does
+      task, quota, and preference). The framework does
       not prescribe one; the load-bearing split is planning-premium vs
       execution-Sonnet, not which premium. The Manager Rule guarantees the
       premium model never spends tokens on implementation.
@@ -356,8 +354,8 @@ assignment_rules:
 
   effort_rules:
     - "E1 — Default is to OMIT effort (inherit session). Set it only when the role STABLY deviates in one direction; effort is a per-role declaration, not a per-task tweak."
-    - "E2 — effort: low on recon/mechanical archetypes regardless of model: discovery, file/log summaries, checklist verification, routine mechanical edits, retrieval."
-    - "E3 — effort: high (→ xhigh/max) on judgment-heavy review of high-risk domains: escalated reviewers over auth, payments, migrations, concurrency, public APIs; deep-debugging agents."
+    - "E2 — effort: low on recon/mechanical archetypes regardless of model: discovery, file/log summaries, checklist verification, routine mechanical edits, retrieval. An agent at low effort that edits code also needs an instruction to run a real check (the project's tests, type-checker or build) before it reports the change done: at low effort, current Sonnet models more often report a change done without one."
+    - "E3 — effort: high on judgment-heavy review of high-risk domains: escalated reviewers over auth, payments, migrations, concurrency, public APIs; deep-debugging agents. Raise a role to xhigh or max only where a measured quality gain justifies the longer turns and extra tokens."
     - "E4 — Everything else: leave effort unset."
 
   guardrails:

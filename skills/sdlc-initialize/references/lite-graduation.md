@@ -135,7 +135,7 @@ Log `phase_end` with `result: pass`. Fall through to Phase 1 (Install the Skelet
 The remaining phases behave as follows for a graduated install:
 
 - **Phase 1 (Skeleton install):** Adds full framework files that don't already exist. Lite agents, lite skills, lite process docs (manager-rule, finding-classification, review-fix-loop), lite disciplines, lite knowledge, lite templates, and the changelog are all preserved. Full-framework additions: `sdlc-plan` / `sdlc-execute` / `sdlc-audit` / remaining skills, full process docs (deliverable_lifecycle, collaboration_model, knowledge-routing, etc.), chronicle directory, playbooks, remaining knowledge YAML files, remaining discipline files.
-- **Phase 2 (CLAUDE.md):** Adds the full SDLC-SDLC.md content block (no duplication — the lite block was removed in 0-L.e).
+- **Phase 2 (CLAUDE.md):** Adds the full CLAUDE-SDLC.md content block (no duplication — the lite block was removed in 0-L.e).
 - **Phase 3 (D1 catalog registration):** Upgrades `docs/_index.md` format if needed; preserves existing entries.
 - **Phase 4 (Domain agents):** Detects the 3 existing lite agents and does not recreate them. Asks CD whether to add additional full-roster agents (sdet, accessibility-auditor, security-engineer, etc.).
 - **Phase 5 (Agent-Context Map):** Preserves lite mappings for the 3 agents; adds entries for new agents created in Phase 4.

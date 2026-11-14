@@ -11,7 +11,7 @@ The standard deliverable lifecycle: **ideation → plan → execute**. Most work
 | `/sdlc-idea` or "I have an idea" | Invokes `sdlc-idea` — open-ended exploration for seeds that aren't ready to plan yet; produces an idea brief |
 | "Let's build X" / "Plan deliverable DNN" | Invokes `sdlc-plan` — full planning lifecycle (spec + plan with domain-agent review) for non-trivial work |
 | "Execute the plan at ..." | Invokes `sdlc-execute` — executes an approved plan; worker agents implement, review, and fix |
-| "Quick plan for X" / small tweak | Invokes `sdlc-lite-plan` — lightweight plan for same-session 1–3 file changes |
+| "Quick plan for X" / "lite plan" | Invokes `sdlc-lite-plan` — a reviewed plan without a spec, for work of moderate complexity (complexity is the trigger, not file count) |
 | "Execute the lite plan" | Invokes `sdlc-lite-execute` — executes a lite plan with the same review-fix loop |
 
 ## Lifecycle Commands

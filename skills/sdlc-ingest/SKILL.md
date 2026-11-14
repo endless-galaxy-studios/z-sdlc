@@ -42,7 +42,7 @@ Signs this skill is NOT appropriate:
 - Single file or single insight → add directly to a discipline parking lot
 - Codebase patterns → discipline capture protocol handles this organically
 - The user wants to explore an idea → `sdlc-idea`
-- The user wants competitive analysis → `/feature-compare` or product research tools
+- The user wants competitive analysis → product research, not this skill
 
 ## Core Principles
 

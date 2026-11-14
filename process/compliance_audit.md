@@ -18,7 +18,7 @@ A compliance audit compares a project's current documentation structure and prac
 
 | Area | What to Check | Standard |
 |------|---------------|----------|
-| CLAUDE.md | Has SDLC compliance section and commands table | SDLC content from `CLAUDE-SDLC.md` merged in |
+| CLAUDE.md | Has the sections merged from `CLAUDE-SDLC.md` | SDLC content from `CLAUDE-SDLC.md` merged in |
 | CLAUDE.md references | All file paths point to existing files | No broken links |
 | `_index.md` coverage | Every concept chronicle has an index | 100% coverage |
 | current_work hygiene | No completed deliverables lingering | Specs/results archived after chronicle org |
@@ -42,8 +42,8 @@ cat CLAUDE.md
 ```
 
 Verify:
-- [ ] SDLC Process Compliance section exists
-- [ ] SDLC Commands table exists with all standard commands
+- [ ] The `CLAUDE-SDLC.md` sections are merged in, starting with `## SDLC Process`
+- [ ] Key References points to `[sdlc-root]/process/commands.md` for the commands
 - [ ] All file path references point to existing files
 - [ ] Key references section includes SDLC process docs
 
@@ -57,7 +57,7 @@ ls docs/current_work/{specs,planning,results,issues}
 ls -d docs/chronicle/*/
 
 # Templates
-ls docs/templates/
+ls [sdlc-root]/templates/
 ```
 
 **1.3 Check _index.md coverage**
@@ -80,11 +80,10 @@ ls docs/current_work/results/*result.md
 
 **1.5 Check templates**
 
-Compare project templates against SDLC standard:
+Compare the installed templates against the install manifest:
 ```bash
-ls docs/templates/
-# Expected: spec_template.md, planning_template.md, cc_prompt_template.md,
-#           stepwise_result_template.md, concept_index_template.md
+ls [sdlc-root]/templates/
+# Expected: every templates/ entry in .sdlc-manifest.json's installed_files
 ```
 
 ### Phase 2: Categorize Findings
@@ -163,11 +162,11 @@ git commit -m "docs: SDLC compliance audit fixes"
 
 Use this as a quick pass/fail checklist:
 
-- [ ] CLAUDE.md has SDLC Process Compliance section
-- [ ] CLAUDE.md has SDLC Commands table with all commands
+- [ ] CLAUDE.md has the sections merged from `CLAUDE-SDLC.md`, starting with `## SDLC Process`
+- [ ] CLAUDE.md's Key References points to `[sdlc-root]/process/commands.md`
 - [ ] All CLAUDE.md file references resolve to existing files
 - [ ] All concept chronicles have `_index.md`
-- [ ] `docs/templates/` has all 5 standard templates
+- [ ] `[sdlc-root]/templates/` has every template `.sdlc-manifest.json` lists
 - [ ] `current_work/` contains only active (non-chronicled) work
 - [ ] No orphaned prompts for completed deliverables
 - [ ] Standard directory structure exists

@@ -8,6 +8,7 @@ Knowledge for assessing backend capabilities and estimating the cost of adding i
 knowledge/architecture/
 ├── README.md                                  ← This file
 ├── agent-communication-protocol.yaml         ← Cross-agent progress update and handoff protocol
+├── agent-orchestration-patterns.yaml         ← Task decomposition, agent group sizing, dependency graphs, dispatch prompts
 ├── api-design-methodology.yaml               ← REST maturity, versioning, webhooks, SDK strategy
 ├── backend-capability-assessment.yaml         ← Process an agent follows end-to-end
 ├── database-optimization-methodology.yaml     ← Query optimization, index strategy, bloat thresholds

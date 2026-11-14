@@ -64,8 +64,8 @@ Never sample silently. A report that claims "clean" over a sampled corpus withou
 Before flagging, consider known-legitimate patterns:
 
 - A result doc superseding a chronicle entry is intentional during rework — check for an explicit "supersedes" reference.
-- A spec without a plan may be pre-approval (status `awaiting-plan`) — check the status column before flagging.
-- A result without a commit link may be in-flight — if catalog status is `in-progress`, that's expected.
+- A spec without a plan may be pre-approval (status `Draft`) — check the status column before flagging.
+- A result without a commit link may be in-flight — if catalog status is `In Progress`, that's expected.
 - Sub-deliverable suffixes (D47a, D47b) are legal; do not flag them as duplicates of D47.
 
 When in doubt, downgrade severity rather than inflating. An **info**-tier finding labeled "possibly intentional, verify" is more useful than a **critical** false alarm.
@@ -87,7 +87,7 @@ Every finding must tell the fixer three things:
 - **Where** — the specific file path and, when useful, line number.
 - **Why** — the rule violated, so the fix isn't blindly applied.
 
-"Catalog is out of date" is a bad finding. "`docs/_index.md` is missing rows for D91–D93, which exist as result files; add rows with status `COMPLETE`" is a good finding.
+"Catalog is out of date" is a bad finding. "`docs/_index.md` is missing rows for D91–D93, which exist as result files; add rows with status `Complete`" is a good finding.
 
 ## Workflow
 
@@ -215,7 +215,7 @@ As part of migration integrity (Dimension 7), validate `PROJECT-SECTION` marker 
 | "This looks suspicious, I'll flag it and move on" | An assertion without a file path, line number, or commit SHA is not a finding. Prove it or drop it. |
 | "Everything I found is critical" | Severity is triage fuel; inflating it makes the report noise. Reserve critical for integrity failures. |
 | "The corpus is big; I'll just spot-check" | Declare your sampling explicitly. Silent sampling produces reports that can't be trusted or reproduced. |
-| "This broken link must be a bug" | Check for known-legitimate patterns (supersedes, awaiting-plan, sub-deliverables) before flagging. Downgrade before inflating. |
+| "This broken link must be a bug" | Check for known-legitimate patterns (supersedes, Draft spec without a plan, sub-deliverables) before flagging. Downgrade before inflating. |
 | "I'll write 'catalog is stale' and the fixer will figure it out" | Findings without what/where/why force the fixer to re-audit. Write findings another agent can execute against. |
 
 ## Self-Verification Checklist
@@ -225,7 +225,7 @@ Before returning findings:
 - [ ] Scope declaration includes audit window, exhaustive vs sampled dimensions, and any skips with reason
 - [ ] Every finding has location (path + line/SHA), observation, expectation, and suggested fix
 - [ ] Severity levels correctly assigned — critical reserved for integrity failures
-- [ ] False-positive patterns considered before flagging (supersedes, awaiting-plan, sub-deliverables)
+- [ ] False-positive patterns considered before flagging (supersedes, Draft spec without a plan, sub-deliverables)
 - [ ] Promotion candidates separated from findings; Dimensions 6 and 8 both checked
 - [ ] Score reflects actual findings (not inflated or deflated)
 - [ ] Output follows the structured format exactly, including executive summary and coverage notes

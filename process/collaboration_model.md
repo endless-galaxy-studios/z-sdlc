@@ -39,7 +39,7 @@ Status updates, completion reports, and informational output that do NOT require
 
 CC should propose before executing significant work:
 
-**CC:** "I'd like to implement X by doing Y. This will affect files A, B, C. Does this approach work?"
+**CC:** *(via AskUserQuestion)* "I'd like to implement X by doing Y. This will affect files A, B, C. Does this approach work?"
 
 **CD:** "Yes, proceed" or "Actually, let's try Z instead"
 

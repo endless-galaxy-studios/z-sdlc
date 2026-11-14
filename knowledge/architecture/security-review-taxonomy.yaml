@@ -670,9 +670,10 @@ security_tooling:
     either alone.
 
   agent_vs_tool_reliability: >
-    Agent-based security scanning (prompting an LLM to find vulnerabilities) has
-    a measured ~85% false positive rate (Semgrep 2025 study: 14-18% TPR across
-    Claude Code and OpenAI Codex). Agents excel at contextual reasoning —
+    Agent-based security scanning (prompting an LLM to find vulnerabilities) had
+    a measured ~85% false positive rate in Semgrep's 2025 study (14-18% TPR across
+    the Claude Code and OpenAI Codex versions it tested); re-measure before
+    applying that rate to current models. Agents excel at contextual reasoning —
     permission-check gaps, authorization logic flaws, IDOR patterns — but fail
     at inter-procedural taint tracking and multi-file data flow analysis. Tool-based
     SAST (Semgrep, ESLint) has near-zero false negatives for their rule sets but

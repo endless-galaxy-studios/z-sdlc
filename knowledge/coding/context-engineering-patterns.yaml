@@ -128,10 +128,11 @@ activation_engineering:
       after: "Rules that MUST be followed when working on database schema related tasks"
       effect: "Activation rate increased from ~10% to 57-83%"
       rule: >
-        Use imperative/mandatory framing in skill descriptions. Advisory
-        framing ("best practices for X") causes agents to skip the skill.
-        Mandatory framing ("rules that MUST be followed when X") triggers
-        activation reliably.
+        Frame a skill description as a trigger that says when the skill
+        applies ("Use when ...", "Required steps for X"). Advisory framing
+        ("best practices for X") causes agents to skip the skill. Keep the
+        wording plain: capitalized MUST in a description is urgency current
+        models apply as written, so the skill fires on adjacent work.
 
     task_instruction_nudge:
       addition: "MUST use applicable skills if relevant"

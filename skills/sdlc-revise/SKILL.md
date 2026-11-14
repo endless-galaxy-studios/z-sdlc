@@ -74,7 +74,7 @@ Fix failures by dispatch. A failure that survives two fix attempts: commit what 
 
 ### 5. Review the revision
 
-Run the loop in `[sdlc-root]/process/review-fix-loop.md` on the **revision diff** (`git diff <base>..` your changes), not the whole PR. Roster: `code-reviewer` plus one reviewer per touched domain. A revision is a small diff against a reviewed PR, so `software-architect` joins only when the revision changes structure (a new module, a moved boundary, a changed contract). Give each reviewer the requests so it can check they were met.
+Run the loop in `[sdlc-root]/process/review-fix-loop.md` on the **revision diff** (`git diff <base>..` your changes), not the whole PR. Roster: `code-reviewer` plus one reviewer per touched domain. A revision is a small diff against a reviewed PR, so `software-architect` joins only when the revision changes structure (a new module, a moved boundary, a changed contract). This narrows the standing reviewers in the mechanics below too: a narrow re-review adds `software-architect` only when it is on this revision's roster. Give each reviewer the requests so it can check they were met.
 
 <!-- MIRROR-START: review-fix-loop.md#code-review-mechanics -->
 **Review-fix loop — critical mechanics.** Canonical protocol: `[sdlc-root]/process/review-fix-loop.md`. Shared definitions (severity, deduplication, Open Minor Findings): `[sdlc-root]/process/finding-classification.md`. These steps are inlined so that skipping the read does not skip the behavior.

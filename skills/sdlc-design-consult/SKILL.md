@@ -290,7 +290,7 @@ Do NOT start implementing. The design consultation ends with a direction and a h
 | "Skip web research, I know what looks good" | Research grounds concepts in real-world patterns. Without it, designs are invented from training data. |
 | "The user just wants a quick opinion" | Give a quick opinion AND offer the full consultation. Quick opinions miss what structured analysis catches. |
 | "I'll skip reading the codebase, the designer knows it" | The designer starts fresh each dispatch. YOU gather context and pass it in. |
-| "I'll skip the design theory references, the designer has the skill" | The designer may not invoke it. Pre-extract the theory and include it in the brief. Belt AND suspenders. |
+| "I'll skip the design theory section, the designer knows theory" | The brief tells the designer which principles this request turns on. Without it, options come back as generic UI feedback and fail the theory enforcement check. |
 | "I'll skip SDLC context" | Prior deliverables may have established constraints or patterns. A 30-second scan prevents contradicting past decisions. |
 | "I'll present the designer's raw output" | Restructure into the comparison format. The user needs side-by-side evaluation, not an agent dump. |
 | "The user provided a screenshot that makes the problem obvious — skip research" | Screenshots show what IS, not what COULD BE. Research surfaces patterns the screenshot can't. |

@@ -121,7 +121,7 @@ The plan's other gates hold only what isn't a deploy (a backup, a live check). A
 | "Headless, but the gate is read-only, so I'll run it" | A headless run never does a gate's steps. Stop with `awaiting-approval`. |
 | "The gate failed; the next phase can work around it" | A failed gate stops the run. CD decides. |
 | "The plan ends with the post-deploy check" | The last item is a phase that writes the records. |
-| "This needs 8 phases plus 2 gates; time to split" | Gates don't count toward the phase limit. Count the phases. |
+| "This needs 6 phases plus 2 gates, 8 in all, over the limit of 7; time to split" | Gates don't count toward the phase limit. Count the phases. |
 
 ## Integration
 

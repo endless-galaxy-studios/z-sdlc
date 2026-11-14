@@ -6,7 +6,7 @@ Playbooks capture recurring task patterns so that planning doesn't start from sc
 
 Playbooks are a **reference, not a mandatory gate**. The planning agent decides whether a playbook is relevant — the same way templates work today. Consult a playbook when the task clearly matches a known pattern. Skip it when the task is novel or doesn't fit.
 
-Planning skills reference this directory with: "For recurring task types, consult `[sdlc-root]/playbooks/` for pre-seeded agent selection, knowledge context, and reference implementations."
+Planning skills (`sdlc-plan`, `sdlc-lite-plan`) read this README after their own agent selection, check each playbook in the Available playbooks table for task-type overlap, and report every candidate with its match or no-match reason.
 
 ## Format
 

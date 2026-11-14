@@ -18,7 +18,7 @@ This file owns the loop for **every review context** — code review (execution,
      Google AutoCommenter paper (AIware '24): AI review comments on unchanged code waste attention — scope to changed files.
      Reddit "How we vibe code at a FAANG": "Always write tests first" — tests before implementation, agent builds to pass. -->
 
-Before dispatching any review agent, confirm that machine-verifiable evidence exists and passes. Agent review without verification is opinion — it catches style and design issues but cannot reliably catch functional bugs (agent-based vulnerability detection has a measured ~85% false positive rate). Verification catches functional bugs but cannot catch design issues. Both are required; verification comes first because it's cheaper and objective.
+Before dispatching any review agent, confirm that machine-verifiable evidence exists and passes. Agent review without verification is opinion — it catches style and design issues but cannot reliably catch functional bugs. Verification catches functional bugs but cannot catch design issues. Both are required; verification comes first because it's cheaper and objective.
 
 **Required checks (run all that apply):**
 
@@ -133,7 +133,7 @@ Review round N results:
 2. **Calibrate** each finding's severity per `[sdlc-root]/process/finding-classification.md` § Severity Calibration — impact × likelihood, not the reviewer's alarm level. Record the rationale for any change. Never downgrade a severity to reach the exit bar.
 3. **Classify** each finding in the Classification Table per `[sdlc-root]/process/finding-classification.md`.
 
-**Security finding calibration:** Agent-based security review has a measured ~85% false positive rate (Semgrep 2025 study). Security agent findings that are not corroborated by tool output (Step 0 SAST results) should be scrutinized more carefully than findings from code-reviewer or architect agents. If a security finding seems plausible but uncertain, classify it as INVESTIGATE rather than FIX — verify it with a targeted tool scan or manual inspection before committing a fix that may be unnecessary.
+**Security finding calibration:** Weigh a security finding by its evidence: one that tool output (Step 0 SAST results) corroborates is machine-verified, and one that isn't needs its exploit path checked. If it seems plausible but uncertain, classify it as INVESTIGATE rather than FIX — verify it with a targeted tool scan or manual inspection before committing a fix that may be unnecessary.
 
 **What gets fixed this round.** Fix every `critical` and `major` FIX finding. Resolve every INVESTIGATE (diagnose, then reclassify) and DECIDE (CD answers via `AskUserQuestion`). Minor FIX findings accumulate: once no `critical` or `major` findings remain, all accumulated minors get **one batched fix pass**, re-reviewed under Step D like any other fix round. Minors still open after that pass — or open when the round cap is reached — go into the Open Minor Findings table (§ Exit Bar).
 
@@ -232,7 +232,7 @@ When the loop exits, announce it with the count of open minors: "Review loop com
 - **At the cap with only minors open:** exit under § Exit Bar with the Open Minor Findings table. The batched minor pass is skipped if the cap has no round left to re-review it.
 - **In a headless run** (no person present), the escalation is a stop: save the partial result doc, then end the run with status `escalated` and the open-findings table as its result. The run never claims the loop is clean and never continues past the cap on its own. DECIDE findings and unresolved INVESTIGATE findings mid-loop stop the run the same way, with status `needs-input`. A FIX that fails twice is not reclassified; it stops the run with `escalated`. PRE-EXISTING findings and minor PLAN findings do not stop it: they are listed under the result's `deferred`. A critical or major PLAN finding stops it with `needs-input`, because deferring it needs CD. Rule and result format: `[sdlc-root]/process/headless-mode.md`.
 
-The cap replaces the former 3-strike rule. FIX failure escalation (a FIX that fails twice is reclassified) still applies within the cap in interactive runs; a headless run stops with `escalated` instead (the bullet above).
+FIX failure escalation (a FIX that fails twice is reclassified) applies within the cap in interactive runs; a headless run stops with `escalated` instead (the bullet above).
 
 ## Plan Review
 
@@ -241,7 +241,7 @@ Plan review (`sdlc-plan`, `sdlc-lite-plan`) uses this loop's definitions — fre
 - **No verification gate.** There is nothing to build or test.
 - **Severity is read as impact on the implementation if the plan is executed as written**, and every FIX finding also carries the `Scope change` marker (`[sdlc-root]/process/finding-classification.md` § Scope-Change Marker).
 - **One revision dispatch per round.** All FIX findings go to the writing agent together; there is no separate minor batch pass. Minor FIX findings the revision does not incorporate go into the Open Minor Findings table in the plan file.
-- **Re-review fires on scope change, not severity.** Re-review is mandatory if ANY of: (1) any FIX finding has `Scope change` = yes, (2) the revised plan's Files list differs from the pre-revision Files list, or (3) a phase was added, removed, or its assigned agent changed. Otherwise there is no re-review. These are exactly the cases the pre-2026-10 trigger fired on (trigger (1) used to read "Severity = `critical`", when critical *meant* scope change).
+- **Re-review fires on scope change, not severity.** Re-review is mandatory if ANY of: (1) any FIX finding has `Scope change` = yes, (2) the revised plan's Files list differs from the pre-revision Files list, or (3) a phase was added, removed, or its assigned agent changed. Otherwise there is no re-review.
 - **When re-review fires, it dispatches the full roster** — the round-1 roster line. Step D's narrow re-review does not apply to plans.
 - **At the cap, an unreviewable revision escalates.** If round 3's revision would fire a re-review trigger, there is no round left to review it — escalate to CD under § Round Cap rather than exiting.
 

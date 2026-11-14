@@ -76,7 +76,7 @@ Every agent dispatched during TRIAGE must receive:
 2. **The classification so far** — what's been ruled in and what's been ruled out.
 3. **The domain lens** — what this specific agent should look at (not the whole system).
 4. **Output format** — a structured finding using the evidence report format below. The report format is what makes arbitration tractable when multiple agents return simultaneously.
-5. **Return budget** — "under 600 words." Agents default to verbose; incidents need density.
+5. **Return shape** — the evidence report below and nothing around it: verdict, cited evidence and causal chain, no narrative. Several reports arrive at once during an incident, and they have to be compared quickly.
 
 Dispatch prompts describe *what to investigate and why*. Agents decide *how*. Do not tell an agent what the root cause is — let them find it independently and converge. Parallel independent investigations are more valuable than one agent being given the answer.
 
@@ -101,7 +101,7 @@ Falsifying evidence — if you find any of these, the hypothesis is wrong:
 1. {observable condition that would rule it out}
 2. {observable condition}
 
-Return your findings in this format (under 600 words total):
+Return your findings in this format, each field holding only what the evidence supports:
 - Verdict: Confirmed | Falsified | Inconclusive
 - Confidence: High (>80%) | Medium (50-80%) | Low (<50%)
 - Confirming evidence: list each with file:line citation
@@ -533,7 +533,7 @@ Three things make a postmortem reusable:
 
 **2. Searchable terminology.** The Summary and Root Cause sections should use canonical terminology for the failure class (e.g., "connection pool exhaustion" not "db issues", "tenant isolation violation" not "data bleed"). Consistent terminology means searching the incident archive finds the full history of each failure class.
 
-**3. Periodic cross-incident pattern review.** After 4+ postmortems exist, the incident archive should be reviewed periodically: which root cause categories recur, which action items were never closed, which lucky conditions are still present. Note this in C8 (Handoff to Archival): when archiving, check for pattern recurrence across the archive.
+**3. Periodic cross-incident pattern review.** After 4+ postmortems exist, the incident archive should be reviewed periodically: which root cause categories recur, which action items were never closed, which lucky conditions are still present. Note this in C9 (Handoff to Archival): when archiving, check for pattern recurrence across the archive.
 
 ### C4. Preserve Hypothesis Log as Appendix
 

@@ -52,7 +52,7 @@ Signs this skill is NOT appropriate:
 
 ```
 SCOPE ──> DISCOVER ──> RESEARCH ──> CURATE ──> SAVE ──> PROVENANCE ──> REPORT
-  (you)     (you)      (agents)     (you)     (agent)   (you)      (you)
+  (you)     (you)      (agents)     (you)     (you)     (you)      (you)
                           │
                     ┌─────┴─────┐
                     │ parallel  │
@@ -63,9 +63,8 @@ SCOPE ──> DISCOVER ──> RESEARCH ──> CURATE ──> SAVE ──> PROV
               (one per source, in parallel)
 ```
 
-- **You** handle steps 1, 2, 4, 6, 7 (scoping, discovery, curation, provenance, reporting)
+- **You** handle steps 1, 2, 4, 5, 6, 7 (scoping, discovery, curation, saving, provenance, reporting)
 - **research-analyst agents** handle step 3 (fetching, reading, classifying articles)
-- **general-purpose agent** handles step 5 (writing large docs)
 - When multiple sources are researched, dispatch all research agents in a single parallel batch
 
 ### 1. Scope
@@ -185,7 +184,6 @@ Present a summary to the user:
 | Agent | When to Dispatch | Dispatch Count | What They Do |
 |-------|-----------------|----------------|-------------|
 | `research-analyst` | Step 3: for every source being researched | One per source, all in parallel | Fetches blog pages, runs web searches, reads articles, classifies by tier, returns structured findings |
-| `general-purpose` | Step 5: when the curated doc exceeds ~200 lines | One per doc being saved | Writes the curated reference doc |
 
 **When to use one agent vs. many:** If the user asks to research a single source (e.g., "research the Spotify blog"), dispatch one research-analyst. If multiple sources (e.g., "research all food delivery blogs"), dispatch one agent per source in a single parallel batch — never sequentially.
 
@@ -206,7 +204,7 @@ Present a summary to the user:
 ## Integration
 
 - **Feeds into:** `sdlc-ingest` (when the team wants to extract rules from discovered articles into SDLC knowledge stores). The provenance log (`[sdlc-root]/knowledge/provenance_log.md`) is the prepared handoff mechanism — research creates `pending-review` entries, the user approves them to `approved-for-ingest`, and `sdlc-ingest` can consume approved entries directly via "ingest from provenance"
-- **Uses:** `research-analyst` agent (primary), `general-purpose` agent (doc writing), WebFetch, WebSearch
+- **Uses:** `research-analyst` agent (primary), WebFetch, WebSearch
 - **Complements:** `sdlc-ingest` (this discovers, ingest absorbs), `sdlc-idea` (research may spark ideas)
 - **Does NOT replace:** `sdlc-ingest` (that extracts rules into knowledge stores; this catalogs external articles), direct WebSearch (for specific one-off questions)
 - **Depends on:** A research/reference directory in the project, project domain knowledge (from agent definitions, knowledge stores, or user input)

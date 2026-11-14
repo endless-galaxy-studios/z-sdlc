@@ -24,7 +24,7 @@ Severity applies only to FIX findings. Other classifications leave Severity blan
 | 1 | specific finding | agent-name | FIX / DECIDE / PRE-EXISTING | critical/major/minor | yes/no | why |
 ```
 
-## The Five Classifications
+## The Six Classifications
 
 | Classification | When | Action |
 |---------------|------|--------|
@@ -73,10 +73,10 @@ Do NOT use when:
 - The fix is fully scoped but large — that's still FIX, just multi-task
 - The fix needs CD input on direction but is otherwise scoped — that's DECIDE
 
-Architect/team-lead responsibilities for PRE-DELIVERABLE-SPLIT:
+Orchestrator responsibilities for PRE-DELIVERABLE-SPLIT:
 1. Capture all candidate options (with architect-side preference if applicable)
 2. Preserve evidence + context so the follow-up deliverable can resume without re-discovery
-3. Note the finder + relevant reviewers in metadata so they can be looped into the follow-up
+3. Note the finder and relevant reviewers with the finding so they can be looped into the follow-up
 4. Surface in the final report under "Future Deliverables" with proposed D-number
 
 ### Low-Severity In-Scope Findings (Planning Context)

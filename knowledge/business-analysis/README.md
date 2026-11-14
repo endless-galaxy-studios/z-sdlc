@@ -7,6 +7,8 @@ Requirements elicitation patterns, acceptance criteria feedback loops, and domai
 ```
 knowledge/business-analysis/
 ├── README.md                              ← This file
+├── data-storytelling-rules.yaml           ← Data presentations as narratives: insight-first headlines, progressive reveal, uncertainty
+├── gdpr-patterns.yaml                     ← GDPR legal basis, consent, data subject rights, retention, breach notification
 └── requirements-feedback-loops.yaml       ← Bidirectional acceptance criteria, test data as domain modeling, domain validation
 ```
 

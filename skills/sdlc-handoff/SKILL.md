@@ -214,7 +214,7 @@ If any check fails, fix the doc before reporting completion.
 
 | Thought | Reality |
 |---------|---------|
-| "I'll just leave a TODO comment in the code instead" | TODOs rot. A handoff is a tracked artifact that surfaces in `sdlc-status`-adjacent scans and gets resolved in `sdlc-archive`. Use the doc. |
+| "I'll just leave a TODO comment in the code instead" | TODOs rot. A handoff is a tracked artifact that `sdlc-archive` inventories and resolves. Use the doc. |
 | "The new session will read this conversation, I don't need to capture context" | The receiving session won't have this conversation. Capture every detail the receiver needs — file paths, error text, verbatim observations. |
 | "I'll write a one-paragraph handoff and let the receiver figure it out" | Handoffs without evidence are worse than no handoff — they look like work but force the receiver to redo discovery. Either capture real evidence or don't write the handoff. |
 | "I'll re-investigate to make the handoff thorough" | The handoff captures what's already known. Don't expand the investigation — that's the receiving session's job. Re-investigation is how this skill ends up duplicating `sdlc-idea`. |
@@ -232,6 +232,6 @@ If any check fails, fix the doc before reporting completion.
 - **Depends on:** Active session context (files touched, agent findings, observations); `docs/current_work/ideas/` directory (auto-created if missing).
 - **Feeds into:** `sdlc-idea` (exploration of an unscoped handoff), `sdlc-lite-plan` (lightweight planning), `sdlc-plan` (full planning), `sdlc-debug-incident` (active incidents), direct dispatch (single-agent fixes), `sdlc-archive` (resolves handoffs to chronicle).
 - **Uses:** `AskUserQuestion` for trigger classification and commit confirmation; `LSP`/`Grep` for quick reference confirmation only (no expanded investigation); `Write` for the doc.
-- **Complements:** `sdlc-status` (surfaces pending handoffs alongside active deliverables when invoked).
+- **Complements:** `sdlc-status` (shows active deliverables; it does not list handoffs, which sit in `docs/current_work/ideas/` until `sdlc-archive` inventories and resolves them).
 - **Does NOT replace:** `sdlc-idea` — handoffs are session captures, not exploration output. `sdlc-debug-incident` — active production incidents need the incident skill directly, not a handoff routed through it. `sdlc-plan` / `sdlc-lite-plan` — handoffs name the work; planning skills scope it.
 - **DRY notes:** The `*_handoff.md` filename and `docs/current_work/ideas/` location are already canonical conventions used by `sdlc-archive` (which handles archival of resolved handoffs). This skill produces the artifact; `sdlc-archive` cleans it up. Do not invent a parallel directory.

@@ -338,7 +338,7 @@ SCOPE → SWEEP (3 parallel, read-only) → SYNTHESIZE → ROUTE
 
 ### Reference Files
 
-- **`references/compliance-methodology.md`** — Full 9-dimension compliance audit methodology, report format, severity levels, guiding principles (migrated from sdlc-compliance-auditor agent)
+- **`references/compliance-methodology.md`** — Full 9-dimension compliance audit methodology, report format, severity levels, guiding principles (the `sdlc-compliance-auditor` agent's source of truth)
 - **`references/improvement-methodology.md`** — Detailed patterns for extracting process improvements from sessions, commits and factory digests
 - **`references/deep-verify.md`** — Full Deep Verify mode specification: pre-flight gates, content scoping, judge mechanics, demotion routing, provenance logging, reusable payload/removal scripts
 - **`references/codebase-health.md`** — Full Codebase Health mode specification: the three sweep prompts, detection heuristics, report format, routing rules

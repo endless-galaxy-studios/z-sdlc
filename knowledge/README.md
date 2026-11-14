@@ -8,15 +8,18 @@ Deep, structured knowledge organized by discipline. Each subdirectory contains p
 knowledge/
 ├── README.md                  ← This file
 ├── agent-context-map.yaml     ← Maps agents to their knowledge files
-├── architecture/              ← 16 files: system design, debugging, security, payments, ML, deployment
-├── coding/                    ← Code quality principles, TypeScript patterns, testability, mocking stance
+├── architecture/              ← System design, debugging, security, payments, ML, deployment, agent orchestration, model tiers
+├── business-analysis/         ← Requirements feedback loops, data storytelling, GDPR patterns
+├── coding/                    ← Code quality principles, TypeScript patterns, shell patterns, comment discipline, context engineering
 ├── data-modeling/             ← UDM patterns, anti-patterns, assessment templates
-├── design/                    ← UX modeling methodology, ASCII conventions, accessibility-testability
+├── design/                    ← UX modeling methodology, ASCII conventions, accessibility-testability, component and interaction patterns
+├── dx/                        ← Developer documentation patterns, skill quality rubrics
 ├── product-research/          ← Competitive analysis, data source evaluation, product methodology, risk assessment
+├── search/                    ← Retrieval strategies, ingestion pipelines, vector index tuning, retrieval evaluation
 └── testing/                   ← Tool patterns, component strategies, gotchas, timing, advanced patterns
 ```
 
-Other disciplines (business-analysis, deployment, process-improvement) will add directories here as their knowledge matures beyond the parking-lot stage in `disciplines/`.
+Other disciplines (deployment, process-improvement) will add directories here as their knowledge matures beyond the parking-lot stage in `disciplines/`.
 
 ## Relationship to Other Directories
 
@@ -234,8 +237,9 @@ grep -r '`sdet`\|`architect`\|`backend-developer`\|`frontend-developer`' .claude
 Key files that reference `sdet` (your testing agent name will differ):
 - `.claude/skills/sdlc-tests-run/SKILL.md`
 - `.claude/skills/sdlc-tests-create/SKILL.md`
-- `.claude/skills/sdlc-review-code/SKILL.md`
-- `.claude/skills/sdlc-plan/SKILL.md`
+- `.claude/skills/sdlc-execute/SKILL.md`
+- `.claude/skills/sdlc-debug-incident/SKILL.md`
+- `.claude/skills/sdlc-develop-verify-skill/SKILL.md`
 
 ### Step 3: Update discipline references
 

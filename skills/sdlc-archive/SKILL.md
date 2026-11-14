@@ -51,7 +51,7 @@ Perform a single exhaustive scan across ALL artifact types in `docs/current_work
 | Type | Location pattern | What makes it complete |
 |------|-----------------|----------------------|
 | **Full deliverable** | `docs/current_work/{specs,planning,results}/dNN_*` | Has spec + plan + result files |
-| **Lite deliverable** | `docs/current_work/sdlc-lite/dNN_*_result.md` | Result file exists |
+| **Lite deliverable** | `docs/current_work/sdlc-lite/completed/dNN_*_result.md` (or `sdlc-lite/dNN_*_result.md` if never moved) | Result file exists |
 | **Idea brief** | `docs/current_work/ideas/*_idea-brief.md` | Any state (triage in step 3) |
 | **Bug report** | `docs/current_work/ideas/*_bug-report.md` | Any state (triage in step 3) |
 | **Handoff** | `docs/current_work/ideas/*_handoff.md` | Any state (triage in step 3) |
@@ -153,8 +153,8 @@ For each approved deliverable (both full AND lite):
 
 2. **Copy files** to the concept chronicle:
    - Full deliverables: `docs/current_work/{type}/` → `docs/chronicle/{concept_name}/{type}/`
-   - Lite deliverables: `docs/current_work/sdlc-lite/dNN_*_result.md` → `docs/chronicle/{concept_name}/results/`
-   - If a lite deliverable has an associated plan or spec in `docs/current_work/sdlc-lite/`, copy those to the matching subdirectory
+   - Lite deliverables: `docs/current_work/sdlc-lite/completed/dNN_*_result.md` (or `sdlc-lite/dNN_*_result.md`) → `docs/chronicle/{concept_name}/results/`
+   - If a lite deliverable has an associated plan or spec in `docs/current_work/sdlc-lite/completed/` (or `sdlc-lite/`), copy those to the matching subdirectory
 
 3. **Update or create `_index.md`** in the concept directory with:
    - Overview of the concept

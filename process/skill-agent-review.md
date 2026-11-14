@@ -33,7 +33,7 @@ A project's own verify skill (`.claude/skills/verify/`, written by `sdlc-develop
 
 ### Frontmatter
 - `description` is double-quoted single-line with `\\n` escapes (single `\n` in YAML double-quoted strings is a real newline — breaks the parser)
-- Includes 1-2 `<example>` blocks as trigger mechanism, tiered by confusability: 1 if no confusable sibling agent exists, 2 (typical-use + seam) if one does. Never 3-4 — that was the previous default and is where most of the per-session description-token cost sat.
+- Includes 1-2 `<example>` blocks as trigger mechanism, tiered by confusability: 1 if no confusable sibling agent exists, 2 (typical-use + seam) if one does. Never 3-4: a third or fourth example adds to the per-session description cost without adding routing signal.
 - NO `<commentary>` blocks inside examples — they restate the scope sentence or Do-NOT-use boundary already present in the same description; pure redundancy, not routing signal
 - Includes a mandatory "Do NOT use for: X — use Y instead" boundary sentence — with examples capped at 2, this is the primary mechanism resolving overlap with adjacent agents, not optional prose
 - `model`, `tools`, `color` fields present

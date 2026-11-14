@@ -443,8 +443,8 @@ Fires only when the deliverable being registered is a sub-deliverable (called fr
 
 ### Recipe 4: *(no separate label recipe)*
 
-Deliberately absent. Labels are applied on `create-or-link`'s own `gh issue create --label`
-call (recipe 1, step 3) — this is what keeps CP-1 near the floor of its call-budget
+Deliberately absent. Labels are applied on `create-or-link`'s own create call (recipe 1,
+step 3: the REST create's `labels[]` fields) — this is what keeps CP-1 near the floor of its call-budget
 exemption, and labels travel with the issue across boards where a board field would need a
 fetch/edit pair per board. There is no follow-up label-edit call anywhere in the checkpoint
 recipes.

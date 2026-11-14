@@ -456,7 +456,7 @@ The factory owns every label starting `factory:`. `bootstrap.py` creates these a
 | `factory:ready-to-plan` | triage | Needs a plan. The triage comment names the tier (lite or full). The run stops at a plan or spec PR. |
 | `factory:needs-input` | any stage | Waiting on CD. The question comment carries `<!-- factory-stage: <stage> -->`. CD's reply comment restarts that stage. |
 | `factory:wait` | triage | Doesn't fit now. The comment says what would change that. |
-| `factory:review-capped` | execute | The review cap was hit. A draft PR is parked with an open-findings table. |
+| `factory:review-capped` | implement or execute | The review cap was hit. A draft PR is parked with an open-findings table. |
 | `factory:advisor` | triage or CD | A property, not a state: planning gets an advisor. Triage sets it when the plan turns on judgment and clears it otherwise; a label CD added always stands. State sweeps leave it alone. |
 | `factory:follow-up` | follow-up filer | A property: filed from a merged plan's checklist. Triage runs, then holds; the App's provenance marker, not the label, decides the hold. |
 | `factory:go` | CD | Releases a held issue (a follow-up or a split part): starts its triaged stage once, then removes itself. Needs write access. |

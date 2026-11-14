@@ -13,7 +13,7 @@ Any skill step that dispatches 2+ agents in parallel. Single-agent dispatches an
 | **Stuck agent** | Agent returns no file changes and no structured findings after a reasonable execution window | Re-dispatch with tighter scope, or dispatch `debug-specialist` to diagnose the blocker |
 | **BLOCKED signal** | Agent explicitly reports it cannot proceed (missing dependency, permission denied, ambiguous requirement) | Resolve the blocker before dispatching any work that depends on this agent's output |
 | **Workload imbalance** | One agent's dispatch covers 3x+ the files or findings of its peers | Split the overloaded agent's work into two dispatches, or accept the imbalance if the work is indivisible |
-| **File conflict** | Two agents report changes to the same file (detected via `git status` post-dispatch) | Revert the later write, re-dispatch one agent with the other's changes as context |
+| **File conflict** | Two agents report changes to the same file (detected via `git status` post-dispatch) | Revert nothing: re-dispatch the overwritten agent with the current file state and instructions to re-apply its changes (`[sdlc-root]/process/manager-rule.md` § No Exceptions for Scope or Completeness) |
 | **Idle agent** | Agent completes while peers are still running | Stand the agent down — do not invent busywork. Note completion in the dispatch log. |
 
 ## Monitoring Protocol

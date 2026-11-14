@@ -16,7 +16,7 @@ tail -n 200 .sdlc-transaction-log | jq -c 'select(.run_id | startswith("migrate-
 ```bash
 jq -r '.source_version' .sdlc-manifest.json
 ```
-Authoritative post-migration version. If this matches the intended `LATEST_VERSION`, migration completed. If it still shows the old version, Phase 4.5 didn't run.
+Authoritative post-migration version. If this matches the intended `[target_tag]`, migration completed. If it still shows the old version, Phase 4.5 didn't run.
 
 **Source clone state:**
 ```bash
@@ -36,7 +36,7 @@ grep -c '"event":"drift_decision"' .sdlc-transaction-log
 | State | Recovery Action |
 |-------|-----------------|
 | Crash before point_of_no_return (Phase 0–1 events, no `checkpoint: point_of_no_return` in log) | **Safe — no recovery needed.** Re-run `/sdlc-migrate` from the top. Phase 0 and Phase 1 are idempotent. |
-| Crash after point_of_no_return, manifest updated to `LATEST_VERSION` | **Migration completed.** Any remaining issues are audit-level. Dispatch `sdlc-compliance-auditor` to identify. |
+| Crash after point_of_no_return, manifest updated to `[target_tag]` | **Migration completed.** Any remaining issues are audit-level. Dispatch `sdlc-compliance-auditor` to identify. |
 | Crash after point_of_no_return, manifest still at old version | **Operational writes partial.** Re-run `/sdlc-migrate` — it detects the version skew and completes from the first unwritten file. PROJECT-SECTION marker re-extraction handles already-written files correctly. |
 | Crash during §2.1 direct copy | **File-level idempotency saves you.** Re-run — each direct copy is idempotent (same git show → same content). Previously copied files will simply re-copy with the same result. |
 | Crash during §2.1b knowledge YAML merge | **Knowledge files at intermediate state.** Re-run — key-level merge is idempotent when re-applied against its own output. Use git diff to verify files look correct after re-run. |

@@ -8,7 +8,7 @@ description: >
   Triggers on "let's build X", "new feature", "add support for Y", "start a new deliverable",
   "new D-number", "create deliverable", "/sdlc-plan", or a problem statement.
   Do NOT use for executing an already-approved plan — use sdlc-execute.
-  Do NOT use for lightweight same-session work (1–3 files) — use sdlc-lite-plan.
+  Do NOT use for lightweight work (1–3 files) — use sdlc-lite-plan.
   Do NOT use for open-ended exploration without a concrete scope yet — use sdlc-idea.
 ---
 
@@ -211,7 +211,7 @@ Consult `[sdlc-root]/knowledge/architecture/agent-orchestration-patterns.yaml` f
 
 Read `[sdlc-root]/knowledge/architecture/model-tier-strategy.yaml` for model/effort tier matching — planning concentrates judgment work (MTS1, MTS6), so this session should run on the highest-tier model available, while recon dispatches go to cheap tiers and the plan must assign risk-escalated reviewer tiers to high-risk phases (MTS4).
 
-Dispatch prompts must pass through all relevant context — outcomes, constraints, and any implementation guidance that would help the agent succeed. Never narrate readiness ("Ready to dispatch") and wait for user confirmation. The plan is already approved; execution means continuous forward motion. Use the full dispatch template from the orchestration patterns: objective, owned files (or "Read-only"), constraints, acceptance criteria, and out-of-scope. For spec-writing dispatches, acceptance criteria = "spec covers all required fields from the template"; out-of-scope = "do not propose implementation approach — that is the plan phase."
+Dispatch prompts must pass through all relevant context — outcomes, constraints, and any implementation guidance that would help the agent succeed. Never narrate readiness ("Ready to dispatch") and wait for user confirmation: dispatch when the context is ready. Only this skill's gates wait for CD. Use the full dispatch template from the orchestration patterns: objective, owned files (or "Read-only"), constraints, acceptance criteria, and out-of-scope. For spec-writing dispatches, acceptance criteria = "spec covers all required fields from the template"; out-of-scope = "do not propose implementation approach — that is the plan phase."
 
 ### 0. Register Deliverable
 
@@ -266,7 +266,7 @@ Relevant domain agents for this task:
    - **Typical phases** → use as the starting phase structure (adapt, don't copy blindly)
    - **Common gotchas** → surface as constraints in the spec and plan
    - **Key decisions** → add to discovery questions
-4. Report the scan as **evidence, not a verdict** in the Pre-Dispatch block. List every playbook in the catalog with a per-candidate match/no-match reason, then the chosen match:
+4. Report the scan as **evidence, not a verdict** in your step 1 output. List every playbook in the catalog with a per-candidate match/no-match reason, then the chosen match:
 
 ```
 Playbook scan: <N> in catalog — [slug-1: matched, <why> | no-match, <why>], [slug-2: ...]   (or: catalog absent — skipped)
@@ -585,7 +585,7 @@ The plan MUST include:
   - Architecture context: "This crosses the API boundary — both client and server adapters need changes"
 
   **Avoid even when including HOW:**
-  - Verbatim code blocks to copy-paste (full deliverable plans may sit days before execution — code shifts underneath them. sdlc-lite-plan relaxes this for same-session work where snippets are still fresh.)
+  - Verbatim code blocks to copy-paste (full deliverable plans may sit days before execution — code shifts underneath them. sdlc-lite-plan allows snippets as intent indicators the executor verifies against the code.)
   - Exact line numbers (they shift with any edit)
   - Exhaustive step-by-step sequences that turn the executing agent into a typist
 
@@ -620,7 +620,7 @@ Writer saves to: `docs/current_work/planning/dNN_name_plan.md`
 
 ### 5. Domain Agent Plan Review
 
-**AGENT-RECONFIRM** — emit before dispatching the round-1 review agents. It runs in round 1 only: re-review rounds re-dispatch the frozen round-1 roster and do not re-run AGENT-RECONFIRM. Use the compact / verbose form convention from §3c: emit either the compact table OR the verbose form, never both. Default to the compact table; use the verbose form when a coverage gap, delta from step 1, generalist-masking risk, or scope ambiguity is detected.
+**AGENT-RECONFIRM** — emit before dispatching the round-1 review agents. It runs in round 1 only: re-review rounds re-dispatch the frozen round-1 roster and do not re-run AGENT-RECONFIRM. Use the compact / verbose form convention from the AGENT-RECONFIRM block in step 3: emit either the compact table OR the verbose form, never both. Default to the compact table; use the verbose form when a coverage gap, delta from step 1, generalist-masking risk, or scope ambiguity is detected.
 
 Compact form (default):
 
@@ -639,7 +639,7 @@ Verbose form (when a fall-back trigger fires):
 ```
 AGENT-RECONFIRM
 Packages in plan: [list]
-Infrastructure touched: [scan each domain's trigger conditions (§3c infrastructure table) — list every domain where at least one condition is true]
+Infrastructure touched: [scan each domain's trigger conditions (`[sdlc-root]/process/agent-selection.yaml` § `infrastructure_domains`) — list every domain where at least one condition is true]
 Agents from step 1: [list]
 Coverage check (packages): [each package → agent with domain expertise]
 Coverage check (infrastructure): [each infra domain listed above → specialist agent if one exists in the agent table, or "no specialist" if none exists]
@@ -750,7 +750,7 @@ Full plan: `docs/current_work/planning/dNN_name_plan.md`
 
 Nothing else: no execution prompt or instructions for starting it, and no `AskUserQuestion` in the same turn. Do not transform, shorten, summarize, or rephrase the brief in any way. Copy-paste it.
 
-**Why this procedure exists:** The LLM's default behavior when asked to "present" content is to summarize it. This has caused compliance failures where the manager wrote a condensed version of the plan instead of the verbatim file. CD approves from a short brief, but the manager still never writes it: the plan's author wrote the brief and a fresh reader checked it against the plan (step 5b). The Read-then-paste procedure makes that section the message itself, with no intermediate "understand and re-express" step.
+**Why this procedure exists:** asked to "present" content, a model tends to summarize it. CD approves from a short brief, but the manager still never writes it: the plan's author wrote the brief and a fresh reader checked it against the plan (step 5b). The Read-then-paste procedure makes that section the message itself, with no intermediate "understand and re-express" step.
 
 **Approval** is CD starting execution in a new session; `sdlc-execute` loads the plan from the saved file. **A change request** goes back to the writing agent. Re-run review when its re-review triggers fire, then step 5b, then present the brief again.
 
@@ -774,7 +774,7 @@ Not every invocation needs a deliverable ID. For ad hoc work (bug fixes, small t
 | "Add one more reviewer, just in case" | Breadth is per touched domain, not headcount. Beyond five reviewers, each extra agent needs a one-sentence statement of what it uniquely adds. |
 | "Only one domain is involved" | Most tasks touch 2+ domains. Check again. |
 | "Skip straight to coding, the plan is obvious" | Planning catches issues that cost 10x more to fix during execution. |
-| "Ready to dispatch" / "Let me dispatch now" | Never narrate readiness — just dispatch. The plan is already approved. |
+| "Ready to dispatch" / "Let me dispatch now" | Never narrate readiness — just dispatch. Only this skill's gates wait for CD. |
 | "Headless run, spec or plan saved — I'll treat it as approved and keep going" | Approval happens outside a headless run. Stop with `awaiting-approval`, and never start the next stage in the same run. |
 | "I'll paste the whole spec or plan so CD sees everything" | CD approves from the Approval Brief. A document pasted in full is where CD stops reading. The document is one path away. |
 | "The brief just needs a small fix; I'll make it" | The document's author writes and fixes the brief (steps 2a and 5b). The manager only counts its words, and fixes WORDING the spec revision already changed. |
@@ -787,7 +787,7 @@ Not every invocation needs a deliverable ID. For ad hoc work (bug fixes, small t
 | "Spec/plan's approved — now I'll offer the explainer" | Explainer precedes approval, never follows it. The offer resolves (declined, or accepted and delivered) before the approval gate; a post-approval explainer can't inform the decision it exists to support. |
 | "I'll ask for approval and offer the explainer in one question" | Never bundle them. The offer is its own interaction; if CD accepts, deliver the HTML, then ask for approval. |
 | "I'll use opus for everything to be safe" | Model tiers are pre-assigned in agent frontmatter. Trust the assignment. |
-| "The agent will figure out what skills to load" | Iron Law 2: subagents don't inherit skill awareness. Load skills in the prompt. |
+| "The agent will figure out what skills to load" | Subagents don't inherit skill awareness. Load skills in the prompt. |
 | "Playbook match: none" (without having read the catalog) | A bare "none" is fabrication unless you can list the slugs you scanned. Read `[sdlc-root]/playbooks/README.md`, name every candidate, and give a per-candidate verdict. Deriving the roster from a precedent instead of scanning is how a real, overlapping playbook gets missed. |
 | "I'll ask all my questions at once to save time" | Batched questions get shallow answers. One question at a time surfaces real constraints. |
 | "The approach is obvious, no prototype needed" | Have we built this integration before? If no, define the question a prototype or feasibility audit would answer. If yes, cite the precedent. |
@@ -798,7 +798,7 @@ Not every invocation needs a deliverable ID. For ad hoc work (bug fixes, small t
 | "I'll paste a full code block so the executor can copy it" | Verbatim code goes stale across context clears. Include approach guidance, key functions, and file relationships — but not copy-paste code blocks. |
 | "I'll revise the spec myself, it's just a wording change" | Classify first (SPEC-REVISION). SCOPE_CHANGE and PIVOT need agent dispatch. Only WORDING is orchestrator-editable. |
 | "The agent list from step 1 still applies" | Run AGENT-RECONFIRM. Scope changes during spec revision or plan writing can introduce domains not in the original list. |
-| "Package coverage is enough, no infrastructure specialists needed" | Generalists mask specialists. Run the infrastructure trigger table — it takes 30 seconds and catches what package-level checks miss. |
+| "Package coverage is enough, no infrastructure specialists needed" | Generalists mask specialists. Run the infrastructure triggers (`[sdlc-root]/process/agent-selection.yaml` § `infrastructure_domains`) — it takes 30 seconds and catches what package-level checks miss. |
 | "I'll incorporate the review findings myself, it's faster" | Re-dispatch the writing agent with the findings. Manager Rule applies to revisions too. |
 | "I'll just save the agent's output myself with Write" | The writing agent saves. The manager only reads the file (step 6a) and appends the Domain Agent Reviews section (step 5). Saving the returned body yourself risks transcription drift and breaks the Manager Rule. If the agent returned the body instead of saving, re-dispatch it with explicit instructions to use the `Write` tool. |
 | "I'll just add the structural elements myself — the agent wrote the content" | There is no structural/content distinction. Missing sections (phase dependencies, file list, agents, domain agent reviews) go back to the writing agent. Re-dispatch. |

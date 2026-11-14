@@ -154,7 +154,7 @@ Follow the state machine in `[sdlc-root]/process/deliverable_lifecycle.md`. Upda
 - **No semantic revert:** fixing a bug by removing the feature is not a fix — preserve the user's requested behavior.
 - **Session scope:** this rule stays active for the entire session. There is no post-commit wind-down mode.
 
-**No pre-dispatch narration.** Status comes from the gates (PRE-GATE, POST-GATE, REVIEW-GATE) — not from sentences around them. Do not type filler describing what you are about to do: "Plan loaded.", "Let me check the catalog.", "Proceeding to Phase N.", "Now updating the catalog and committing.", "Staged set looks correct. Committing." The gates ARE the protocol; commentary around them is noise the user has to scroll past. The two acceptable exceptions are: (1) a one-line note conveying genuinely new information — a deviation observed, a phase-bleeding decision, a serialization choice forced by mid-stream discovery, a triage rationale; (2) the explicit announcements other rules require ("Review loop complete — …", REVIEW-GATE block, etc.). When in doubt, prefer the gate over a sentence.
+**Status lives in the gates.** PRE-GATE, POST-GATE and REVIEW-GATE carry the run's status. Between them, write a line when it tells CD something new — a deviation observed, a phase-bleeding decision, a serialization choice forced by mid-stream discovery, a triage rationale — and make the announcements other rules require ("Review loop complete — …", the REVIEW-GATE line).
 
 ## Phase Details
 
@@ -203,7 +203,7 @@ Verbose form (use when any of these triggers fires):
 - **Dependency re-check** — the Phase plan table needs amending (mid-execution re-sequencing, late-discovered conflict)
 - **Re-dispatch** — partial completion or stub fix within this same phase
 
-Verbose form — single phase. Emit as a table; the labeled-field block format is deprecated:
+Verbose form — single phase, as a table:
 
 ```
 **PRE-GATE Phase [N] — [phase name]**
@@ -252,7 +252,7 @@ Design Decisions — Phase [M]:
 | Ownership model | When to use | Typical agent assignment |
 |-----------------|-------------|--------------------------|
 | **By package** (monorepo boundary) | Default for full-stack features — each phase owns one package or top-level directory | One domain agent per package |
-| **By layer within a package** | When a single-package feature has clean vertical layers and one agent per layer makes sense | db-architect (models/migrations), backend-developer (routes/services), sdet (tests/) |
+| **By layer within a package** | When a single-package feature has clean vertical layers and one agent per layer makes sense | data-architect (models/migrations), backend-developer (routes/services), sdet (tests/) |
 | **By module/feature** | When touching multiple independent features within one package | One domain agent per feature subdirectory |
 | **Vertical slice** | One agent owns end-to-end for a narrow user-facing capability (UI + API + tests) | Single domain agent (rare — prefer horizontal layer) |
 | **Horizontal layer** | One agent owns their layer across all features in the phase | One domain agent per layer |
@@ -513,10 +513,10 @@ Before claiming the work is done:
    - Result doc (`docs/current_work/results/dNN_*_result.md`)
    - Spec file (`docs/current_work/specs/dNN_*_spec.md`) — status marker updated to Complete
    - Plan file (`docs/current_work/planning/dNN_*_plan.md`)
-   - Idea brief (`docs/current_work/ideas/dNN_*_idea.md`) if associated with this deliverable
+   - Idea brief (`docs/current_work/ideas/*_idea-brief.md`) if associated with this deliverable
    - Catalog updates (`docs/_index.md`)
    - Discipline parking lot entries (`[sdlc-root]/disciplines/*.md`)
-   - Knowledge store updates (`[sdlc-root]/knowledge/*.md`)
+   - Knowledge store updates (`[sdlc-root]/knowledge/**/*.yaml`)
    - CLAUDE.md updates from step 3d (root and any module-level files)
    - Process changelog (`[sdlc-root]/process/sdlc_changelog.md`) if updated
    - Review fixes from the review loop
@@ -526,7 +526,7 @@ Before claiming the work is done:
 
    {optional body — brief summary of what was changed and why}
 
-   Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
+   {Co-Authored-By trailer, if your harness specifies one}
    ```
    **Types:** `feat` (new feature), `fix` (bug fix), `refactor` (restructure, no behavior change), `docs` (documentation only), `test` (adding/updating tests), `chore` (build, config, tooling, dependencies), `style` (formatting, no logic change), `perf` (performance improvement), `ci` (CI/CD changes), `sdlc` (SDLC process, skills, agents, or framework changes)
    **Example:** `feat[D-042](auth): add session refresh endpoint`
@@ -608,7 +608,7 @@ The Manager Rule remains in effect per `[sdlc-root]/process/manager-rule.md` —
 
 ## Agent Selection Reference
 
-The plan identifies which agents are relevant. If you need to add agents not listed in the plan (e.g., a security concern surfaces during implementation), refer to the full agent tables in the `sdlc-plan` skill's Agent Selection section.
+The plan identifies which agents are relevant. If you need to add agents not listed in the plan (e.g., a security concern surfaces during implementation), use `[sdlc-root]/process/agent-selection.yaml` (Tier 1), the canonical agent-to-domain mapping.
 
 - **Project-level agents**: `.claude/agents/` (project root)
 - **Personal-level agents**: `~/.claude/agents/`
@@ -642,14 +642,14 @@ When the deliverable is complete, the "Let's organize the chronicles" command mo
 | "I'll just merge the conflict / fix the loose ends myself" | Parallel conflict or partial completion is still an agent task. Re-dispatch the affected agent. |
 | "Findings are minor, ship it" | Minors get one batched fix pass once no critical or major findings remain. Any still open go in the result doc's Open Minor Findings table — never silently dropped, and only CD closes them. |
 | "I dispatched most of the agents" / "Re-review is overkill" | Re-review is mandatory; its roster comes from the mechanical trigger, never judgment. Small, file-local minor fixes get the narrow roster (raisers + standing reviewers) — they never get no roster. Count the names on the roster line. Count the dispatches. They must match. |
-| "I'll skip the PRE-GATE / POST-GATE" | The mandatory output blocks exist because these were skipped in 100% of early executions. Emit the block. |
+| "I'll skip the PRE-GATE / POST-GATE" | The blocks are the record of each phase's checks; a skipped block is a skipped check. Emit the block. |
 | "One more iteration and I'll get it" | The loop is capped at three review rounds. At the cap with critical or major findings open, escalate to CD with the open-findings table and documented attempts. |
 | "This only touches the frontend" | Check. Features rarely affect one layer. If it changes data shape or API contract, backend must review too. |
 | "I know a better way to do this" | Search first. If a pattern exists, follow it. Consistency beats cleverness. |
 | "I'll fix it without triaging first" | Classify the problem in the Classification Table (2b) before attempting a fix. Wrong classification wastes iterations. |
 | "This finding is about code I didn't modify in that file" | If the file is in the plan's Files list, the finding is in scope. File presence is the test, not function-level diff. |
 | "The review loop finished cleanly" | Output the exit announcement before proceeding. Silent state transitions cause drift. |
-| "Build passes, fixes are done — moving on" | Build-pass is not the review loop exit. After ANY fix round, re-run the verification gate and re-review with the roster the mechanical trigger picks. Only exit at the exit bar. Two audits caught this same skip. |
+| "Build passes, fixes are done — moving on" | Build-pass is not the review loop exit. After ANY fix round, re-run the verification gate and re-review with the roster the mechanical trigger picks. Only exit at the exit bar. |
 | "This is really a minor — I'll label it minor so the loop can exit" | Calibration applies impact × likelihood; it is never a lever for exiting. Downgrading severity to meet the exit bar is unilateral demotion. |
 | "We're at the cap — close enough, call it clean" | At the cap with critical or major findings open, stop and escalate via `AskUserQuestion` with the open-findings table. Never claim the loop is clean. |
 | "I'll resume last round's reviewer — it already has the context" | Every round uses fresh subagents. A resumed reviewer judges from memory of its own findings, and its growing context makes each round cost more. Pass the prior findings table and fix diff instead. |
@@ -671,7 +671,7 @@ When the deliverable is complete, the "Let's organize the chronicles" command mo
 | "Frontend phase and backend phase touch different files, so they can run in parallel" | Logical dependency ≠ file overlap. If frontend consumes backend's schemas or generated types, backend produces the contract first. Dispatch the contract-producing phase, verify the artifact, then dispatch consumers. |
 | "The parallel decomposition isn't working — I'll just serialize what's left and keep going" | Silent serialization hides the planning defect. Emit `REVISE_PLAN` triage and wait for CD. The discipline entry protects the next deliverable. |
 | "Two phases are both assigned to the same agent but touch different files — run them in parallel" | A single agent session cannot be dispatched twice concurrently. Two phases sharing an agent owner must sequence, regardless of file non-overlap. |
-| "Plan loaded. Let me check the catalog. Proceeding to Phase 1." | Pre-dispatch narration is noise. Read the plan, then emit the PRE-GATE — no filler sentences between tool calls and gates. |
+| "Plan loaded. Let me check the catalog. Proceeding to Phase 1." | Status lives in the gates. Read the plan, then emit the PRE-GATE; between gates, write only what is new. |
 | Two phases dispatched in parallel, two long PRE-GATE blocks emitted | Use the parallel comparison table form. One table with phase columns is faster to read than two stacked blocks. |
 | Triage emitted as "Will fix:" + "Out of scope:" bullet lists with `[agent-name]` brackets | Use the canonical Classification Table from finding-classification.md. Bullet lists force the reader to re-parse classification from prose. |
 

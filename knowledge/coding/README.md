@@ -10,7 +10,8 @@ knowledge/coding/
 ├── code-quality-principles.yaml           ← Structural rules: testability, mocking stance, code smells
 ├── typescript-patterns.yaml               ← Branded types, Result types, exhaustiveness, type predicates
 ├── comment-discipline.yaml                ← What a comment is for: what to keep, cut and write; trimming rules for sdlc-cleanup-comments
-└── context-engineering-patterns.yaml      ← Activation framing, prompt caching, model-to-skill alignment, context-window management
+├── shell-patterns.yaml                    ← Defensive Bash: strict mode, error trapping, safe variables, idempotency, ShellCheck
+└── context-engineering-patterns.yaml      ← Curated context, three-layer context composition, skill activation framing, validating context with evals
 ```
 
 ## How This Gets Used

@@ -12,6 +12,7 @@ knowledge/design/
 ├── accessibility-testability-principles.yaml    ← A11y and testability as a single concern
 ├── component-patterns.yaml                      ← UI component rules (icons, buttons, nav, modals, inputs, cards)
 ├── interaction-animation.yaml                   ← Interactive states, micro-interactions, animation easing
+├── interaction-patterns.yaml                    ← Interaction design rules: states, animations, easing, gestures, feedback
 ├── visual-design-rules.yaml                     ← Color theory, palettes, dark mode, shadows, gradients
 └── layout-principles.yaml                       ← Spacing, grid, structural layout principles
 ```

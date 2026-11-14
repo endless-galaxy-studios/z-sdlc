@@ -112,8 +112,11 @@ rules:
       Every SKILL.md must define an explicit input/output contract. The "Input"
       section documents what the skill receives; the "Output" or "Returns"
       section documents what it produces, with enough structure that a calling
-      agent can parse the result without additional context. The skill must not
-      contain decision-tree routing to other skills or agents.
+      agent can parse the result without additional context. A worker skill
+      must not contain decision-tree routing to other skills or agents.
+      Orchestration skills dispatch domain agents by design: they are exempt
+      from this routing rule and its checks below, and meet the Orchestration
+      requirements in [sdlc-root]/process/skill-agent-review.md instead.
     rationale: |
       A skill without an input/output contract is a black box — the calling
       agent cannot reliably compose it with other skills. An orchestrator skill

@@ -92,9 +92,8 @@ or logged by the provider. This is an outward-facing action:
   files before they reach the wrapper.
 - For proprietary or sensitive codebases, prefer a **local** model (llama.cpp /
   Ollama) so nothing leaves the machine. The OpenCode local-serving reference
-  (`[sdlc-root]/../skills/sdlc-port-opencode/references/local-model-serving.md`
-  in source; consult the installed local-model notes) documents a suitable local
-  setup.
+  (`.claude/skills/sdlc-port-opencode/references/local-model-serving.md`)
+  documents a suitable local setup.
 - The gate must state, each time it runs, **where the code is going** (which
   model / endpoint) so CD sees the egress. If the project has not durably
   authorized egress to a hosted provider, confirm with CD before the first

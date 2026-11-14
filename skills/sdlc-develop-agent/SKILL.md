@@ -67,7 +67,7 @@ Read the `.claude/agents/` directory to identify existing agents and their domai
 
 ### 2. Frontmatter Generation
 
-**CRITICAL:** The `description` field MUST be a double-quoted single-line string using `\\n` (double-backslash n) for newlines. In YAML double-quoted strings, a single `\n` is a real newline character. In April 2026 it broke Claude Code's agent frontmatter parser, and by October 2026 Claude Code loaded both forms. Always use `\\n`, the only form that has worked every time, so the parsed string contains a literal `\n`. Block scalars (`|`, `>`) and multi-line quoted strings also break the parser.
+**CRITICAL:** The `description` field MUST be a double-quoted single-line string using `\\n` (double-backslash n) for newlines. In YAML double-quoted strings, a single `\n` is a real newline character. Always use `\\n`, the one form every Claude Code version has parsed, so the parsed string contains a literal `\n`. Block scalars (`|`, `>`) and multi-line quoted strings also break the parser.
 
 The description MUST include:
 - Triggering conditions ("Use this agent when...")
@@ -252,7 +252,7 @@ Dispatch the `sdlc-reviewer` subagent on the created agent file. The reviewer ch
 
 | Thought | Reality |
 |---------|---------|
-| "The description can use block scalars (> or \|)" | Agent descriptions MUST be double-quoted single-line with `\\n` escapes (double-backslash). A single `\n` in YAML double-quoted strings becomes a real newline, which broke the parser in April 2026. |
+| "The description can use block scalars (> or \|)" | Agent descriptions MUST be double-quoted single-line with `\\n` escapes (double-backslash). A single `\n` in YAML double-quoted strings becomes a real newline; `\\n` is the one form every Claude Code version parses. |
 | "I'll give the agent all tools to be safe" | Fewer tools = less latitude to diverge. Only list what the agent actually needs. |
 | "The example blocks are optional" | Examples are the primary trigger mechanism. Without them, Claude Code won't suggest this agent. 1 minimum (2 if a confusable sibling exists) — but never more than 2, and never with `<commentary>`. |
 | "I don't need anti-rationalization entries" | Every agent rationalizes shortcuts. The table is mandatory. |

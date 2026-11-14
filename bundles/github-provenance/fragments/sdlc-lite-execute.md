@@ -2,7 +2,7 @@
 
 **Activation gate:** skip this entire section unless `[sdlc-root]/process/github-checkpoints.md` exists and its config block says `enabled: true`. In a headless run, unless the caller's prompt hands checkpoints to the run, each checkpoint below does only its local half (issue links when the issue is known, the local artifact commit) and puts its GitHub half under the result's `outbound` as a rendered entry for the caller. A headless run whose prompt names the deliverable's issue also writes any missing issue links (`github_issue:` frontmatter, the catalog link) before its own work, even when it skips registration (`[sdlc-root]/process/github-checkpoints.md` § Headless Runs).
 
-This skill owns **CP-4, CP-5, CP-7, CP-8**, and the conditional **CP-S1/CP-S2** pair. It owns **neither CP-6 nor CP-9** — lite deliverables run a single-pass review and stop at the `validated` column.
+This skill owns **CP-4, CP-5, CP-7, CP-8**, and the conditional **CP-S1/CP-S2** pair. It owns **neither CP-6 nor CP-9** — the checkpoint map assigns CP-6 to `sdlc-execute` only, and lite deliverables stop at the `validated` column.
 
 **Read `[sdlc-root]/process/github-checkpoints.md` before firing any of them.** That document is the policy: what each checkpoint says, where it moves the card, the comment templates, the column roles/names/ranks, the floor rule, the never-block invariant, SHA-pinned link policy, commit conventions, terminology, content prohibitions, and the failure classes. None of it is restated here. The mechanics — the exact `gh`/`git` calls — are the named recipes in `sdlc-manage-github` § SDLC Checkpoint Recipes; call them by name rather than assembling commands.
 

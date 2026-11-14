@@ -305,6 +305,8 @@ Skip it if the file exists (lite graduation moves the lite changelog there first
 
 This is the single source of truth for all deliverable IDs and their statuses.
 
+Next ID: **D1**
+
 ## Active Deliverables
 
 | ID | Name | Status | Depends on | Spec | Plan | Result |
@@ -498,7 +500,7 @@ CC writes CLAUDE.md directly (agents don't exist yet). Use the spec as the sourc
    - If multi-language: document the boundary conventions (e.g., snake_case API, camelCase frontend)
 5. **SDLC process section** — read `CLAUDE-SDLC.md` from z-sdlc source and merge the full content into this section, adapted for this project
 6. **Verification policy** — zero-assumption rule, Context7 for external libs, read code before asserting
-7. **Agent dispatch conventions** — agent-first, never self-implement, manager rule
+7. **Agent dispatch conventions** — agent-first under the Manager Rule (dispatch by default; self-apply only under its Delegation Economics Exception, and review every self-applied change)
 
 **Optional sections (detect and include if applicable):**
 
@@ -562,7 +564,7 @@ If CD's proposed roster omits either of these, add them and explain why. These a
 
 **Framework agents (pre-installed by Phase 1 — do NOT create as domain agents):**
 - `sdlc-reviewer` — reviews skill/agent files against z-sdlc conventions (dispatched by `sdlc-develop-skill`, `sdlc-develop-agent`)
-- `sdlc-compliance-auditor` — performs 10-dimension compliance scan (dispatched by `sdlc-audit`)
+- `sdlc-compliance-auditor` — performs the 9-dimension compliance scan, 10 with the `github-provenance` bundle (dispatched by `sdlc-audit`)
 
 The `sdlc-audit` skill is already installed by Phase 1 — do not recreate it as an agent.
 
@@ -588,7 +590,7 @@ Deviations:
   - [role] — [not created / created but not in spec] — [reason]
 ```
 
-Present deviations to CD. This prevents the neuroloom-bootstrap gap where spec-listed agents were silently dropped without a deviation record.
+Present deviations to CD, so no role the spec lists is dropped without a recorded deviation.
 
 **4e. Verify dispatcher wiring.**
 
@@ -757,9 +759,9 @@ CD selects which stores to mark as `spec_relevant: true`. Update the selected fi
 
 ### Phase 7: Seed Discipline Parking Lots
 
-Read each of the 9 discipline files in `ops/sdlc/disciplines/`. For each, add a "## Project Context" section with 3–5 bullets specific to this project's stack and domain.
+Read each discipline file in `ops/sdlc/disciplines/` (every `*.md` except `README.md`). For each, add a "## Project Context" section with 3–5 bullets specific to this project's stack and domain.
 
-Dispatch the `software-architect` agent to produce the seed content for all 9 disciplines in one pass, given the spec as input. The agent returns the seed content; the orchestrator appends it to each file.
+Dispatch the `software-architect` agent to produce the seed content for all of them in one pass, given the spec as input. The agent returns the seed content; the orchestrator appends it to each file.
 
 | Discipline | Seed Focus |
 |-----------|-----------|
@@ -771,6 +773,8 @@ Dispatch the `software-architect` agent to produce the seed content for all 9 di
 | deployment | Target platform, service topology, local dev stack |
 | business-analysis | Revenue model, multi-tenancy, auth strategy |
 | product-research | Market context, competitive landscape, ecosystem position |
+| dx | Documentation architecture, getting-started flows, internal doc standards, skill quality |
+| observability | Instrumentation, structured logging, metrics, tracing, alerting design |
 | process-improvement | Note: "First project from z-sdlc — capture friction for upstream" |
 
 ### Phase 8: Seed Testing Knowledge
@@ -816,7 +820,7 @@ If not found and the project has UI, tell CD:
 
 ### Phase 9a: Assess Initial Maturity Levels
 
-Read the maturity level definitions in `ops/sdlc/disciplines/process-improvement.md` (§ Process Maturity Levels). For each of the 9 disciplines, assess the initial level based on what was just set up:
+Read the maturity level definitions in `ops/sdlc/disciplines/process-improvement.md` (§ Process Maturity Levels). For each discipline, assess the initial level based on what was just set up:
 
 **Level 1 (Initial)** — discipline parking lot entries exist but no knowledge store for this discipline.
 
@@ -886,7 +890,7 @@ Agents:
 Knowledge & Disciplines:
 [ ] Knowledge: upstream carried + stack-specific seeded
     Stack-specific files: [list]
-[ ] Disciplines: all 9 initialized with project context
+[ ] Disciplines: every discipline file initialized with project context
 [ ] Testing: gotchas.yaml seeded with stack-specific entries
 [ ] Maturity tracker: updated with project-assessed levels (not source-repo levels)
 

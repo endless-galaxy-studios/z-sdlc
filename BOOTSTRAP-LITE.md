@@ -33,7 +33,7 @@ branch: master
 
 ## Bootstrap Instructions
 
-When the user asks to bootstrap SDLC Lite, follow these steps in order. **Use `AskUserQuestion` for every prompt to the user.** Do not narrate readiness or ask for confirmation between mechanical steps — only pause for the explicit user-input steps below (Steps 2, 3, 8).
+When the user asks to bootstrap SDLC Lite, follow these steps in order. **Use `AskUserQuestion` for every prompt to the user.** Run the mechanical steps without stopping to ask for confirmation; pause only for the explicit user-input steps below (Steps 2, 3 and 9).
 
 ### Step 1: Fetch the framework (temp clone)
 
@@ -94,8 +94,8 @@ Read `/tmp/z-sdlc-lite-bootstrap/templates/agent-template.md` as the structural 
 
 **Frontmatter rules (same as full):**
 - `description` MUST be a double-quoted single-line string using `\\n` for newlines — single `\n` breaks the parser
-- Include 2-3 `<example>` blocks with Context/user/assistant/commentary structure
-- Include anti-triggers ("Do NOT use when…")
+- Include 1 `<example>` block (Context/user/assistant, no `<commentary>`), or 2 when another lite agent's domain could be confused with this one
+- Include the boundary sentence ("Do NOT use for: X — use Y instead")
 
 #### 3a. `software-architect`
 
@@ -550,7 +550,7 @@ Lite gives you: 3 agents, plan/execute loop, starter knowledge store, 3 discipli
 Full SDLC adds:
 - **Specs** — `sdlc-plan` writes a spec before the plan; lite skips specs entirely
 - **More agents** — sdet, accessibility-auditor, security-engineer, performance-engineer, debug-specialist, db-engineer, etc. (see full `knowledge/agent-context-map.yaml`)
-- **Review skills** — `/sdlc-review-code`, `/sdlc-review-fix` — formal review loops over git ranges or uncommitted changes
+- **Review skill** — `/sdlc-review-code` — review-and-fix loops over git ranges or uncommitted changes
 - **Test skills** — `/sdlc-tests-create`, `/sdlc-tests-run` — structured test authoring and verification
 - **Audit skill** — `/sdlc-audit` — compliance + improvement audits of the framework and your sessions
 - **Research/ingest** — `/sdlc-research`, `/sdlc-ingest` — pull external knowledge into the store
@@ -558,7 +558,7 @@ Full SDLC adds:
 - **Playbooks** — `ops/sdlc/playbooks/` — reusable agent-selection recipes for recurring task types
 - **Discipline capture protocol** — structured gap detection (knowledge-loaded-vs-needed, cross-domain friction, resurfacing patterns)
 - **Process docs** — deliverable lifecycle state machine, collaboration model, knowledge routing contract, review-fix loop, finding classification, agent-selection YAML
-- **Full knowledge store** — ~40 YAML files across architecture, coding, data-modeling, design, product-research, search, testing
+- **Full knowledge store** — ~60 YAML files across architecture, business-analysis, coding, data-modeling, design, dx, product-research, search, testing
 
 **When to graduate:**
 - You've shipped 3+ lite deliverables and want to retain more context between them (→ chronicle)

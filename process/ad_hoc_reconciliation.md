@@ -146,17 +146,11 @@ Options:
 
 ### Phase 5: Path Forward
 
-Ask user:
-
-```markdown
-## Ready to Continue
-
-Ad hoc work has been reconciled. What would you like to do?
+Ask the user with `AskUserQuestion`: "Ad hoc work has been reconciled. What would you like to do?" Options:
 
 1. **Resume formal process** — Start d[next] with a spec
 2. **Continue ad hoc** — Keep working, reconcile again later
 3. **Chronicle and pause** — Archive current work, take a break
-```
 
 ---
 
@@ -193,12 +187,12 @@ Ad hoc work has been reconciled. What would you like to do?
 
 When user asks for quick changes without a deliverable ID:
 
-1. **Do the work** — Don't block on process
+1. **Do the work as direct dispatch** — don't block on deliverable tracking. The Manager Rule and the review before committing still apply (`CLAUDE.md` § Direct Dispatch Rules).
 2. **Note it** — Remember this is ad hoc
 3. **Offer reconciliation** — After a few ad hoc items, suggest: "We've done several small changes. Want to catalog them?"
 
 When user explicitly says "just do X, skip the process":
-- Comply
+- Skip the deliverable tracking (no ID, spec or plan); dispatch and review as direct dispatch does
 - Don't lecture about process
 - Offer to reconcile later
 

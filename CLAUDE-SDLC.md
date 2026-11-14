@@ -27,7 +27,7 @@ CC produces SDLC artifacts across two skills:
 
 ### Deliverable Tracking
 - **IDs:** Sequential: D1, D2, ... Dnn (never reused). Sub-deliverables use letter suffixes: D1a, D1b.
-- **Assign an ID** when work is expected to touch more than one file or take more than 30 minutes.
+- **Assign an ID** when work is expected to touch more than one file or take more than one human–AI coordination cycle (§ Estimation).
 - **Catalog:** `docs/_index.md`
 - **Active work:** `docs/current_work/`
 - **Archived work:** `docs/chronicle/`
@@ -59,8 +59,6 @@ Low validity → invest in spec/discovery. Low correctness → invest in testing
 ### Direct Dispatch Rules
 
 Direct dispatch is not "no process" — it's process without a plan file. These rules apply whenever you're doing work without invoking a planning or execution skill:
-
-**Agent-first, always.** Domain agents do the implementation and review work. You orchestrate. This is not optional just because there's no plan. If a domain agent exists for the work, dispatch them.
 
 **State scope before dispatching.** Before your first agent dispatch, output a brief scope statement:
 ```
@@ -100,7 +98,6 @@ If you're in direct dispatch and ANY of these become true, stop and ask CD about
 
 - The user asks to build a new feature, new integration, or new subsystem
 - The work introduces new architectural patterns
-- You are unsure whether something needs full tracking — default to asking, not implementing
 
 **STOP and invoke `sdlc-lite-plan` when:**
 
@@ -127,7 +124,7 @@ If you're in direct dispatch and ANY of these become true, stop and ask CD about
 **When starting any session:** Check `docs/current_work/` for in-progress deliverables before accepting new work.
 
 ### Process Changelog
-When you make changes to SDLC process files (skills, agents, process docs, CLAUDE-SDLC.md, disciplines, knowledge), update the process changelog (`[sdlc-root]/process/sdlc_changelog.md`) **immediately after the change, in the same step**. Do not defer changelog updates to a later step, a separate commit, or a future session. Every process decision change — new rules, classification changes, workflow adjustments, guard additions — must have a changelog entry written before moving on to other work. The changelog captures *why* process changes were made — context that git log alone doesn't preserve. Don't backdate entries for changes made in prior sessions.
+When you change an SDLC process file (skills, agents, process docs, CLAUDE-SDLC.md, disciplines, knowledge), write its entry in the process changelog (`[sdlc-root]/process/sdlc_changelog.md`) in the same step, before moving on to other work. The changelog records *why* a process decision changed (new rules, classification changes, workflow adjustments, guard additions), which git log alone doesn't preserve. Don't backdate entries for changes made in prior sessions.
 
 ### Key References
 - `[sdlc-root]/process/overview.md` — Full workflow
@@ -144,7 +141,7 @@ When you make changes to SDLC process files (skills, agents, process docs, CLAUD
 
 ## Verification Policy (Zero-Assumption Rule)
 
-**Assumptions are forbidden.** Every claim about external behavior, API shape, library usage, or service configuration must be verified before acting on it. "I'm pretty sure" is not good enough — verify or disclose.
+**Verify before you rely on it.** Check a claim about external behavior, API shape, library usage, or service configuration before acting on it; when you can't check it, say so.
 
 ### External Libraries & Frameworks
 - Before using any external library API, **verify it via Context7** (`mcp__context7__resolve-library-id` → `mcp__context7__query-docs`). Do not rely on training data for API signatures, parameter names, default behaviors, or version-specific features.
@@ -209,14 +206,7 @@ The documents agents work from keep their detail: the bodies of specs, plans and
 
 ## Unbuilt-Capability Rule: Ask, Don't Silently Cut
 
-**"I couldn't find this exposed in the codebase" is a reason to ask, never a reason to unilaterally cut, soften, or "correct" a stakeholder's request** — especially when the request originates from leadership/CD. A codebase-only investigation proves a capability isn't *currently exposed through an API or UI*; it does not prove the capability is unbuildable, and it never sees a requester's own context (a roadmap commitment, an intended feature, a known-but-underdocumented data source).
-
-**The trap:** treating "not found via grep across the exposed application layer" as equivalent to "the underlying data doesn't support this." Products routinely collect data that already supports a described capability even when no current API or view exposes it — such requests can be real, buildable features, not just copy to soften into vagueness or cut.
-
-**Correct procedure when a stakeholder's description doesn't match a currently-exposed capability:**
-1. Check whether the *underlying data* (not just the application layer) already supports it — models, raw tables, survey/event logs. "Not exposed via any current endpoint" and "the data doesn't exist" are different findings; report which one is actually true.
-2. **Ask the requester** — via `AskUserQuestion` — rather than deciding unilaterally. Lay out what's confirmed to exist and what would need to be built, and let them choose: build it for real, ship the language as explicitly forward-looking/illustrative, or hold it. Do not present "I cut/softened it" as a fait accompli in a summary after the fact.
-3. This applies doubly to requests from leadership. Their language may be intentionally illustrative (an example of the *kind* of capability the product can offer, not a literal existing feature) rather than a factual claim needing "correction" — don't assume factual intent from marketing-style phrasing without asking which it is.
+When a stakeholder's request describes a capability you can't find in the codebase, ask; don't cut, soften or "correct" the request on your own. Finding no API or view for it doesn't show the capability is unbuildable: check whether the underlying data (models, tables, event logs) already supports it, and report which of the two you found. Then ask the requester via `AskUserQuestion`, laying out what exists and what would need building, and let them choose: build it, mark the language as illustrative, or hold it. Their wording may be deliberately illustrative, so don't treat it as a factual claim to correct.
 
 ## Code Verification Rule
 
@@ -300,7 +290,7 @@ This is *your* session dial (what you launch / `/model` + `/effort`), separate f
 | Planning / idea (`sdlc-plan`, `sdlc-lite-plan`, `sdlc-idea`) | Fable **or** Opus (CD's choice) | **high** (→ xhigh/max only for novel, ambiguous, or high-blast-radius work) | Judgment-dense and short — discovery, approach comparison, arbitration, acceptance. The Manager Rule keeps premium tokens off implementation, so a premium orchestrator is cheap here. |
 | Execution (`sdlc-execute`, `sdlc-lite-execute`) | Sonnet | **medium** | Judgment is already in the plan; the seat coordinates + triages. Long sessions, so easing both dials conserves budget. Bump effort ad-hoc for a hard triage or a 3-strike/debug escalation. |
 
-**Planning model is your call — Fable or Opus.** Both are top-tier; the split that matters is *planning-premium vs execution-Sonnet*, not which premium. Pick by task, quota, and preference (e.g. Fable 5 as flagship, or Opus 4.8's 1M-context variant when the planning context is very large). "Highest tier available" is a floor, not a mandate to always max out.
+**Planning model is your call — Fable or Opus.** Both are top-tier; the split that matters is *planning-premium vs execution-Sonnet*, not which premium. Pick by task, quota, and preference. "Highest tier available" is a floor, not a mandate to always max out.
 
 **Lowest-friction switching — launch aliases (set both dials at once):**
 
@@ -311,14 +301,14 @@ alias ccplan-opus="claude --model opus --effort high"   # planning / idea (Opus)
 alias ccexec="claude --model sonnet --effort medium"    # execution
 ```
 
-Both `--model` and `--effort` are launch flags. Setting effort at launch also avoids a gotcha: switching model mid-session with `/model` can reset effort to that model's default, so re-check `/effort` after any `/model`. `settings.json` persists `effortLevel` but not `model`, so aliases beat it. There are no named profiles and a SessionStart hook can't drive `/model` — aliases are the ceiling today. The `M4` "don't escalate to be safe" guardrail applies to your own session too: reserve `max` for the genuinely hardest planning.
+Both `--model` and `--effort` are launch flags. Setting effort at launch also avoids a gotcha: switching model mid-session with `/model` can reset effort to that model's default, so re-check `/effort` after any `/model`. The `M4` "don't escalate to be safe" guardrail applies to your own session too: reserve `max` for the genuinely hardest planning.
 
 ## Agent Conventions
 
 - **Model and effort tiers are pre-assigned in agent frontmatter** — trust the assignment rather than escalating everything "to be safe." Judgment work (intent, architecture, tradeoffs, arbitration, final acceptance) stays with the orchestrator; evidence-checkable work delegates to cheaper tiers; high-risk work gets a reviewer tier at or above the implementer tier. Planning sessions benefit most from running on the highest-tier model available — the Manager Rule keeps premium tokens off implementation. Read `[sdlc-root]/knowledge/architecture/model-tier-strategy.yaml` for the tier ladder and escalation rules.
 - **Agent memories are not git-tracked** — `.claude/agent-memory/` is a private scratchpad for per-agent session continuity. Reusable learnings should flow through `knowledge_feedback` in agent handoffs → discipline capture → knowledge stores. See the "Surfacing Learnings to the SDLC" section in the agent template.
 - **`MEMORY.md` is capped at 200 lines / 25KB** — only that much loads into the agent's system prompt; the rest is silently truncated, dropping the *newest* entries first. Keep `MEMORY.md` a lean index and push detail into `{topic}.md` files beside it (uncapped, read on demand). The agent template defines the split protocol; `sdlc-audit` Dimension 8b flags files over the cap.
-- **Agent frontmatter: single-line descriptions only** — The `description` field in `.claude/agents/*.md` must be a double-quoted single-line YAML string using `\\n` (double-backslash n) for newlines. A single `\n` in YAML double-quoted strings is a real newline character. In April 2026 it broke Claude Code's frontmatter parser for two agents, and by October 2026 Claude Code loaded both forms. `\\n` stays the rule because it's the only form that has worked every time.
+- **Agent frontmatter: single-line descriptions only** — The `description` field in `.claude/agents/*.md` must be a double-quoted single-line YAML string using `\\n` (double-backslash n) for newlines. A single `\n` in a YAML double-quoted string is a real newline character; `\\n` is the one form every Claude Code version has parsed.
 
 ## Commit Completeness Rule
 
@@ -328,7 +318,7 @@ Every commit must include **all** artifacts produced during the work — not jus
 |----------|-------|--------------|
 | Application code & tests | Project-specific | Always |
 | Discipline parking lot entries | `[sdlc-root]/disciplines/*.md` | When discipline capture adds entries |
-| Knowledge store updates | `[sdlc-root]/knowledge/*.md` | When domain knowledge is added or corrected |
+| Knowledge store updates | `[sdlc-root]/knowledge/**/*.yaml` | When domain knowledge is added or corrected |
 | SDLC process changelog | `[sdlc-root]/process/sdlc_changelog.md` | When process files change |
 | Result docs & catalog | `docs/current_work/results/`, `docs/_index.md` | During full SDLC execution |
 

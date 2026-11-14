@@ -41,7 +41,7 @@ This is the RUP "hump chart" insight: disciplines don't live in phases — they 
 
 1. **Ideas don't respect phase boundaries.** During a test run, you discover a product research question. During coding, you realize a design assumption was wrong. During business analysis, you identify a testing risk. These insights need a place to land *immediately*, not "when we get to that phase."
 
-2. **Each discipline is a future skill.** The testing discipline is becoming `/test-explore`, `/test-spec`, `/test-run`, etc. The same pattern applies to every discipline. A mature SDLC is a suite of discipline skills orchestrated across phases.
+2. **Each discipline is a future skill.** The testing discipline already has `sdlc-tests-create` and `sdlc-tests-run`. The same pattern applies to every discipline. A mature SDLC is a suite of discipline skills orchestrated across phases.
 
 3. **Cross-discipline knowledge compounds.** What testing learns about UI fragility feeds into design. What architecture learns about performance constraints feeds into business analysis. The knowledge store concept from testing (Layers 0-6) generalizes to all disciplines.
 
@@ -74,7 +74,7 @@ disciplines/
 - After execution completes (sdlc-execute, sdlc-lite-execute) — before committing
 - After planning completes (sdlc-plan, sdlc-lite-plan) — after agent review
 - During idea exploration (sdlc-idea) — insights from research
-- During design consultation (design-consult) — design insights
+- During design consultation (`sdlc-design-consult`, design bundle) — design insights
 - During bulk knowledge import (sdlc-ingest) — external content → knowledge files and parking lots
 
 **Triage markers** — when adding parking lot entries, optionally mark their readiness for promotion:
