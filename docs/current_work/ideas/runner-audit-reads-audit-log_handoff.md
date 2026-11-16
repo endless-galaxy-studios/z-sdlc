@@ -12,7 +12,6 @@ related_files:
   - bundles/factory/tree/create_app.py
   - bundles/factory/tree/tests/test_runner_audit.py
   - process/factory.md
-  - docs/current_work/ideas/factory-ci-tier-follow-ups_handoff.md
 ---
 
 # Handoff: the runner audit reads the organization's audit log
@@ -23,7 +22,7 @@ The runner audit (`runner_audit.py`, Enablement step 12) compares the organizati
 
 In the pilot organization, GitHub started only 2 of the audit's first 11 hourly runs. The two that ran started about 8 minutes late and passed in about 10 seconds. None failed: GitHub dropped the rest, which its docs allow for scheduled workflows under load. So the audit went 5 hours without a check. A shorter schedule would only shorten each gap. CD kept the hourly cron (2026-10-16) and asked for this instead.
 
-This was item 15 of `factory-ci-tier-follow-ups_handoff.md`, parked by CD on 2026-10-15. CD un-parked it on 2026-10-16, and item 15 now points here. The source session was the pilot project's migration to v2.1.5 and its CI runs. None of that is part of this work.
+This was item 15 of the follow-ups the v2.1.0 release reviews left for after the tag, parked by CD on 2026-10-15 and un-parked on 2026-10-16. The other 16 are done (`process/sdlc_changelog.md`, "The CI tier's and the runner audit's follow-ups from v2.1.0's review", 2026-11-16), and their handoff is removed. The source session was the pilot project's migration to v2.1.5 and its CI runs. None of that is part of this work.
 
 ## What needs to happen
 
@@ -71,4 +70,4 @@ Reasoning: CD has already chosen what to alarm on, so the shape is clear. But th
 
 - **The schedule.** CD kept it hourly at :17 (2026-10-16).
 - **Streaming the audit log to an outside store** (push instead of poll). It moves the scheduled job somewhere else rather than removing it.
-- **The other items in `factory-ci-tier-follow-ups_handoff.md`.**
+- **The other 16 follow-ups from v2.1.0's review.** Done (2026-11-16).

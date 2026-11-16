@@ -84,7 +84,7 @@ An independent review of the change found nothing critical or major. Its three m
 
 The `missing_ok` on a cycle's own marker got its test too. `planning-services.sh`'s new message (item 10) is untested here: reaching it needs pgbouncer in the job container, which `factory-smoke` runs.
 
-Tests: `tests/test_ci_launcher.py` (pending markers through a SIGTERM inside the call, the in-flight case included, and one dropped once old; a wrong organization's 404; a slot beyond the count, and slot 1 removing what it left), `tests/test_host_setup.py` (`runner_install`'s order, `db_host_other_ports`, the units and the trap) and `tests/test_runner_audit.py` (malformed answers, a rename). The handoff is marked done (every item but 15, which has its own handoff), for `sdlc-archive` to remove once this is released.
+Tests: `tests/test_ci_launcher.py` (pending markers through a SIGTERM inside the call, the in-flight case included, and one dropped once old; a wrong organization's 404; a slot beyond the count, and slot 1 removing what it left), `tests/test_host_setup.py` (`runner_install`'s order, `db_host_other_ports`, the units and the trap) and `tests/test_runner_audit.py` (malformed answers, a rename). The handoff is removed (CD, 2026-11-16): every item is done but 15, which has its own handoff, now pointing here.
 
 **Rationale:** Each of these passed review as minor, so none was ever a breach. Most were a cleanup that could leak, or an error that misnamed its cause. Three of the handoff's starts no longer fit the code: the host's own repository has no `planning.json`, a prefix sweep can catch a live runner, and no file reaches every script that needs the labels. Where a start didn't fit, the fix went where the problem actually shows. Release type: patch.
 
