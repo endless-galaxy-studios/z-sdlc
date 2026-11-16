@@ -65,7 +65,8 @@ DEFAULT_LABELS = ("factory", "factory-plan", "factory-prod", "factory-ci")
 # A self-hosted runner carrying one of these could take a job meant for GitHub's own runners, the audit's included.
 HOSTED_STYLE = re.compile(r"(ubuntu|windows|macos)(-.*)?", re.I)
 # The labels every self-hosted runner has (GitHub gives them to a config.sh runner; a just-in-time one is registered
-# with self-hosted itself, which may then come back as a custom label): left out of the comparison by name.
+# with self-hosted itself, which may then come back as a custom label): left out of the comparison by name. The same
+# set is in host/ci_launcher.py (SELF_HOSTED_DEFAULTS), and tests/test_runner_labels.py holds every copy to it.
 DEFAULT_LABELS_OF_RUNNERS = {"self-hosted", "linux", "windows", "macos", "x64", "x86", "arm", "arm64"}
 # Hourly: an hour's gap between a change and its alarm, for about 12 hosted minutes a day. Tighten it here (and
 # regenerate) if that gap is too long; reading the audit log would close it, which this doesn't do yet.
@@ -163,20 +164,32 @@ def current(org, get):
         if not isinstance(g, dict) or not isinstance(g.get("id"), int) or not isinstance(g.get("name"), str):
             raise Unreadable("a runner group without an ID or a name")
         base = f"/orgs/{org}/actions/runner-groups/{g['id']}"
+        # Each field as GitHub documents it, or the answer is malformed: compared as it came, a list of the wrong
+        # things raises past every handler, and a string or a number reads as something it isn't.
+        for f, kinds in (("visibility", str), ("allows_public_repositories", (bool, type(None))),
+                         ("restricted_to_workflows", (bool, type(None))), ("inherited", (bool, type(None)))):
+            if not isinstance(g.get(f), kinds):
+                raise Unreadable(f"group {g['name']}: {f} isn't what GitHub documents")
+        if not (g.get("selected_workflows") is None or strings(g["selected_workflows"])):
+            raise Unreadable(f"group {g['name']}: selected_workflows isn't a list of workflows")
         entry = {f: g.get(f) for f in FIELDS}
         entry["inherited"] = bool(g.get("inherited"))  # shared by the organization's enterprise
         entry["selected_workflows"] = sorted(g.get("selected_workflows") or [])
         # A group open to every repository has no list of them.
-        entry["repositories"] = (sorted(str(r.get("full_name")) for r in paged(get, f"{base}/repositories", "repositories")
-                                        if isinstance(r, dict))
-                                 if g.get("visibility") == "selected" else [])
+        repositories = paged(get, f"{base}/repositories", "repositories") if g["visibility"] == "selected" else []
+        if not all(isinstance(r, dict) and isinstance(r.get("full_name"), str) for r in repositories):
+            raise Unreadable(f"group {g['name']}: a repository without a name")
+        entry["repositories"] = sorted(r["full_name"] for r in repositories)
         runners = {}
         for r in paged(get, f"{base}/runners", "runners"):
             if not isinstance(r, dict) or not isinstance(r.get("id"), int) or not isinstance(r.get("name"), str):
                 raise Unreadable(f"group {g['name']}: a runner without an ID or a name")
+            labels = r.get("labels")
+            if not isinstance(labels, list) or not all(isinstance(x, dict) and isinstance(x.get("name"), str)
+                                                       for x in labels):
+                raise Unreadable(f"group {g['name']}: runner {r['name']}'s labels aren't a list of labels")
             runners[r["name"]] = {"id": r["id"], "labels": sorted(
-                str(label.get("name")) for label in r.get("labels") or []
-                if isinstance(label, dict) and str(label.get("name")).lower() not in DEFAULT_LABELS_OF_RUNNERS)}
+                x["name"] for x in labels if x["name"].lower() not in DEFAULT_LABELS_OF_RUNNERS)}
         entry["runners"] = runners
         # Keyed by name and ID: names needn't be unique (an organization's own Default group and one its enterprise
         # shares are both "Default"), and a group deleted and made again under its name is a different group.
@@ -236,6 +249,12 @@ def load_expected(text):
     return expected
 
 
+def renames(want, have):
+    """{key as it is: key expected}, for each group GitHub has under another name: the same ID, keyed <name>#<id>."""
+    gone = {key.rpartition("#")[2]: key for key in set(want) - set(have)}
+    return {key: gone[key.rpartition("#")[2]] for key in set(have) - set(want) if key.rpartition("#")[2] in gone}
+
+
 def label_homes(expected):
     """For each factory label, the groups whose runners are expected to carry it."""
     homes = {label: set() for label in expected.get("factory_labels", [])}
@@ -250,10 +269,15 @@ def label_homes(expected):
 def drift(expected, groups):
     """Every difference between the expected state and the groups as they are, as sentences."""
     out, want = [], expected["groups"]
-    out += [f"group {n}: not expected (a new group)" for n in sorted(set(groups) - set(want))]
-    out += [f"group {n}: expected, but it's gone" for n in sorted(set(want) - set(groups))]
-    for name in sorted(set(want) & set(groups)):
-        w, h = want[name], groups[name]
+    # A group renamed is the same group (its ID): one drift, and its settings compared with what it had.
+    renamed = renames(want, groups)
+    out += [f"group {n}: not expected (a new group)" for n in sorted(set(groups) - set(want) - set(renamed))]
+    out += [f"group {n}: expected, but it's gone" for n in sorted(set(want) - set(groups) - set(renamed.values()))]
+    out += [f"group {old}: renamed {new.rpartition('#')[0]} (its ID is the same)"
+            for new, old in sorted(renamed.items(), key=lambda item: item[1])]
+    pairs = {**{n: n for n in set(want) & set(groups)}, **renamed}  # key as it is: key expected
+    for name in sorted(pairs):
+        w, h = want[pairs[name]], groups[name]
         for f in FIELDS:
             if h.get(f) != w[f]:
                 out.append(f"group {name}: {f} is {json.dumps(h.get(f))}, expected {json.dumps(w[f])}")
@@ -269,7 +293,7 @@ def drift(expected, groups):
                 if HOSTED_STYLE.fullmatch(label):
                     out.append(f"group {name}: runner {runner} carries {label}, a GitHub-hosted runner's label: it "
                                "could take jobs meant for GitHub's own runners, this audit's included")
-                if label in homes and name not in homes[label]:
+                if label in homes and renamed.get(name, name) not in homes[label]:
                     out.append(f"group {name}: runner {runner} carries the factory label {label}, expected only in "
                                f"{', '.join(sorted(homes[label])) or 'no group'}")
     return out
@@ -467,8 +491,10 @@ def main(argv=None):
         status, lines = audit(expected, lambda path: api("GET", path, token), audit_repo)
         print("\n".join(lines))
         return status
-    except (OSError, ValueError, IndexError, subprocess.SubprocessError, Unreadable) as e:
-        print(f"runner_audit: {printable(e)}", file=sys.stderr)
+    except (OSError, ValueError, IndexError, TypeError, KeyError, AttributeError, subprocess.SubprocessError,
+            Unreadable) as e:
+        # A malformed answer current() didn't catch is a run that couldn't read, never drift (exit 1).
+        print(f"runner_audit: {type(e).__name__}: {printable(e)}", file=sys.stderr)
         return 2
 
 

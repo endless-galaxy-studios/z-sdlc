@@ -205,6 +205,55 @@ class Audit(unittest.TestCase):
         self.org.get = lambda path: (200, {"runner_groups": "not a list"})
         self.assertEqual(self.audit()[0], 2)
 
+    def test_a_malformed_answer_is_a_run_that_couldnt_read(self):
+        # Exit 2 with the reason on stdout, which the alarm's issue carries; never a traceback's exit 1 (drift).
+        cases = [
+            ("selected_workflows of things that aren't workflows",
+             lambda org: org.groups[1].update(selected_workflows=[{"path": TRIAGE}, {"path": GATE}]),
+             "selected_workflows isn't a list of workflows"),
+            ("a number for a list", lambda org: org.groups[1].update(selected_workflows=7),
+             "selected_workflows isn't a list of workflows"),
+            ("no visibility", lambda org: org.groups[0].pop("visibility"), "visibility isn't what GitHub documents"),
+            ("a string for a setting", lambda org: org.groups[0].update(allows_public_repositories="no"),
+             "allows_public_repositories isn't what GitHub documents"),
+            ("labels that aren't a list", lambda org: org.runners[2][0].update(labels=5),
+             "labels aren't a list of labels"),
+            ("a label without a name", lambda org: org.runners[2][0]["labels"].append({"id": 99}),
+             "labels aren't a list of labels"),
+        ]
+        for what, damage, reason in cases:
+            with self.subTest(what):
+                self.org = FakeOrg()
+                damage(self.org)
+                status, lines = self.audit()
+                self.assertEqual(status, 2)
+                self.assertIn(reason, lines[0])
+        real = FakeOrg().get
+        def repositories_without_names(path):
+            status, data = real(path)
+            if "/repositories" in path:
+                return status, {"total_count": 1, "repositories": [{"full_name": 5}]}
+            return status, data
+        self.org.get = repositories_without_names
+        self.assertIn("a repository without a name", self.audit()[1][0])
+
+    def test_a_renamed_group_is_one_drift(self):
+        self.org.groups[1]["name"] = "shared-pool"
+        status, lines = self.audit()
+        self.assertEqual(status, 1)
+        # Not a group gone and another new, and its runners keep their factory labels' home.
+        self.assertEqual(lines, ["DRIFT group factory-pool#2: renamed shared-pool (its ID is the same)"])
+        # A renamed group's other changes are still compared with what it had.
+        self.org.groups[1]["selected_workflows"] = [TRIAGE, GATE]
+        self.assertIn(f"DRIFT group shared-pool#2: selected_workflows has {GATE}, not expected", self.audit()[1])
+        # A group deleted and made again under another name is a new group (a new ID).
+        self.org = FakeOrg()
+        self.org.groups[1]["id"] = 3
+        self.org.repos[3], self.org.runners[3] = self.org.repos[2], self.org.runners[2]
+        lines = self.audit()[1]
+        self.assertIn("DRIFT group factory-pool#2: expected, but it's gone", lines)
+        self.assertIn("DRIFT group factory-pool#3: not expected (a new group)", lines)
+
     def test_every_page_is_read(self):
         self.org.runners[2] += [runner(1000 + i, f"box-extra-{i}", ["factory"]) for i in range(150)]
         status, lines = self.audit()

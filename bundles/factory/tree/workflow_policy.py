@@ -173,8 +173,9 @@ FIXTURE_VALUES = {
 }
 
 LABEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
-# Labels GitHub gives every self-hosted runner (matched without regard to case): never a hosted label.
-SELF_HOSTED_DEFAULTS = {"self-hosted", "linux", "windows", "macos", "x64", "arm", "arm64"}
+# Labels GitHub gives every self-hosted runner (matched without regard to case): never a hosted label. The same set is
+# in host/ci_launcher.py, and tests/test_runner_labels.py holds every copy to it.
+SELF_HOSTED_DEFAULTS = {"self-hosted", "linux", "windows", "macos", "x64", "x86", "arm", "arm64"}
 WORKFLOW_FILE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*\.ya?ml$")
 JOB_ID = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]*$")
 LOCAL_ACTION_DEPTH = 8

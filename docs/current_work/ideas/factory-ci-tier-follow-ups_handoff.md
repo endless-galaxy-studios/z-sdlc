@@ -2,7 +2,7 @@
 type: handoff
 slug: factory-ci-tier-follow-ups
 created: 2026-10-15
-status: pending
+status: done (2026-11-16), not released
 trigger: issue
 recommended_next_skill: none
 source_session_summary: "The pilot project's reviews of the v2.1.0 release (the CI tier, the runner audit) found minor issues that can follow the tag. None is a blocker; each is recorded here so it isn't lost"
@@ -19,6 +19,8 @@ related_files:
 # The factory CI tier and runner audit: follow-ups after v2.1.0
 
 The pilot project's release reviews (rounds 1 to 3, 2026-10-15) passed these as minor, to follow the tag. Each says what's wrong, what it costs, and where to start. Fixes go in the bundle (`bundles/factory/tree/`) and then to the incubator with `zsdlc-import-factory --to-incubator`.
+
+**Done (2026-11-16):** every item but 15, which has its own handoff. Where each fix went, and where it departs from the start written here (items 1, 8, 10 and 12), is in `process/sdlc_changelog.md`, "The CI tier's and the runner audit's follow-ups from v2.1.0's review". Still to do: hand the fixes to the incubator (`--to-incubator`). `sdlc-archive` removes this file once they're released.
 
 ## The CI launcher (`host/ci_launcher.py`)
 
@@ -53,12 +55,7 @@ The pilot project's release reviews (rounds 1 to 3, 2026-10-15) passed these as 
 ## The runner audit (`runner_audit.py`)
 
 14. **A malformed answer from GitHub can raise `TypeError` in `check`.** It isn't in `main()`'s handled exceptions, so it prints a traceback and exits 1 (drift) rather than 2 (couldn't read). The run still fails and alerts, but under the wrong name. Start: validate each field's type where it's read, or add `TypeError` and `KeyError` to the tuple.
-15. **The audit doesn't read the organization's audit log** (parked by CD, 2026-10-15: the factory runs without it for now). Anything done and undone between two hourly runs goes unseen: a runner that takes one job and goes, or a group opened for one job and restored. The audit log's REST API (`GET orgs/<org>/audit-log`, on GitHub Enterprise Cloud) records both. What's known so far:
-    - **The shape CD chose:** alarm when the CI tier's runner-registration App registers or removes a runner outside the CI tier's group, or changes any runner group, read from the audit log since the last run.
-    - **The permission:** GitHub's docs list the endpoint under the organization's "Administration" permission (read), for App installation tokens too, not under "Self-hosted runners". The auditor App would need both. That's still read-only, but it can read the organization's settings too, which step 12 should say. Not yet tested: a 200 from `GET orgs/<org>/audit-log?phrase=action:org.register_self_hosted_runner&per_page=1` with the auditor's installation token settles it; a 403 means an owner's classic token with `read:audit_log`, which changes the design.
-    - **Seen working:** an organization owner's token answers 200 and records `org.register_self_hosted_runner`.
-
-    Start: `create_app.py --auditor` requests Administration read too, `runner_audit.py` reads the log since the last run (kept as the last event's cursor), and Enablement step 12 says what the wider permission reads.
+15. **The audit doesn't read the organization's audit log.** Parked by CD on 2026-10-15. CD un-parked it on 2026-10-16, and it moved, with everything known here, to its own handoff: `runner-audit-reads-audit-log_handoff.md`.
 16. **A renamed group reads as one gone and one new.** Groups are keyed `<name>#<id>`, so a rename reports two drifts that look worse than what happened. Start: match an unexpected key to a missing one by ID, and report a rename.
 
 ## Tests

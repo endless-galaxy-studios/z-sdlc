@@ -12,7 +12,8 @@
 # runners and label (factory.json's runners.strict, runners.planning and runners.ci):
 #   TIER=strict    factory-runner: implement, execute, revise. No host or LAN access.
 #   TIER=planning  factory-planner: spec and plan. The same firewall, plus the open internet the stages
-#                  need and, if host.conf names one, a database port on this host's own addresses.
+#                  need and, if host.conf names one, a database port: on this host's own addresses, or on
+#                  the one address PLANNING_DB_HOST names.
 #   TIER=ci        factory-ci: a project's own CI jobs that must run self-hosted (end-to-end suites that
 #                  outgrow GitHub-hosted runners), pull requests included, one disposable runner per job.
 #                  Steps 1-6 as for strict (its user, firewall, caps, rootless Docker, the isolation test),
@@ -360,7 +361,9 @@ if [[ $EUID -eq 0 && -z ${FACTORY_SETUP_STAGED:-} ]]; then
 fi
 if [[ -n ${FACTORY_SETUP_STAGED:-} ]]; then
   staged_checks
-  trap 'rm -rf "$FACTORY_SETUP_STAGED"' EXIT
+  # The staged copy, and the CI tier's image build directory once setup-ci.sh makes one (CI_BUILD): one trap, since
+  # setup-ci.sh is sourced and a trap of its own would replace this one.
+  trap 'rm -rf "$FACTORY_SETUP_STAGED" ${CI_BUILD:+"$CI_BUILD"}' EXIT
   TOKEN_FILE=${FACTORY_SETUP_TOKEN_COPY:-}
 fi
 FACTORY_JSON=${FACTORY_JSON:-$SCRIPT_DIR/../factory.json}
@@ -453,7 +456,8 @@ if [[ -n $DB_HOST ]] && { [[ ! $DB_HOST =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || [
 fi
 # At least one label of the tier's own, beyond the ones every self-hosted runner can have (self-hosted, its OS and
 # architecture): a runner registered with none of the factory's could take any job that asks only for self-hosted,
-# from every repository its group lets in.
+# from every repository its group lets in. The set is ci_launcher.py's SELF_HOSTED_DEFAULTS, and
+# tests/test_runner_labels.py holds this copy to it.
 [[ -n $RUNNER_LABELS && $RUNNER_LABELS != None ]] && python3 -I -c '
 import sys
 defaults = {"self-hosted", "linux", "windows", "macos", "x64", "x86", "arm", "arm64"}
@@ -829,6 +833,24 @@ for _ in $(seq 30); do as_runner "docker info >/dev/null 2>&1" && break; sleep 1
 as_runner "docker info --format '{{.SecurityOptions}} root={{.DockerRootDir}}'"
 as_runner "docker info --format '{{.SecurityOptions}}' | grep -q rootless" || die "daemon is not rootless"
 
+# The probe ports other than the database's, for the planning tier's database host on another machine
+# (PLANNING_DB_HOST): none when there's no such host, or the firewall's blocked4 set (in NFT_FILE, as step 3 wrote it)
+# doesn't hold its address, since the tier then reaches it as it does the internet.
+db_host_other_ports() {
+  local blocked=0
+  [[ -n $DB_HOST && -n $DB_PORT ]] || return 0
+  python3 -I - "$DB_HOST" "$NFT_FILE" <<'PY' || blocked=$?
+import ipaddress, re, sys
+address = ipaddress.IPv4Address(sys.argv[1])
+m = re.search(r"set blocked4 \{.*?elements = \{([^}]*)\}", open(sys.argv[2]).read(), re.S)
+if not m:
+    sys.exit(2)
+sys.exit(0 if any(address in ipaddress.IPv4Network(n.strip()) for n in m.group(1).split(",")) else 1)
+PY
+  ((blocked != 1)) || return 0
+  ((blocked == 0)) || die "can't read the blocked4 set from $NFT_FILE"
+  { printf '%s\n' $PROBE_PORTS | grep -vx -e "$DB_PORT" || true; } | tr '\n' ' ' | sed 's/ $//'
+}
 log "6/8 isolation test from inside a container (every probe must be BLOCKED${DB_PORT:+, except the database}; IPv6 always)"
 probe_py=$(cat <<'PY'
 import socket, sys
@@ -882,6 +904,15 @@ if [[ -n $DB_PORT ]]; then
   as_runner "docker run --rm --network factory-probe python:3.12-slim python -c \
     \"import socket; socket.create_connection(('$first_ip', $DB_PORT), timeout=5).close(); print('ok        $first_ip:$DB_PORT (database reachable)')\"" \
     || die "the planning tier cannot reach the database at $first_ip:$DB_PORT"
+fi
+# The exception is one port: every other probe port on the database's own host stays closed.
+db_other=$(db_host_other_ports)
+if [[ -n $db_other ]]; then
+  as_runner "docker run --rm --network factory-probe -v \$HOME/.isolation_probe.py:/probe.py:ro \
+    python:3.12-slim python /probe.py '$DB_HOST' '$db_other'" \
+    || die "isolation test FAILED: $RUNNER_USER reaches $DB_HOST on a port other than the database's ($DB_PORT)"
+elif [[ -n $DB_HOST ]]; then
+  echo "PLANNING_DB_HOST ($DB_HOST): no other port probed there. Either it's outside the firewall's blocked set, which the tier reaches as it does the internet, or PROBE_PORTS names only the database's"
 fi
 as_runner "docker network rm factory-probe >/dev/null"
 # Root connects first, so a probe that can't connect at all doesn't pass for a refusal; then only a permission
@@ -939,33 +970,45 @@ runner_deps() {
   apt-get install -y --no-install-recommends "${picks[@]}"
 }
 runner_deps
+runner_busy() {
+  pgrep -u "$RUNNER_USER" -f "$1/bin/Runner.Worker" > /dev/null
+}
+# Runner $1 in $2 (work folder $3), at RUNNER_VERSION. Runners never update themselves (--disableupdate), so a
+# RUNNER_VERSION bump reaches them here. The archive is downloaded and checked first, so a download that fails leaves
+# the runner as it was, running. An installed runner at another version is then stopped, unless it's running a job
+# (looked at again after the download, which takes a while), and the new one unpacked over it (its registration files
+# aren't in the archive); the restart below starts it. Stopped first, so no job starts on a half-unpacked runner.
+runner_install() {
+  local i=$1 dir=$2 work=$3 installed='' upgrade=''
+  if [[ -x $dir/config.sh ]]; then
+    installed=$(as_runner "'$dir/bin/Runner.Listener' --version 2>/dev/null" | tr -d '[:space:]') || installed=
+    [[ $installed != "$RUNNER_VERSION" ]] || return 0
+    if runner_busy "$dir"; then
+      echo "Runner $i is at ${installed:-an unknown version} and running a job: not upgraded to $RUNNER_VERSION. Re-run setup when it's idle."
+      return 0
+    fi
+    upgrade=1
+  fi
+  as_runner "mkdir -p '$dir' '$work' && cd '$dir' && rm -f runner.tgz \
+    && curl -fsSL -o runner.tgz https://github.com/actions/runner/releases/download/v$RUNNER_VERSION/actions-runner-linux-x64-$RUNNER_VERSION.tar.gz \
+    && echo '$RUNNER_SHA256  runner.tgz' | sha256sum -c -" \
+    || { as_runner "rm -f '$dir/runner.tgz'" || true; die "couldn't download actions/runner v$RUNNER_VERSION (above): runner $i is as it was"; }
+  if [[ -n $upgrade ]]; then
+    if runner_busy "$dir"; then
+      as_runner "rm -f '$dir/runner.tgz'"
+      echo "Runner $i took a job during the download: not upgraded to $RUNNER_VERSION. Re-run setup when it's idle."
+      return 0
+    fi
+    echo "Runner $i: ${installed:-an unknown version} -> $RUNNER_VERSION"
+    systemctl stop "$RUNNER_UNIT@$i.service" 2> /dev/null || true
+  fi
+  as_runner "cd '$dir' && tar xzf runner.tgz && rm runner.tgz"
+}
 token=
 if [[ -s $TOKEN_FILE ]]; then token=$(<"$TOKEN_FILE"); fi
 for i in $(seq "$RUNNER_COUNT"); do
   dir=$(runner_dir "$i"); work=$(runner_work "$i"); name=$(runner_name "$i")
-  # Runners never update themselves (--disableupdate), so a RUNNER_VERSION bump reaches them here: an installed
-  # runner at another version is stopped, unless it's running a job, and the new one unpacked over it (its
-  # registration files aren't in the archive); the restart below starts it. Stopped first, so no job starts on a
-  # half-unpacked runner.
-  installed=
-  if [[ -x $dir/config.sh ]]; then installed=$(as_runner "'$dir/bin/Runner.Listener' --version 2>/dev/null" | tr -d '[:space:]') || installed=; fi
-  fetch=
-  if [[ ! -x $dir/config.sh ]]; then
-    fetch=1
-  elif [[ $installed != "$RUNNER_VERSION" ]]; then
-    if pgrep -u "$RUNNER_USER" -f "$dir/bin/Runner.Worker" > /dev/null; then
-      echo "Runner $i is at ${installed:-an unknown version} and running a job: not upgraded to $RUNNER_VERSION. Re-run setup when it's idle."
-    else
-      echo "Runner $i: ${installed:-an unknown version} -> $RUNNER_VERSION"
-      systemctl stop "$RUNNER_UNIT@$i.service" 2> /dev/null || true
-      fetch=1
-    fi
-  fi
-  if [[ -n $fetch ]]; then
-    as_runner "mkdir -p '$dir' '$work' && cd '$dir' \
-      && curl -fsSL -o runner.tgz https://github.com/actions/runner/releases/download/v$RUNNER_VERSION/actions-runner-linux-x64-$RUNNER_VERSION.tar.gz \
-      && echo '$RUNNER_SHA256  runner.tgz' | sha256sum -c - && tar xzf runner.tgz && rm runner.tgz"
-  fi
+  runner_install "$i" "$dir" "$work"
   if [[ ! -f $dir/.runner ]]; then
     if [[ -n $token ]]; then
       as_runner "cd '$dir' && ./config.sh --unattended --replace \

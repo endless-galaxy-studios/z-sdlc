@@ -3,6 +3,7 @@ the rest (--print-settings resolves them without root). The setup itself needs r
 Docker on the host, so its parts that decide something (the apt plan, the tier's owner, the CI key, the runner
 homes' base) are functions, run here on their own with stand-ins for the system's tools; setup-ci.sh's units are
 checked as text."""
+import ipaddress
 import json
 import os
 import pathlib
@@ -325,6 +326,90 @@ class SetupParts(unittest.TestCase):
                       RUNNER_USER="factory-runner")
         self.assertEqual((r.returncode, r.stdout), (0, ""))
 
+    def install_runner(self, installed=None, busy=(), curl_rc=0):
+        """runner_install for runner 1 in <root>/runner: installed at a version (None: not installed), busy on each
+        look at Runner.Worker in turn (the last answer repeats), with curl exiting curl_rc. Returns (result, the log of
+        curl, systemctl and tar in the order they ran)."""
+        runner = self.root / "runner"
+        shutil.rmtree(runner, ignore_errors=True)
+        if installed:
+            (runner / "bin").mkdir(parents=True)
+            (runner / "config.sh").write_text("#!/bin/sh\n")
+            (runner / "config.sh").chmod(0o755)
+            (runner / "bin" / "Runner.Listener").write_text(f"#!/bin/sh\necho {installed}\n")
+            (runner / "bin" / "Runner.Listener").chmod(0o755)
+        log = self.root / "log"
+        log.unlink(missing_ok=True)
+        (self.root / "busy").write_text("".join(f"{int(b)}\n" for b in busy) or "0\n")
+        # pgrep answers from the busy list, one line a look; the last one stays.
+        self.tool("pgrep", f'b={self.root}/busy; v=$(head -1 "$b"); [[ $(wc -l < "$b") -gt 1 ]] && sed -i.x 1d "$b"\n'
+                           '[[ $v == 1 ]]\n')
+        self.tool("curl", f'echo curl >> {log}; [[ {curl_rc} == 0 ]] && touch runner.tgz; exit {curl_rc}\n')
+        self.tool("sha256sum", "cat > /dev/null\n")
+        self.tool("tar", f'echo "tar $*" >> {log}\n')
+        self.tool("systemctl", f'echo "systemctl $*" >> {log}\n')
+        stub = 'as_runner() { bash -c "$1"; }\n'
+        r = self.bash(stub + function("runner_busy") + function("runner_install") +
+                      f"runner_install 1 {runner} {self.root / 'work'}\n",
+                      RUNNER_USER="factory-runner", RUNNER_UNIT="factory-runner", RUNNER_VERSION="2.338.2",
+                      RUNNER_SHA256="0" * 64)
+        return r, log.read_text().splitlines() if log.exists() else []
+
+    def test_a_runner_is_stopped_for_an_upgrade_only_once_the_download_is_checked(self):
+        # A download that fails leaves the runner as it was, running.
+        r, log = self.install_runner(installed="2.337.0", curl_rc=22)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("couldn't download actions/runner v2.338.2 (above): runner 1 is as it was", r.stderr)
+        self.assertEqual(log, ["curl"])
+        self.assertFalse((self.root / "runner" / "runner.tgz").exists())
+        # A good one: downloaded, then the runner stopped, then unpacked.
+        r, log = self.install_runner(installed="2.337.0")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(log, ["curl", "systemctl stop factory-runner@1.service", "tar xzf runner.tgz"])
+        # Running a job: left alone, nothing downloaded.
+        r, log = self.install_runner(installed="2.337.0", busy=[True])
+        self.assertEqual((r.returncode, log), (0, []))
+        self.assertIn("running a job: not upgraded", r.stdout)
+        # A job that starts during the download keeps its runner, and the archive goes.
+        r, log = self.install_runner(installed="2.337.0", busy=[False, True])
+        self.assertEqual((r.returncode, log), (0, ["curl"]))
+        self.assertIn("took a job during the download", r.stdout)
+        self.assertFalse((self.root / "runner" / "runner.tgz").exists())
+        # At the version already: nothing to do.
+        r, log = self.install_runner(installed="2.338.2")
+        self.assertEqual((r.returncode, log), (0, []))
+
+    def test_a_new_runner_is_downloaded_and_unpacked(self):
+        r, log = self.install_runner()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(log, ["curl", "tar xzf runner.tgz"])
+
+    def test_the_planning_databases_own_host_is_probed_beyond_its_port(self):
+        # The firewall file as step 3 writes it: its blocked4 set, from setup.sh's own heredoc.
+        nft = self.root / "firewall.nft"
+        nft.write_text(re.search(r"^  set blocked4 \{\n.*?^  \}\n", SCRIPT.read_text(), re.S | re.M).group(0))
+        def ports(db_host, db_port="5432", probe="22 80 443 5432 6379", nft_file=nft):
+            return self.bash(function("db_host_other_ports") + "db_host_other_ports\n", DB_HOST=db_host,
+                             DB_PORT=db_port, PROBE_PORTS=probe, NFT_FILE=str(nft_file))
+        def ok(*args):
+            r = ports(*args)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            return r.stdout
+        # On a tailnet or LAN address the firewall blocks, every probe port but the database's must stay closed.
+        tailnet = str(ipaddress.IPv4Address((100 << 24) | (101 << 16) | (102 << 8) | 103))  # the shared range, RFC 6598
+        self.assertEqual(ok(tailnet), "22 80 443 6379")
+        self.assertEqual(ok("192.168.1.20", "6379"), "22 80 443 5432")
+        self.assertEqual(ok("10.0.0.5", "22", "22"), "")
+        # No remote database host (its port is on this host, probed with the rest), or a public one the tier reaches
+        # like the internet: nothing more to probe.
+        self.assertEqual(ok(""), "")
+        self.assertEqual(ok("203.0.113.7"), "")
+        # A firewall file it can't read the set from stops setup, never skips the probe.
+        (self.root / "other.nft").write_text("table inet t {}\n")
+        r = ports("10.0.0.5", nft_file=self.root / "other.nft")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("can't read the blocked4 set", r.stderr)
+
     def test_the_ci_units(self):
         text = SETUP_CI.read_text()
         units = dict(re.findall(r'cat > "/etc/systemd/system/\$RUNNER_UNIT-([\w@.]+)" <<EOF\n(.*?)\nEOF', text, re.S))
@@ -345,9 +430,23 @@ class SetupParts(unittest.TestCase):
         # deregistered it (10), since an error, or GitHub's refusal, means it's busy or can't tell.
         self.assertIn('$launcher retire "$CONF" "$i" || idle=$?', text)
         self.assertIn("if ((idle == 10)); then", text)
-        # Records on the old tmpfs state move in as leftovers only after the slots' new settings are in place.
-        self.assertLess(text.index('mv -f "$NEW_CONF" "$CONF"'), text.index('mv -f "$f" "$STATE/slot-$n.leftover-$id"'))
-        self.assertLess(text.index('mv -f "$f" "$STATE/slot-$n.leftover-$id"'), text.index('$launcher retire'))
+        # A slot beyond CI_RUNNERS is disabled, never stopped mid-job: retired like the others, it stops only when
+        # retire answers idle, and otherwise exits at its next cycle (12, which its unit never restarts after), since
+        # the settings name how many slots there are.
+        self.assertIn('"slots=$RUNNER_COUNT"', text)
+        self.assertNotIn("disable --now", text)
+        excess = text[text.index("((n > RUNNER_COUNT)) || continue"):]
+        self.assertLess(excess.index('systemctl disable "$unit"'), excess.index('$launcher retire "$CONF" "$n"'))
+        self.assertLess(excess.index("if ((idle == 10)); then"), excess.index('systemctl stop "$unit"'))
+        self.assertIn("SuccessExitStatus=12", slot)
+        self.assertIn("RestartPreventExitStatus=12", slot)
+        # Earlier job images go only once the check has passed on the new one, on every run whose check passes.
+        self.assertLess(text.index('$launcher check "$CONF" || die'), text.index("xargs -r docker image rm"))
+        self.assertRegex(text, r'(?m)^as_runner "docker image ls -q --no-trunc --filter label=factory\.keep')
+        # The image build directory: removed by setup.sh's one exit trap, however the run ends.
+        self.assertIn("CI_BUILD=$(mktemp -d /var/lib/factory-runner/ci-build.XXXXXX)", text)
+        self.assertIn("""trap 'rm -rf "$FACTORY_SETUP_STAGED" ${CI_BUILD:+"$CI_BUILD"}' EXIT""", SCRIPT.read_text())
+        self.assertNotRegex(text, r"(?m)^\s*trap ")  # sourced: a trap of its own would replace setup.sh's
         self.assertIn("KillMode=mixed", slot)
         # Longer than the launcher's worst cleanup: docker rm, a token (openssl, the API) and the registration's
         # removal, the token and the removal twice over for a refused token minted again.

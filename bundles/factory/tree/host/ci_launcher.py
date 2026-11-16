@@ -10,6 +10,8 @@ Usage: python3 -I ci_launcher.py run <launcher.json> <slot>     one cycle; the s
        python3 -I ci_launcher.py inputs <dir> [<arg>...]           the job image's build inputs' fingerprint
        python3 -I ci_launcher.py retire <launcher.json> <slot>  for setup: exit 10 when the slot may restart (its runner
                                                                 is deregistered, or it has none), anything else when not
+A slot beyond the settings' slot count (setup lowered CI_RUNNERS) starts no cycle: run exits 12, which its unit never
+restarts after.
 
 A cycle mints a just-in-time (JIT) runner config with the runner-registration App. The App's one permission, the
 organization's self-hosted runners, reaches every runner group in the organization, so its key (root-only, read by
@@ -51,6 +53,7 @@ import ipaddress
 import json
 import os
 import pathlib
+import re
 import secrets
 import signal
 import socket
@@ -60,6 +63,7 @@ import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 ACCEPT = "application/vnd.github+json"
@@ -80,8 +84,15 @@ REASONS = {
 }
 # A recycle or an overrun, not a failure of the slot: the backoff counter stays as it is.
 NEUTRAL = ("idle", "lifetime", "job-hours")
-# The labels every self-hosted runner can have without asking: a tier's own label must be something else.
+# The labels GitHub gives every self-hosted runner (self-hosted, its OS, its architecture): a tier's own label must be
+# something else. The same set is in setup.sh, workflow_policy.py, runner_audit.py and process/factory.md (Enablement
+# step 8), and tests/test_runner_labels.py holds them to it.
 SELF_HOSTED_DEFAULTS = {"self-hosted", "linux", "windows", "macos", "x64", "x86", "arm", "arm64"}
+# run's exit for a slot beyond the settings' slot count: its unit's RestartPreventExitStatus, so it isn't restarted.
+RETIRED = 12
+# A registration a stopped cycle asked for may still be made after the cycle stops looking (the request was in
+# flight): its marker is kept, and looked for again, until it's this old.
+PENDING_SETTLE = 300
 
 # The isolation probe: every target closed; with expected caps (in a job's container), cpu.max, memory.max and
 # pids.max set to them. Exit 1 on any of those, else exit 2 if the internet is out of reach (liveness, not
@@ -230,6 +241,7 @@ class Tokens:
 
     def __init__(self, conf):
         self.conf, self.token, self.until = conf, None, 0.0
+        self.org_seen = False  # the organization's runner list answered 200 (org_answers)
 
     def get(self):
         if self.token is None or time.monotonic() > self.until:
@@ -294,10 +306,33 @@ def ran_its_job(conf, runner_id, tokens):
 
 
 def deregister(conf, runner_id, tokens):
-    """Remove the runner's registration. 404: already gone. GitHub refuses a busy runner."""
+    """Remove the runner's registration, and return GitHub's status. 404: already gone (org_answers says when that's
+    so). GitHub refuses a busy runner."""
     status, data = tokens.call("DELETE", f"/orgs/{conf['org']}/actions/runners/{runner_id}")
     if status not in (204, 404):
         raise Failed(f"deregister runner {runner_id}: HTTP {status} {printable((data or {}).get('message', ''))}")
+    return status
+
+
+def org_answers(conf, tokens):
+    """Before a 404 on a runner is taken to mean it's gone: GitHub also answers 404 for an organization the App can't
+    see (a wrong org in the settings), where every runner would read as gone and its registration be forgotten. So
+    the organization's runner list must answer 200, once per call of the launcher."""
+    if not tokens.org_seen:
+        status, _ = tokens.call("GET", f"/orgs/{conf['org']}/actions/runners?per_page=1")
+        if status != 200:
+            raise Failed(f"{conf['org']}'s runner list: HTTP {status}, so a 404 on one of its runners proves nothing")
+        tokens.org_seen = True
+
+
+def runners_named(conf, name, tokens):
+    """The IDs GitHub has for runners of exactly this name."""
+    status, data = tokens.call("GET", f"/orgs/{conf['org']}/actions/runners?name={urllib.parse.quote(name)}&per_page=100")
+    if status != 200 or not isinstance(data, dict) or not isinstance(data.get("runners"), list):
+        raise Failed(f"runners named {name}: HTTP {status}")
+    tokens.org_seen = True
+    return [r["id"] for r in data["runners"]
+            if isinstance(r, dict) and r.get("name") == name and isinstance(r.get("id"), int)]
 
 
 def runner_argv(conf, *command):
@@ -349,19 +384,29 @@ def state_dir(conf):
 
 
 def record_files(conf, slot):
-    """Every record of a registration the slot may hold: its current one, any an earlier cycle couldn't remove
-    (slot-N.leftover-<id>), and one a cycle left on the state's old place, tmpfs, on a host upgrading from a pre-release
-    CI tier (read only from a directory root alone can write)."""
+    """Every record of a registration the slot may hold: its current one, and any an earlier cycle couldn't remove
+    (slot-N.leftover-<id>)."""
     state = state_dir(conf)
-    files = [state / f"slot-{slot}.runner", *sorted(state.glob(f"slot-{slot}.leftover-*"))]
-    legacy = pathlib.Path(conf.get("legacy_state_dir", f"/run/factory-runner/{conf['unit']}"))
-    if legacy != state:
-        try:
-            state_dir({**conf, "state_dir": str(legacy)})
-            files.append(legacy / f"slot-{slot}.runner")
-        except (FileNotFoundError, Failed):
-            pass
-    return files
+    return [state / f"slot-{slot}.runner", *sorted(state.glob(f"slot-{slot}.leftover-*"))]
+
+
+def retired_slots(conf):
+    """Slots beyond the settings' slot count whose registrations are still on record (a current record, a leftover, a
+    pending marker): no cycle of theirs runs again to remove them."""
+    if "slots" not in conf:
+        return []
+    found = set()
+    for path in state_dir(conf).glob("slot-*"):
+        m = re.fullmatch(r"slot-(\d+)\.(runner|leftover-\d+|pending-[0-9a-f]+)", path.name)
+        if m and int(m.group(1)) > int(conf["slots"]):
+            found.add(int(m.group(1)))
+    return sorted(found)
+
+
+def pending_files(conf, slot):
+    """Markers of registrations the slot's cycles asked GitHub for and may not have heard back about
+    (slot-N.pending-<suffix>, each holding the runner's name): a cycle stopped inside generate-jitconfig."""
+    return sorted(state_dir(conf).glob(f"slot-{slot}.pending-*"))
 
 
 def low_disk(conf):
@@ -381,18 +426,48 @@ def write_env_file(conf, path, jit):
         os.close(fd)
 
 
-def record_runner(path, runner_id):
-    """The cycle's runner ID, kept before its container starts, so a killed cycle's registration is removed later."""
-    new = path.with_name(path.name + ".new")
-    new.write_text(str(runner_id))
+def record_runner(path, value):
+    """A record in the state, written whole: the cycle's runner ID, kept before its container starts so a killed
+    cycle's registration is removed later, or the name of a runner a cycle is asking GitHub for."""
+    # A temporary name of this process's own, hidden from the records' globs: slot 1's sweep and a retired slot's stop
+    # can write the same record at once.
+    new = path.with_name(f".{path.name}.{os.getpid()}.new")
+    new.write_text(str(value))
     os.replace(new, path)
 
 
-def deregister_leftover(conf, slot, tokens):
-    """Registrations a stopped or killed cycle left behind (record_files). One GitHub won't remove now (it can still
-    call a dead runner busy for a while) is kept as slot-N.leftover-<id> in the state for a later cycle, never a reason
-    to stop this one; one GitHub no longer has is dropped."""
+def resolve_pending(conf, slot, tokens):
+    """A registration a stopped cycle asked for and never heard back about (pending_files): once GitHub has a runner
+    of its name, it becomes a leftover record (slot-N.leftover-<id>); with none, its marker goes once it's
+    PENDING_SETTLE old, since the request may still have been in flight. Unknown (GitHub out of reach): kept."""
     state = state_dir(conf)
+    settle = float(conf.get("pending_settle_seconds", PENDING_SETTLE))
+    for path in pending_files(conf, slot):
+        try:
+            name = path.read_text().strip()
+            age = time.time() - path.stat().st_mtime
+        except FileNotFoundError:
+            continue
+        try:
+            ids = runners_named(conf, name, tokens) if name else []
+        except Failed as e:
+            print(f"slot {slot}: {e}; the marker for {printable(name)} is kept for a later cycle", file=sys.stderr)
+            continue
+        for runner_id in ids:
+            record_runner(state / f"slot-{slot}.leftover-{runner_id}", runner_id)
+        if ids or age > settle:
+            path.unlink(missing_ok=True)
+
+
+def deregister_leftover(conf, slot, tokens, spare_busy=False):
+    """Registrations a stopped or killed cycle left behind (record_files, and resolve_pending's). One GitHub won't
+    remove now (it can still call a dead runner busy for a while) is kept as slot-N.leftover-<id> for a later cycle,
+    never a reason to stop this one; one GitHub no longer has is dropped. spare_busy, for another slot's records (slot
+    1's sweep of a retired slot, whose last cycle may still be running its job): GitHub is asked first, as retire asks,
+    and a registration it calls busy is left as it is, record and all, as is one whose removal fails (it may have taken
+    a job since): a record moved from under a live cycle would let retire answer idle."""
+    state = state_dir(conf)
+    resolve_pending(conf, slot, tokens)
     for path in record_files(conf, slot):
         try:
             runner_id = int(path.read_text())
@@ -401,27 +476,39 @@ def deregister_leftover(conf, slot, tokens):
         except ValueError:
             path.unlink()
             continue
+        if spare_busy:
+            try:
+                runner = runner_state(conf, runner_id, tokens)
+            except Failed as e:
+                print(f"slot {slot}: {e}; kept for a later cycle", file=sys.stderr)
+                continue
+            if runner is not None and runner["busy"]:
+                continue
         try:
-            deregister(conf, runner_id, tokens)
+            if deregister(conf, runner_id, tokens) == 404:
+                org_answers(conf, tokens)
             path.unlink(missing_ok=True)
             continue
         except Failed as e:
             print(f"slot {slot}: {e}; kept for a later cycle", file=sys.stderr)
         with contextlib.suppress(Failed):
             if runner_state(conf, runner_id, tokens) is None:  # gone after all
+                org_answers(conf, tokens)
                 path.unlink(missing_ok=True)
                 continue
         leftover = state / f"slot-{slot}.leftover-{runner_id}"
-        if path != leftover:
-            # Written in the state, then the old record removed: the old state is on tmpfs, so a rename from there
-            # would cross filesystems (EXDEV).
+        if path != leftover and not spare_busy:
             record_runner(leftover, runner_id)
             path.unlink(missing_ok=True)
 
 
-def run(conf, slot):
+def run(conf, slot, conf_path=None):
     """One job's cycle. Returns 0 when the runner ran its job or was recycled, 1 otherwise (the next cycle backs
-    off)."""
+    off), and RETIRED for a slot beyond the settings' slot count, which then stays stopped. conf_path: the settings'
+    file, read again for slot 1's sweep (setup may have changed the slot count since this cycle started)."""
+    if "slots" in conf and slot > int(conf["slots"]):
+        print(f"slot {slot}: beyond CI_RUNNERS ({conf['slots']}), so it starts no cycle", file=sys.stderr)
+        return RETIRED
     state = state_dir(conf)
     fails_file = state / f"slot-{slot}.fails"
     runner_file = state / f"slot-{slot}.runner"
@@ -439,13 +526,36 @@ def run(conf, slot):
         os.unlink(state / f"slot-{slot}.env")  # a JIT config a crashed cycle left on disk
     try:
         deregister_leftover(conf, slot, tokens)
+        if slot == 1:
+            # A slot beyond the count never runs again, so what its last cycle and its stop couldn't remove (a
+            # registration GitHub made after the stop looked, one it wouldn't remove yet) is slot 1's to remove. Only
+            # slot 1, so no two cycles do it at once; never a reason to fail this cycle. A registration GitHub calls
+            # busy is spared: the retired slot's last cycle may still be running its job. The count is read again
+            # here, since this cycle may have waited out its backoff while setup changed it.
+            try:
+                now = load(conf_path) if conf_path else conf
+                retired = retired_slots({**conf, "slots": now["slots"]}) if "slots" in now else []
+            except (OSError, ValueError, TypeError) as e:
+                print(f"slot {slot}: the settings' slot count: {printable(e)}", file=sys.stderr)
+                retired = []
+            for other in retired:
+                try:
+                    deregister_leftover(conf, other, tokens, spare_busy=True)
+                except (Failed, OSError) as e:
+                    print(f"slot {slot}: slot {other}'s registrations: {printable(e)}", file=sys.stderr)
         docker(conf, "rm", "-f", "-v", name)  # a container a crash left behind
         if docker(conf, "network", "inspect", network).returncode:
             docker(conf, "network", "create", "--label", "factory-ci", network)
         if low_disk(conf):
             raise Failed(f"less than CI_MIN_FREE_GB free under {conf['home']}: no job starts")
-        runner_id, jit = jitconfig(conf, tokens, f"{conf['name_prefix']}-{slot}-{secrets.token_hex(3)}")
+        suffix = secrets.token_hex(3)
+        # The name is recorded before GitHub is asked: a SIGTERM inside the call leaves a registration whose ID this
+        # cycle never hears, which a later cycle, the slot's stop or retire finds by its name (resolve_pending).
+        pending = state / f"slot-{slot}.pending-{suffix}"
+        record_runner(pending, f"{conf['name_prefix']}-{slot}-{suffix}")
+        runner_id, jit = jitconfig(conf, tokens, f"{conf['name_prefix']}-{slot}-{suffix}")
         record_runner(runner_file, runner_id)
+        pending.unlink(missing_ok=True)  # slot 1's sweep may have resolved it first, for a slot retired meanwhile
         env_file = state / f"slot-{slot}.env"
         write_env_file(conf, env_file, jit)
         try:
@@ -570,27 +680,37 @@ IDLE = 10  # retire's one answer that lets setup restart a slot: every other exi
 def retire(conf, slot):
     """For setup, which restarts a slot whose runner isn't running a job, so it takes setup's launcher and settings now
     and not at its next cycle (an idle runner's can be CI_IDLE_HOURS away). Returns (idle, why not). Each registration
-    the slot holds (record_files) must be gone, or idle and then deregistered: GitHub's word that it's busy, its refusal
-    to remove it (422), or a new cycle's record turning up meanwhile all mean not idle. Deregistering before the restart
-    means no job can be assigned between the look and the restart."""
+    the slot holds (record_files, and any GitHub has under a pending marker's name) must be gone, or idle and then
+    deregistered: GitHub's word that it's busy, its refusal to remove it (422), or a new cycle's record turning up
+    meanwhile all mean not idle. Deregistering before the restart means no job can be assigned between the look and the
+    restart. A 404 counts as gone only once the organization's runner list has answered (org_answers). The markers stay
+    as they are: the cycle that wrote one may still be running, and the restart's stop resolves them."""
     state = state_dir(conf)  # missing, or not root's alone: an error, so not idle
     tokens = Tokens(conf)
     current = state / f"slot-{slot}.runner"
     before = current.read_text() if current.exists() else None
+    ids = []
     for path in record_files(conf, slot):
         try:
-            runner_id = int(path.read_text())
+            ids.append(int(path.read_text()))
         except FileNotFoundError:
             continue
+    for path in pending_files(conf, slot):
+        with contextlib.suppress(FileNotFoundError):
+            ids += runners_named(conf, path.read_text().strip(), tokens)
+    for runner_id in ids:
         runner = runner_state(conf, runner_id, tokens)
         if runner is None:
+            org_answers(conf, tokens)
             continue
         if runner["busy"]:
             return False, f"runner {runner_id} is running a job"
         status, _ = tokens.call("DELETE", f"/orgs/{conf['org']}/actions/runners/{runner_id}")
         if status == 422:
             return False, f"GitHub won't remove runner {runner_id}: it took a job"
-        if status not in (204, 404):
+        if status == 404:
+            org_answers(conf, tokens)
+        elif status != 204:
             return False, f"removing runner {runner_id}: HTTP {status}"
     after = current.read_text() if current.exists() else None
     if after not in (None, before):
@@ -704,7 +824,9 @@ def firewall_problem(conf):
     except (ValueError, KeyError, TypeError, AttributeError):
         return f"firewall table {conf['firewall_table']}: nft's listing isn't readable"
     if have != want:
-        return f"firewall table {conf['firewall_table']} isn't what setup loaded (a chain or set flushed or changed)"
+        # An nftables upgrade can list the same table differently, and trips the tier the same way (Enablement step 10).
+        return (f"firewall table {conf['firewall_table']} isn't what setup loaded (a chain or set flushed or changed; "
+                "after an nftables upgrade, its listing may be what changed: check the table, then run setup again)")
     return None
 
 
@@ -900,7 +1022,7 @@ def main(argv):
     try:
         conf = load(argv[2])
         if argv[1] == "run":
-            return run(conf, int(argv[3]))
+            return run(conf, int(argv[3]), conf_path=argv[2])
         if argv[1] == "stop":
             return stop(conf, int(argv[3]))
         if argv[1] == "resolve":

@@ -83,6 +83,11 @@ for _ in $(seq 50); do (exec 3<> "/dev/tcp/127.0.0.1/$local_port") 2> /dev/null 
 answer=$(psql -h 127.0.0.1 -p "$local_port" -U "$user" -d "$name" -tAc 'select 1' 2>&1) || true
 if [ "$answer" != 1 ]; then
   echo "planning-services: the database proxy can't reach $host:$port ($answer)" >&2
+  # The address is set twice: here (planning.json, the project's) and in the runner host's firewall (host.conf, the
+  # tier owner's), and nothing compares them, so say where to look (D3 rule 2).
+  if [ $private = yes ]; then
+    echo "planning-services: on the runner host, the planning tier's firewall admits one database port, host.conf's PLANNING_DB_PORT, on PLANNING_DB_HOST's address (or, without one, the host's own addresses). planning.json's database.host and database.port ($host:$port) must be those" >&2
+  fi
   tail -20 "$dir/pgbouncer.log" 2> /dev/null >&2 || true
   exit 1
 fi

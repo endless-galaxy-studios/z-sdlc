@@ -6,7 +6,6 @@ the real one with a generated key."""
 
 import base64
 import contextlib
-import errno
 import http.server
 import io
 import json
@@ -15,12 +14,15 @@ import pathlib
 import re
 import shutil
 import signal
+import struct
 import subprocess
 import sys
+import tarfile
 import tempfile
 import threading
 import time
 import unittest
+import urllib.parse
 from unittest import mock
 
 HOST = pathlib.Path(__file__).resolve().parents[1] / "host"
@@ -37,15 +39,18 @@ class FakeGitHub(http.server.BaseHTTPRequestHandler):
     jit_status = 201
     jit_answer = None  # a 201's body in place of the usual one
     jit_delay = 0
+    jit_gate = None  # a threading.Event the answer waits for, after jit_delay
     delete_status = 204
     delete_body = {"message": "refused"}
     deleted = set()
+    registered = {}  # runner ID: name, as generate-jitconfig registered them (the runner list's answer)
     minted = 0
     revoked = set()  # tokens GitHub answers 401 to
     # [callable]: the runner's GET answer, a dict, an HTTP status, "garbage" (a 200 that isn't JSON) or "short"
     # (a body cut off).
     view = [lambda: 404]
-    installation = {"id": 9, "permissions": {"organization_self_hosted_runners": "write"}}
+    views = {}  # runner ID: its GET answer, in place of view's
+    installation ={"id": 9, "permissions": {"organization_self_hosted_runners": "write"}}
     groups = [{"id": 5, "name": "factory-ci", "visibility": "selected", "allows_public_repositories": False}]
 
     def reply(self, status, body=None):
@@ -76,12 +81,26 @@ class FakeGitHub(http.server.BaseHTTPRequestHandler):
             return self.reply(201, {"token": token, "expires_at": "2099-01-01T00:00:00Z"})
         if (self.headers.get("Authorization") or "").removeprefix("Bearer ") in FakeGitHub.revoked:
             return self.reply(401, {"message": "Bad credentials"})
+        url = urllib.parse.urlsplit(self.path)
+        if method == "GET" and url.path == "/orgs/acme/actions/runners":
+            name = urllib.parse.parse_qs(url.query).get("name", [None])[0]
+            found = [{"id": i, "name": n} for i, n in sorted(FakeGitHub.registered.items())
+                     if i not in FakeGitHub.deleted and name in (None, n)]
+            return self.reply(200, {"total_count": len(found), "runners": found})
         if method == "POST" and self.path == "/orgs/acme/actions/runners/generate-jitconfig":
+            # The runner is registered when GitHub answers, after jit_delay and jit_gate: a cycle stopped while it
+            # waits never hears its ID, and a lookup before then finds nothing yet.
             if FakeGitHub.jit_delay:  # never time.sleep(0): tests patch the time module's sleep
                 time.sleep(FakeGitHub.jit_delay)
+            if FakeGitHub.jit_gate is not None:
+                FakeGitHub.jit_gate.wait(60)
             if FakeGitHub.jit_status != 201:
                 return self.reply(FakeGitHub.jit_status, {"message": "nope"})
-            return self.reply(201, FakeGitHub.jit_answer or {"runner": {"id": 42}, "encoded_jit_config": "SklUQ09ORklH"})
+            answer = FakeGitHub.jit_answer or {"runner": {"id": 42}, "encoded_jit_config": "SklUQ09ORklH"}
+            runner_id = (answer.get("runner") or {}).get("id") if isinstance(answer.get("runner"), dict) else None
+            if isinstance(runner_id, int):
+                FakeGitHub.registered[runner_id] = body["name"]
+            return self.reply(201, answer)
         if runner and method == "DELETE":
             if FakeGitHub.delete_status == 204:
                 FakeGitHub.deleted.add(int(runner.group(1)))
@@ -90,7 +109,7 @@ class FakeGitHub(http.server.BaseHTTPRequestHandler):
         if runner and method == "GET":
             if int(runner.group(1)) in FakeGitHub.deleted:
                 return self.reply(404, {"message": "Not Found"})
-            answer = FakeGitHub.view[0]()
+            answer = FakeGitHub.views.get(int(runner.group(1))) or FakeGitHub.view[0]()
             if answer == "garbage":
                 return self.raw(b"<html>", 6)
             if answer == "short":
@@ -181,6 +200,26 @@ FAKE_RECORDER = ('#!/usr/bin/env bash\nprintf "%s\\n" "$*" >> "$(dirname "$0")/$
                  'printf "%s %s\\n" "$(basename "$0")" "$*" >> "$(dirname "$0")/all.log"\n'
                  'cat "$(dirname "$0")/$(basename "$0").out" 2>/dev/null\n'
                  'exit "$(cat "$(dirname "$0")/$(basename "$0").rc" 2>/dev/null || echo 0)"\n')
+# For the real-daemon test: a static Linux program that only exits 0 (the exit system call with 0), by the daemon's
+# architecture as `docker info` names it: (ELF machine, code).
+EXIT_ZERO = {
+    "x86_64": (0x3E, bytes.fromhex("31ff" "b83c000000" "0f05")),  # xor edi, edi; mov eax, 60; syscall
+    "aarch64": (0xB7, struct.pack("<3I", 0xD2800000, 0xD2800BA8, 0xD4000001)),  # mov x0, #0; mov x8, #93; svc #0
+}
+
+
+def exit_zero_elf(machine, code):
+    """A 64-bit little-endian ELF executable: its header, one loadable segment (the whole file, read and execute) and
+    the code, which starts straight after them."""
+    base, header_size, segment_size = 0x400000, 64, 56
+    size = header_size + segment_size + len(code)
+    ident = b"\x7fELF" + bytes([2, 1, 1, 0]) + bytes(8)  # 64-bit, little-endian, version 1, System V
+    header = ident + struct.pack("<HHIQQQIHHHHHH", 2, machine, 1, base + header_size + segment_size, header_size, 0,
+                                 0, header_size, segment_size, 1, 0, 0, 0)  # an executable; no section headers
+    segment = struct.pack("<IIQQQQQQ", 1, 5, 0, base, base, size, size, 0x1000)  # PT_LOAD, R+X, the whole file
+    return header + segment + code
+
+
 ROUTES = ("Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n"
           "eth0\t0002A8C0\t00000000\t0001\t0\t0\t100\t00FFFFFF\t0\t0\t0\n"
           "eth0\t00000000\t0101A8C0\t0003\t0\t0\t100\t00000000\t0\t0\t0\n")
@@ -207,12 +246,15 @@ class Launcher(unittest.TestCase):
         FakeGitHub.jit_status = 201
         FakeGitHub.jit_answer = None
         FakeGitHub.jit_delay = 0
+        FakeGitHub.jit_gate = None
         FakeGitHub.delete_status = 204
         FakeGitHub.delete_body = {"message": "refused"}
         FakeGitHub.deleted = set()
+        FakeGitHub.registered = {}
         FakeGitHub.minted = 0
         FakeGitHub.revoked = set()
         FakeGitHub.view = [self.container_view]
+        FakeGitHub.views = {}
         self.tmp = tempfile.TemporaryDirectory()
         root = pathlib.Path(self.tmp.name)
         self.bin = root / "bin"
@@ -242,7 +284,6 @@ class Launcher(unittest.TestCase):
             "setpriv": str(self.bin / "setpriv"), "env": shutil.which("env"), "docker": str(self.bin / "docker"),
             "python": str(self.bin / "python"), "nft": str(self.bin / "nft"), "systemctl": str(self.bin / "systemctl"),
             "loginctl": str(self.bin / "loginctl"), "wants_dir": str(self.wants), "fw_retry_seconds": 0,
-            "legacy_state_dir": str(root / "legacy"),
             "job": {"cpus": 4, "memory": "8g", "pids": 8192, "shm": "1g", "hours": 6},
             "idle_hours": 24, "min_free_gb": 0, "tick_seconds": 0.05, "poll_seconds": 0.1, "gone_checks": 2,
             "gone_delay": 0, "docker_wait_seconds": 0, "state_owner": os.getuid(),
@@ -321,6 +362,8 @@ class Launcher(unittest.TestCase):
         self.assertIn("ACTIONS_RUNNER_INPUT_JITCONFIG=SklUQ09ORklH", run["env_file"]["text"])
         self.assertFalse(any("SklUQ09ORklH" in a for c in self.calls() for a in c["argv"]))
         self.assertEqual(list(self.state.glob("*.env")), [])
+        # The runner's name was marked pending while GitHub was asked, and the marker went once its ID was recorded.
+        self.assertEqual(list(self.state.glob("slot-1.pending-*")), [])
         # docker as the runner user through setpriv, with a fixed environment and nothing of the launcher's.
         self.assertEqual(set((self.bin / "setpriv.log").read_text().splitlines()),
                          {f"--reuid={os.getuid()} --regid={os.getgid()} --clear-groups --inh-caps=-all"})
@@ -373,13 +416,20 @@ class Launcher(unittest.TestCase):
         self.assertNotIn("DELETE", [m for m, _ in self.github()])
         FakeGitHub.view = [lambda: 404]  # gone already
         self.assertEqual(retire(), launcher.IDLE)
-        # A record on the state's old place (a pre-release CI tier) counts, and a busy one keeps the slot.
-        legacy = pathlib.Path(self.conf["legacy_state_dir"])
-        legacy.mkdir(mode=0o711)
-        (legacy / "slot-1.runner").write_text("43")
+        (self.state / "slot-1.runner").unlink()
+        # A runner a stopped cycle asked for under a pending marker counts too, found by its name: busy, it keeps the
+        # slot; idle, it's removed. The marker stays: its cycle may still be running, and the slot's stop resolves it.
+        FakeGitHub.registered[43] = "box-ci-1-feed00"
+        marker = self.state / "slot-1.pending-feed00"
+        marker.write_text("box-ci-1-feed00")
         FakeGitHub.view = [lambda: BUSY]
         self.assertEqual(retire(), 0)
-        (legacy / "slot-1.runner").unlink()
+        FakeGitHub.view = [lambda: ONLINE]
+        self.assertEqual(retire(), launcher.IDLE)
+        self.assertIn(43, FakeGitHub.deleted)
+        self.assertTrue(marker.exists())
+        marker.unlink()
+        (self.state / "slot-1.runner").write_text("42")
         # A cycle that registered a new runner while retire removed the old one: not idle.
         FakeGitHub.view = [lambda: ONLINE]
         real = launcher.Tokens.call
@@ -402,31 +452,137 @@ class Launcher(unittest.TestCase):
         with contextlib.redirect_stderr(io.StringIO()):
             launcher.stop(self.conf, 1)
         self.assertFalse((self.state / "slot-1.leftover-55").exists())
-        # One on the state's old place that won't go yet is kept in the state, for a later cycle. The old place is
-        # on tmpfs and the state on disk, so no rename may cross from one directory to the other.
-        legacy = pathlib.Path(self.conf["legacy_state_dir"])
-        legacy.mkdir(mode=0o711)
-        (legacy / "slot-1.runner").write_text("56")
+        # The current record of one that won't go yet becomes a leftover, for a later cycle.
+        (self.state / "slot-1.runner").write_text("56")
         FakeGitHub.view = [lambda: ONLINE]
-        real_replace = os.replace
-        def replace(src, dst):
-            if pathlib.Path(src).parent != pathlib.Path(dst).parent:
-                raise OSError(errno.EXDEV, "Invalid cross-device link")
-            return real_replace(src, dst)
-        with mock.patch.object(launcher.os, "replace", replace), contextlib.redirect_stderr(io.StringIO()):
+        with contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(launcher.stop(self.conf, 1), 0)
         self.assertEqual((self.state / "slot-1.leftover-56").read_text(), "56")
-        self.assertFalse((legacy / "slot-1.runner").exists())
+        self.assertFalse((self.state / "slot-1.runner").exists())
 
-    def test_the_old_state_is_looked_for_where_a_pre_release_tier_kept_it(self):
-        conf = {k: v for k, v in self.conf.items() if k != "legacy_state_dir"}
-        seen, real = [], launcher.state_dir
-        def state_dir(c):
-            seen.append(c["state_dir"])
-            return real(c)
-        with mock.patch.object(launcher, "state_dir", state_dir):
-            self.assertEqual(launcher.record_files(conf, 1), [self.state / "slot-1.runner"])  # not there: nothing more
-        self.assertEqual(seen[-1], "/run/factory-runner/factory-ci")
+    def test_a_404_counts_as_gone_only_where_github_shows_the_organization(self):
+        # GitHub answers 404 for an organization the App can't see too: a wrong org in the settings must not make every
+        # runner read as gone, its registration forgotten and retire answer idle.
+        conf_file = pathlib.Path(self.tmp.name) / "launcher.json"
+        conf_file.write_text(json.dumps({**self.conf, "org": "other"}))
+        (self.state / "slot-1.runner").write_text("42")
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            self.assertEqual(launcher.main(["ci_launcher.py", "retire", str(conf_file), "1"]), 0)
+        self.assertIn("a 404 on one of its runners proves nothing", err.getvalue())
+        with contextlib.redirect_stderr(io.StringIO()):
+            launcher.stop({**self.conf, "org": "other"}, 1)
+        self.assertEqual((self.state / "slot-1.leftover-42").read_text(), "42")  # kept for a later cycle
+        # The right organization: its list answers, so the same 404 is a runner that's gone.
+        FakeGitHub.view = [lambda: 404]
+        FakeGitHub.delete_status = 404
+        with contextlib.redirect_stderr(io.StringIO()):
+            launcher.stop(self.conf, 1)
+        self.assertEqual(list(self.state.glob("slot-1.*")), [])
+        self.assertIn(("GET", "/orgs/acme/actions/runners?per_page=1"), self.github())
+
+    def test_a_slot_beyond_the_count_starts_no_cycle(self):
+        # Setup lowered CI_RUNNERS: the slot's next cycle exits at once, with the status its unit never restarts after.
+        conf_file = pathlib.Path(self.tmp.name) / "launcher.json"
+        conf_file.write_text(json.dumps({**self.conf, "slots": 1}))
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(launcher.main(["ci_launcher.py", "run", str(conf_file), "2"]), launcher.RETIRED)
+        self.assertEqual((self.github(), self.calls()), ([], []))
+        unit = (HOST / "setup-ci.sh").read_text()
+        for line in (f"SuccessExitStatus={launcher.RETIRED}", f"RestartPreventExitStatus={launcher.RETIRED}"):
+            self.assertIn(line, unit)
+        # Within the count, or settings written before there was one: a cycle as usual.
+        self.assertEqual(launcher.run({**self.conf, "slots": 2}, 2), 0)
+        self.assertEqual(launcher.run(self.conf, 3), 0)
+
+    def test_slot_1_removes_what_a_slot_beyond_the_count_left(self):
+        # Slot 2 was retired: a registration GitHub made after its stop looked, and one it wouldn't remove then, would
+        # otherwise stay, since slot 2 never runs again. Slot 1's next cycle removes both.
+        FakeGitHub.registered[43] = "box-ci-2-feed00"
+        (self.state / "slot-2.pending-feed00").write_text("box-ci-2-feed00")
+        (self.state / "slot-2.leftover-44").write_text("44")
+        (self.state / "slot-2.fails").write_text("0")
+        conf = {**self.conf, "slots": 1}
+        self.assertEqual(launcher.retired_slots(conf), [2])
+        self.assertEqual(launcher.run(conf, 1), 0)
+        self.assertTrue({43, 44} <= FakeGitHub.deleted)
+        self.assertEqual(launcher.retired_slots(conf), [])
+        # A retired slot still running its last job (CI_RUNNERS lowered while it was busy): GitHub is asked first, and
+        # its busy runner gets no DELETE and keeps its record, for its own cycle to remove when the job ends.
+        (self.state / "slot-2.runner").write_text("46")
+        FakeGitHub.views[46] = BUSY
+        self.assertEqual(launcher.run(conf, 1), 0)
+        self.assertNotIn(("DELETE", "/orgs/acme/actions/runners/46"), self.github())
+        self.assertEqual((self.state / "slot-2.runner").read_text(), "46")
+        # Idle when asked, but it takes a job before the removal (GitHub refuses it, 422): its record stays where its
+        # live cycle and retire read it, never moved to a leftover from under them.
+        FakeGitHub.views[46] = ONLINE
+        FakeGitHub.delete_status = 422
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(launcher.run(conf, 1), 0)
+        self.assertEqual((self.state / "slot-2.runner").read_text(), "46")
+        self.assertEqual(list(self.state.glob("slot-2.leftover-*")), [])
+        # Idle, it goes: the slot is beyond the count, so its runner mustn't take another job.
+        FakeGitHub.delete_status = 204
+        self.assertEqual(launcher.run(conf, 1), 0)
+        self.assertIn(46, FakeGitHub.deleted)
+        self.assertFalse((self.state / "slot-2.runner").exists())
+        # The count is read again from the settings' file at the sweep: raised to 2 since slot 1's cycle started (a
+        # backoff can be ten minutes), slot 2 is no longer retired, and its live cycle's marker is left alone.
+        conf_file = pathlib.Path(self.tmp.name) / "launcher.json"
+        conf_file.write_text(json.dumps({**self.conf, "slots": 2}))
+        FakeGitHub.registered[47] = "box-ci-2-beef00"
+        (self.state / "slot-2.pending-beef00").write_text("box-ci-2-beef00")
+        self.assertEqual(launcher.run(conf, 1, conf_path=str(conf_file)), 0)
+        self.assertNotIn(47, FakeGitHub.deleted)
+        self.assertTrue((self.state / "slot-2.pending-beef00").exists())
+        (self.state / "slot-2.pending-beef00").unlink()
+        # Only slot 1 does it, and only for slots beyond the count.
+        (self.state / "slot-3.leftover-45").write_text("45")
+        launcher.run({**self.conf, "slots": 2}, 2)
+        self.assertNotIn(45, FakeGitHub.deleted)
+        self.assertEqual(launcher.retired_slots({**self.conf, "slots": 3}), [])
+        self.assertEqual(launcher.retired_slots(self.conf), [])  # settings from before the count: none
+
+    def test_a_marker_the_sweep_resolved_first_doesnt_fail_the_cycle(self):
+        # Slot 1's sweep can resolve a retiring slot's marker while that slot's cycle is between minting its runner
+        # and recording it: the cycle carries on with its runner, and its record, as usual.
+        real = launcher.jitconfig
+        def jitconfig(conf, tokens, name):
+            result = real(conf, tokens, name)
+            for marker in self.state.glob("slot-2.pending-*"):
+                marker.unlink()
+            return result
+        with mock.patch.object(launcher, "jitconfig", jitconfig):
+            self.assertEqual(launcher.run(self.conf, 2), 0)
+        self.assertEqual(self.fails(2), "0")
+
+    def test_a_record_is_written_whole_under_a_name_no_glob_reads(self):
+        # Slot 1's sweep and a retired slot's stop can write the same record at once: each through a temporary name
+        # of its own process, never one the other could truncate, and none a record's glob would take for a record.
+        written = []
+        real = os.replace
+        def replace(src, dst):
+            written.append(pathlib.Path(src).name)
+            return real(src, dst)
+        with mock.patch.object(launcher.os, "replace", replace):
+            launcher.record_runner(self.state / "slot-2.leftover-46", 46)
+        self.assertEqual(written, [f".slot-2.leftover-46.{os.getpid()}.new"])
+        self.assertEqual(launcher.record_files(self.conf, 2), [self.state / "slot-2.runner",
+                                                               self.state / "slot-2.leftover-46"])
+
+    def test_a_pending_registration_github_never_made_is_forgotten_once_old(self):
+        marker = self.state / "slot-1.pending-abc123"
+        marker.write_text("box-ci-1-abc123")
+        launcher.stop(self.conf, 1)
+        self.assertTrue(marker.exists())  # the request may still have been in flight
+        old = time.time() - launcher.PENDING_SETTLE - 60
+        os.utime(marker, (old, old))
+        with contextlib.redirect_stderr(io.StringIO()):
+            launcher.stop({**self.conf, "org": "other"}, 1)  # GitHub can't answer: kept, however old
+        self.assertTrue(marker.exists())
+        launcher.stop(self.conf, 1)
+        self.assertFalse(marker.exists())
+        self.assertNotIn("DELETE", [m for m, _ in self.github()])
 
     def test_two_groups_of_the_tiers_name_are_refused(self):
         with mock.patch.object(FakeGitHub, "groups", [FakeGitHub.groups[0], {**FakeGitHub.groups[0], "id": 6}]):
@@ -449,11 +605,28 @@ class Launcher(unittest.TestCase):
                          "FACTORY_DOCKER_SMOKE=1 where a Docker daemon runs (a GitHub-hosted runner)")
     def test_a_real_daemon_takes_the_job_flags(self):
         # The fakes can't refuse a flag the way a daemon does: the log options that stopped every job on the first
-        # real run (2026-10-14) passed every test here.
-        conf = {**self.conf, "job": {"cpus": 1, "memory": "256m", "pids": 256, "shm": "64m", "hours": 1}}
-        r = subprocess.run(["docker", "run", "--rm", *launcher.job_flags(conf), "busybox:1.36", "true"],
-                           capture_output=True, text=True, timeout=300)
+        # real run (2026-10-14) passed every test here. The image is made here, from nothing but a program that exits
+        # 0, so the test pulls nothing (Docker Hub's rate limit failed it for reasons that weren't the flags).
+        arch = subprocess.run(["docker", "info", "--format", "{{.Architecture}}"], capture_output=True, text=True,
+                              timeout=60).stdout.strip()
+        if arch not in EXIT_ZERO:
+            self.skipTest(f"no exit-0 program for the daemon's architecture ({arch!r})")
+        program = exit_zero_elf(*EXIT_ZERO[arch])
+        archive = io.BytesIO()
+        with tarfile.open(fileobj=archive, mode="w") as tar:
+            info = tarfile.TarInfo("true")
+            info.size, info.mode = len(program), 0o755
+            tar.addfile(info, io.BytesIO(program))
+        image = f"factory-ci-smoke:{os.getpid()}"
+        r = subprocess.run(["docker", "import", "-", image], input=archive.getvalue(), capture_output=True, timeout=120)
         self.assertEqual(r.returncode, 0, r.stderr)
+        try:
+            conf = {**self.conf, "job": {"cpus": 1, "memory": "256m", "pids": 256, "shm": "64m", "hours": 1}}
+            r = subprocess.run(["docker", "run", "--rm", *launcher.job_flags(conf), "--entrypoint", "/true", image],
+                               capture_output=True, text=True, timeout=300)
+            self.assertEqual(r.returncode, 0, r.stderr)
+        finally:
+            subprocess.run(["docker", "image", "rm", image], capture_output=True, timeout=120)
 
     def test_the_job_images_inputs_are_fingerprinted(self):
         def tree(root):
@@ -965,11 +1138,30 @@ class Launcher(unittest.TestCase):
         self.assertFalse((self.state / "slot-1.runner").exists())
 
     def test_sigterm_during_an_api_call_cleans_up(self):
-        FakeGitHub.jit_delay = 2
+        # GitHub's answer, and the registration with it, waits for the gate: the cycle is stopped while it waits.
+        FakeGitHub.jit_gate = gate = threading.Event()
+        self.addCleanup(gate.set)
         self.sigterm_during(lambda: ("POST", "/orgs/acme/actions/runners/generate-jitconfig") in self.github())
         self.assertEqual(self.argvs("run"), [])
         self.assertNotIn("DELETE", [m for m, _ in self.github()])
-        time.sleep(FakeGitHub.jit_delay)  # the fake's reply goes nowhere
+        # GitHub registers the runner after the cycle stopped listening: its ID never reached the cycle, but its name
+        # was marked pending before the call.
+        markers = list(self.state.glob("slot-1.pending-*"))
+        self.assertEqual(len(markers), 1)
+        name = markers[0].read_text()
+        self.assertRegex(name, r"^box-ci-1-[0-9a-f]{6}$")
+        # The slot's stop, before GitHub has it: the marker is kept, since the request may still be in flight.
+        launcher.stop(self.conf, 1)
+        self.assertTrue(markers[0].exists())
+        gate.set()
+        deadline = time.monotonic() + 20
+        while 42 not in FakeGitHub.registered and time.monotonic() < deadline:
+            time.sleep(0.05)
+        self.assertEqual(FakeGitHub.registered.get(42), name)
+        # Once it has, the next look finds it by its name and removes it.
+        launcher.stop(self.conf, 1)
+        self.assertIn(42, FakeGitHub.deleted)
+        self.assertEqual([p.name for p in self.state.glob("slot-1.*") if p.name != "slot-1.fails"], [])
 
 
 if __name__ == "__main__":

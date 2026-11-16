@@ -18,9 +18,6 @@ TRIPPED=$CONF_DIR/tripped
 log "7/8 CI tier: the runner-registration App, the runner group and the job image"
 install -d -m 755 -o root -g root "$LIB" "$CONF_DIR"
 install -d -m 711 -o root -g root /var/lib/factory-runner "$STATE"
-# The state was on tmpfs before (a pre-release CI tier): its tmpfiles entry goes; its records move just before the
-# slots restart, below.
-rm -f "/etc/tmpfiles.d/$RUNNER_UNIT.conf"
 install -m 644 -o root -g root "$SCRIPT_DIR/ci_launcher.py" "$LIB/ci_launcher.py"
 
 # The jobs' caps need the cpu, memory and pids controllers delegated to the runner user (step 3 wrote the drop-in).
@@ -68,7 +65,7 @@ write_conf "api=\"https://api.github.com\"" "org=$(json_str "$FACTORY_ORG")" "cl
   "python=\"/usr/bin/python3\"" "openssl=$(json_str "$(command -v openssl)")" "nft=$(json_str "$(command -v nft)")" \
   "systemctl=$(json_str "$(command -v systemctl)")" "loginctl=$(json_str "$(command -v loginctl)")" \
   "job={\"cpus\": $CI_JOB_CPUS, \"memory\": \"$CI_JOB_MEMORY\", \"pids\": $CI_JOB_PIDS, \"shm\": \"$CI_JOB_SHM\", \"hours\": $CI_JOB_HOURS}" \
-  "idle_hours=$CI_IDLE_HOURS" "min_free_gb=$CI_MIN_FREE_GB" \
+  "idle_hours=$CI_IDLE_HOURS" "min_free_gb=$CI_MIN_FREE_GB" "slots=$RUNNER_COUNT" \
   "state_dir=$(json_str "$STATE")" "tripped=$(json_str "$TRIPPED")" "unit=$(json_str "$RUNNER_UNIT")" \
   "firewall_table=$(json_str "$NFT_TABLE")" "cgroup=$(json_str "/sys/fs/cgroup/user.slice/user-$RUID.slice")" \
   "probe={\"targets\": $(json_str "$targets"), \"ports\": $(json_str "$ports")}" "firewall_fingerprint=$(json_str "$fw_print")"
@@ -102,8 +99,11 @@ for k, v in args.items():
 PY
 ) || die "factory.json's ci.build_args (above)"
 # Under /var/lib/factory-runner, root's all the way up: under RUNNER_HOME_BASE, whoever owns a directory above it could
-# swap the context between root's copy and the build.
-build=$(mktemp -d /var/lib/factory-runner/ci-build.XXXXXX)
+# swap the context between root's copy and the build. setup.sh's exit trap removes it however this run ends (CI_BUILD),
+# and any an earlier run left goes first: setup holds the host's lock, so no other run is building.
+rm -rf /var/lib/factory-runner/ci-build.*
+CI_BUILD=$(mktemp -d /var/lib/factory-runner/ci-build.XXXXXX)
+build=$CI_BUILD
 chmod 755 "$build"
 # Links are staged as links, never followed, so nothing outside the context comes along. chmod -R skips links.
 stage_tree dir "$FACTORY_SETUP_CLONE" "$FACTORY_SETUP_TIP" "$build/toolchain" "$context" \
@@ -141,8 +141,6 @@ else
   rm -rf "$build"
   image=$(as_runner "docker image inspect -f '{{.Id}}' $RUNNER_UNIT-runner:latest") || die "no runner image"
   [[ $image =~ ^sha256:[0-9a-f]{64}$ ]] || die "no runner image"
-  # Earlier job images, unless a running job still uses one (the runner user lists and removes them; root reads none).
-  as_runner "docker image ls -q --no-trunc --filter label=factory.keep | grep -vx '$image' | xargs -r docker image rm > /dev/null 2>&1" || true
 fi
 write_conf "image=$(json_str "$image")" "image_inputs=$(json_str "$inputs")"
 mv -f "$NEW_CONF" "$CONF"
@@ -243,9 +241,13 @@ ExecStart=$launcher run $CONF %i
 ExecStopPost=$launcher stop $CONF %i
 Restart=always
 RestartSec=5
+# A slot beyond CI_RUNNERS (the settings' slots) exits 12 at its next cycle and stays stopped.
+SuccessExitStatus=12
+RestartPreventExitStatus=12
 KillMode=mixed
 # Above the launcher's worst-case cleanup: docker rm (120 s), then the token (openssl 30 s, the API 30 s) and the
-# registration's removal (30 s), all of it twice over for a refused token minted again: 300 s, with room.
+# registration's removal (30 s), all of it twice over for a refused token minted again: 300 s, with room. The stop
+# (ExecStopPost, timed on its own) adds a lookup of 30 s for a registration a SIGTERM left unheard.
 TimeoutStopSec=360
 
 [Install]
@@ -256,17 +258,11 @@ systemctl daemon-reload
 # not by restarting the gate: the slots require the gate, and restarting it would restart them, killing their jobs.
 rm -f "$TRIPPED"
 $launcher check "$CONF" || die "the CI tier's isolation check failed (above): no slot starts"
+# Earlier job images, now that the check has passed on this one, unless a running job still uses one (the runner user
+# lists and removes them; root reads none). A new image that fails the check leaves them in place, and so on every run
+# whose check passes, the image kept or not: a run that failed its check pruned nothing.
+as_runner "docker image ls -q --no-trunc --filter label=factory.keep | grep -vx '$image' | xargs -r docker image rm > /dev/null 2>&1" || true
 systemctl enable --now "$RUNNER_UNIT-gate.service" "$RUNNER_UNIT-check.timer" "$RUNNER_UNIT-fw.timer" > /dev/null
-# Records a cycle left on the old tmpfs state (a host upgrading from a pre-release CI tier) move into the state as
-# leftovers, which the slots' cycles, their stop and retire all read. Moved only now, once the slots' settings name the
-# new state, so no cycle started from here on writes there; one a cycle started earlier writes later is read where it
-# is (the launcher looks there too). As leftovers, never over a slot's current record.
-for f in /run/factory-runner/"$RUNNER_UNIT"/slot-*.runner; do
-  [[ -f $f && ! -L $f ]] || continue
-  id=$(<"$f") n=${f##*/slot-}
-  n=${n%.runner}
-  if [[ $id =~ ^[0-9]+$ && $n =~ ^[0-9]+$ ]]; then mv -f "$f" "$STATE/slot-$n.leftover-$id"; else rm -f "$f"; fi
-done
 # A slot running a job keeps it, and takes this run's launcher and settings at its next cycle. A slot whose runner
 # isn't running one is restarted, so it takes them now: an idle runner's next cycle can be CI_IDLE_HOURS away (and a
 # runner registered with an old label set would wait for it). retire asks GitHub about each registration the slot
@@ -284,12 +280,24 @@ for i in $(seq "$RUNNER_COUNT"); do
   fi
   systemctl enable --now "$RUNNER_UNIT-slot@$i.service" > /dev/null
 done
-# Slots beyond RUNNER_COUNT, enabled or running, are stopped (each removes its container and registration).
+# Slots beyond RUNNER_COUNT, enabled or running, are disabled, so a boot starts none, and retired like the others: one
+# whose runner isn't running a job stops now (its stop removes its container and registration). One running a job
+# keeps it: the settings now name fewer slots, so its next cycle exits at once (12) and its unit stays stopped.
 for unit in $({ ls /etc/systemd/system/multi-user.target.wants/ 2> /dev/null
                 systemctl list-units --all --plain --no-legend "$RUNNER_UNIT-slot@*.service" | awk '{print $1}'; } \
               | grep -E "^$RUNNER_UNIT-slot@[0-9]+\.service$" | sort -u); do
   n=${unit#"$RUNNER_UNIT-slot@"}
   n=${n%.service}
-  if ((n > RUNNER_COUNT)); then systemctl disable --now "$unit" > /dev/null 2>&1 || true; fi
+  ((n > RUNNER_COUNT)) || continue
+  systemctl disable "$unit" > /dev/null 2>&1 || true
+  if systemctl is-active --quiet "$unit"; then
+    idle=0
+    $launcher retire "$CONF" "$n" || idle=$?
+    if ((idle == 10)); then
+      systemctl stop "$unit"
+    else
+      echo "Slot $n is beyond CI_RUNNERS ($RUNNER_COUNT) and running a job, or its runner couldn't be retired: left to finish. Its next cycle exits, and the slot stays stopped."
+    fi
+  fi
 done
 systemctl --no-pager --lines=0 status "$RUNNER_UNIT-slot@*" | grep -E '●|Active:' || true

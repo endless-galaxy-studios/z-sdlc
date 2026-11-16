@@ -211,7 +211,7 @@ Spec and plan stages make judgment calls that depend on how the system behaves i
 ### Rules
 
 1. **Two runner tiers.** Implement, execute and revise run on the strict tier (D2, unchanged: no production path). Spec and plan run only on the planning tier: runners under a separate Linux user (`factory-planner`), selected by their own runner label and group. A workflow can't move a code-writing stage onto planning runners without a CODEOWNERS-reviewed edit, and the workflow policy check refuses it.
-2. **One firewall exception.** The planning user may reach the production database port and nothing else on the host or LAN: on the runner host itself, or, when production runs on another machine, on the one address `host.conf`'s `PLANNING_DB_HOST` names (an address that doesn't change, such as the machine's Tailscale address). The strict user's firewall is unchanged. A database on a public address needs no exception, since the tier reaches the internet, but it is reached only over TLS: `planning-services.sh` requires it there and refuses `prefer` or `disable` (`planning.json`'s `database.sslmode`), where pgbouncer's own default would fall back to plaintext. On a private or tailnet address the network is the boundary, and TLS is used when the server offers it.
+2. **One firewall exception.** The planning user may reach the production database port and nothing else on the host or LAN: on the runner host itself, or, when production runs on another machine, on the one address `host.conf`'s `PLANNING_DB_HOST` names (an address that doesn't change, such as the machine's Tailscale address). Setup's isolation test probes that address's other ports too, which must be closed. The address and port are set twice, in different repositories, and nothing compares them: the runner host's `host.conf` (`PLANNING_DB_HOST`, `PLANNING_DB_PORT`) builds the firewall, and each project's `planning.json` (`database.host`, `database.port`) is what its planning jobs connect to. They must agree; when they don't, the firewall refuses the connection, and `planning-services.sh`'s error names both settings. The strict user's firewall is unchanged. A database on a public address needs no exception, since the tier reaches the internet, but it is reached only over TLS: `planning-services.sh` requires it there and refuses `prefer` or `disable` (`planning.json`'s `database.sslmode`), where pgbouncer's own default would fall back to plaintext. On a private or tailnet address the network is the boundary, and TLS is used when the server offers it.
 3. **The database login is read-only and excludes personal and secret data.** A dedicated role with `SELECT` only, granted per table and per column: everything except fields holding personal data (names, emails, phone numbers, addresses), credentials (password hashes, API keys, tokens, session data) and payment data. The exclusion list is generated from the models and reviewed by CD; a migration that adds a table or column re-runs the check, and anything new and sensitive-looking stays excluded until CD approves it. The role also has a statement timeout and a connection limit. The agent reaches it through a connection proxy outside the sandbox that holds the password; the agent never sees it.
    - **Read-only is the role's privileges, never a session default.** Any session can open a read-write transaction (`COMMIT; BEGIN READ WRITE`), and what PUBLIC may do the role may do. So the role's SQL also:
      - revokes from PUBLIC `EXECUTE` on the large-object write functions (`lo_create`, `lo_creat`, `lo_from_bytea`, `lo_put`, `lowrite`, `lo_truncate`, `lo_truncate64`) and `TEMPORARY` on the database, granting back to the app's own roles what they use;
@@ -693,7 +693,19 @@ needs an organization owner's `gh` login (`admin:org`) for the runner groups and
    stops sending jobs to older runners. After the release that brings a bump reaches each tier's owner
    (the host repository's copy of `host/` for the shared tiers, a migration for the CI tier's
    project), run that tier's setup again from a fresh clone of the owner: it upgrades each idle runner
-   in place. Put `RUNNER_HOME_BASE` where root
+   in place, downloading and checking the new version before it stops the runner, so a failed download
+   leaves the runner running.
+
+   **Runner labels.** GitHub gives every self-hosted runner its own default labels (`self-hosted`,
+   `linux`, `windows`, `macos`, `x64`, `x86`, `arm`, `arm64`): `self-hosted`, its OS and its
+   architecture. A just-in-time runner gets only the labels it's registered with. The factory treats
+   those as GitHub's: setup and the CI launcher refuse a tier with no label beyond them, the workflow
+   policy never takes one for a hosted label, and the runner audit (step 12) leaves them out of what
+   it compares. So a runner's other labels in GitHub's runner list are the factory's, its tier's label
+   from `factory.json`'s `runners` block. Each script keeps its own copy of the list, since each runs
+   where no shared file reaches it, and the bundle's tests hold the copies to one set.
+
+   Put `RUNNER_HOME_BASE` where root
    owns every directory from it up to `/`, writable by no one else: whoever owns or can write a
    directory above a runner's home can move the home aside and put another in its place. Setup warns
    when that isn't so (a base under a person's own directory works, but trusts that person).
@@ -763,7 +775,8 @@ needs an organization owner's `gh` login (`admin:org`) for the runner groups and
     `python .github/factory/workflow_policy.py .github/workflows`, then
     `python -m unittest discover -s .github/factory/tests` (with PyYAML; with a CI tier, on a
     GitHub-hosted runner, and `FACTORY_DOCKER_SMOKE=1`, so the tier's job flags are tried on a real
-    Docker daemon, which the tests' fakes can't stand in for). The policy reads every
+    Docker daemon, which the tests' fakes can't stand in for; the test makes its own image and pulls
+    none). The policy reads every
     workflow, the project's own included, and scans the local composite actions they use: run it
     before making it required. A CI job on the organization's own GitHub-hosted (larger) runners
     needs its label in `factory.json`'s `policy.hosted_labels`. A job that must stay on a
@@ -825,7 +838,10 @@ needs an organization owner's `gh` login (`admin:org`) for the runner groups and
       4. It removes the container and the runner's registration. A slot that stops mid-job
          (setup, a reboot, a trip) cleans up first, and a registration it couldn't remove is
          removed by its next cycle: the slot keeps it in `/var/lib/factory-runner/<unit>`, which
-         outlives a reboot.
+         outlives a reboot. The runner's name is kept there before GitHub is asked for it, so a
+         registration made while the slot stopped, whose ID the cycle never heard, is found by its
+         name and removed too. A 404 on a runner counts as gone only once the organization's runner
+         list has answered: GitHub answers 404 for an organization the App can't see, too.
 
       While GitHub can't be read (an outage, a revoked key), every limit that needs its answer
       waits: the lifetime cap and the disk floor are what bound a container then. A token GitHub
@@ -910,7 +926,10 @@ needs an organization owner's `gh` login (`admin:org`) for the runner groups and
       the job image while its inputs are unchanged (the toolchain's Dockerfile and context, the
       build arguments, the runner's version): a rebuild of the same inputs still makes a new
       image. `sudo CI_REBUILD=1 TIER=ci bash .github/factory/host/setup.sh` rebuilds it anyway,
-      for the base image's and packages' updates.
+      for the base image's and packages' updates. Earlier job images are removed only once the
+      check (below) has passed on the new one. Lowering `CI_RUNNERS` disables the slots above it:
+      one running a job keeps it, and stops when its job ends. Slot 1's cycles remove any
+      registration such a slot left behind.
     - **The checks.** `ci_launcher.py check` runs before any slot starts (at boot too) and every
       6 hours. It checks:
       - the firewall table (loaded, and as setup loaded it, by fingerprint: flushing a chain or a
@@ -933,6 +952,13 @@ needs an organization owner's `gh` login (`admin:org`) for the runner groups and
       the timers and the runner user's linger, so a reboot brings none of it back. The tier stays
       stopped until someone fixes the cause and runs setup again, which enables them all. The
       internet or GitHub out of reach is liveness, not isolation, and is only logged.
+
+      The check fingerprints the table as `nft -j` lists it, and an `nftables` upgrade can list
+      the same table differently. That trips the tier like a changed table does: fail-safe, but it
+      looks like tampering. After upgrading `nftables`, check the table
+      (`sudo nft list table inet factory_ci`, or `factory_ci_<instance>` for a host's second
+      organization), then run setup again, which records the new
+      fingerprint.
     - **Writing the job:** `runs-on: [self-hosted, factory-ci]` (the form bootstrap reads); no
       `container:` and no `services:`, since the job runs in its runner's container and a database
       starts in the job; no `docker://` step; explicit read-only permissions;
@@ -977,7 +1003,9 @@ needs an organization owner's `gh` login (`admin:org`) for the runner groups and
       most-at-once and labels, since its runners come and go;
     - the factory's labels on any runner outside the groups that carry them.
 
-    Anything different, or a run that can't read all of it or runs out of time, fails the run and
+    A renamed group is one drift, a rename (its ID is the same), with its settings compared with what
+    it had. An answer from GitHub that isn't what it documents is a run that can't read (exit 2), never
+    drift. Anything different, or a run that can't read all of it or runs out of time, fails the run and
     opens or updates an issue (mentioning the logins in the repository's `RUNNER_AUDIT_NOTIFY`
     variable). A failed scheduled run also emails whoever last changed the schedule: the one
     channel no App can touch. It runs from one private repository per organization, on GitHub-hosted
