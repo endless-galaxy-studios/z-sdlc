@@ -20,7 +20,7 @@ related_files:
 
 The pilot project's release reviews (rounds 1 to 3, 2026-10-15) passed these as minor, to follow the tag. Each says what's wrong, what it costs, and where to start. Fixes go in the bundle (`bundles/factory/tree/`) and then to the incubator with `zsdlc-import-factory --to-incubator`.
 
-**Done (2026-11-16):** every item but 15, which has its own handoff. Where each fix went, and where it departs from the start written here (items 1, 8, 10 and 12), is in `process/sdlc_changelog.md`, "The CI tier's and the runner audit's follow-ups from v2.1.0's review". Still to do: hand the fixes to the incubator (`--to-incubator`). `sdlc-archive` removes this file once they're released.
+**Done (2026-11-16):** every item but 15, which has its own handoff. Where each fix went, and where it departs from the start written here (items 1, 8, 10 and 12), is in `process/sdlc_changelog.md`, "The CI tier's and the runner audit's follow-ups from v2.1.0's review". The incubator has them (merged and recorded at `6094011`). `sdlc-archive` removes this file once they're released.
 
 ## The CI launcher (`host/ci_launcher.py`)
 

@@ -37,6 +37,20 @@ Each entry contains:
 
 ---
 
+## 2026-11-16: The factory imported from the incubator (cccad04..6094011): z-sdlc's follow-ups, handed back
+
+**Origin:** The entry below, handed to the incubator with `--to-incubator` and merged there (CD, 2026-11-16).
+
+**What happened:** The incubator took z-sdlc's 10 changed bundle files, and its copies of `factory.md`, the runbook and `sdlc-revise`, as they were. Its factory tests passed (681, 46 skipped), and so did its render check and workflow policy. The report against the merge shows the bundle code in sync and nothing needing a person.
+
+**Changes made:**
+1. **`.claude/skills/zsdlc-import-factory/import.json`:** `last_import` is `6094011`. Nothing was copied.
+2. **`docs/current_work/ideas/factory-ci-tier-follow-ups_handoff.md`:** the hand-off is done; what's left is the release.
+
+**Rationale:** Until the merge was recorded, the next z-sdlc change to one of these files would have read as a conflict, as if both sides had changed it.
+
+---
+
 ## 2026-11-16: The CI tier's and the runner audit's follow-ups from v2.1.0's review
 
 **Origin:** `docs/current_work/ideas/factory-ci-tier-follow-ups_handoff.md`. The pilot project's three release reviews of v2.1.0 (2026-10-15), and the incubator's review of that import, passed 17 findings as minor, to follow the tag. They stayed pending for a month. CD (2026-11-16): "lets address them all now". Item 15, reading the organization's audit log, had already moved to its own handoff (`runner-audit-reads-audit-log_handoff.md`), and stays there.
