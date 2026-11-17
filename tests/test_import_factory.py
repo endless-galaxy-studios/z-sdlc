@@ -32,7 +32,9 @@ FACTORY_JSON = {"app": {"login": "bot"}, "stack": {"profile": "p", "env": {}}}
 
 
 def git(repo, *args):
-    return subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@e", *args],
+    # The fixtures' commits never use the user's own git config: a signing key whose agent is locked fails them.
+    return subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@e",
+                           "-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false", *args],
                           check=True, capture_output=True, text=True).stdout.strip()
 
 
