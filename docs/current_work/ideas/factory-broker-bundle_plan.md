@@ -15,12 +15,14 @@ related_files:
 
 # Plan: the checks-only broker as an opt-in bundle (`factory-broker`)
 
-**Status:** pilot-ready (2026-11-17), uncommitted. Built and reviewed: P0 to P9. The broker, its setup, seeds, tests
-(675 in an installed layout, also with every seed filled in), `process/factory-broker.md` and its runbook, the
-manifest's pilot entry and the installers' `pilot` and `requires.bundles`. Reviewed in three rounds (security, and
-correctness against D4 and the doc): no critical finding; every finding fixed with a test that fails without it.
-Nothing has run under real systemd. **Next:** CD: commit (with the other session's `15746db` rebased onto it); then
-P10, the incubator's PR for the client and the pilot in the third project.
+**Status:** pilot-ready (2026-11-17), committed (`52f6b75`, the outside review's fixes in `9788c03`), not pushed.
+Built and reviewed: P0 to P9. The broker, its setup, seeds, tests (681 in an installed layout, also with every seed
+filled in), `process/factory-broker.md` and its runbook, the manifest's pilot entry and the installers' `pilot` and
+`requires.bundles`. Reviewed in three rounds (security, and correctness against D4 and the doc), then by Codex on
+the bundle alone: no open critical or major finding, every fix with a test that fails without it. Codex's critical,
+setup running the checkout's code as root, is the limit both setups document; the runbook says to run setup from a
+fresh clone. Nothing has run under real systemd. The incubator's setup installs the shared client (CD merged its PR,
+2026-11-17). **Next:** P10, the pilot in the third project, then the debut.
 
 **This session ends at pilot-ready, not debuted.** The pilot needs the production machine and a PR in the third
 project, and the bundle is offered to projects only after it passes (CD's answer 3).
@@ -168,7 +170,7 @@ its brief names.
   `--prove` passes; a deny-list scan built from the map's never-port table finds nothing in the bundle. Review:
   security and implementation reviewers on the bundle's code, and Codex on the bundle's code alone (never the third
   project's source or the map). **Check:** no open critical or major finding.
-- **P10. Outside this session (CD):** the incubator's PR for the client; the pilot in the third project (its host
+- **P10. Outside this session (CD):** the incubator's PR for the client (merged 2026-11-17); the pilot in the third project (its host
   module and `broker` block PR, the hand adoption, setup on the production machine, a gate end to end); then the
   debut.
 

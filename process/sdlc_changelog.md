@@ -122,7 +122,7 @@ A fresh review of this change found nothing critical or major. Its five minor fi
 
 **Upgrading:**
 - `gates.py` changed, which is in the operations digest: a project with a production tier re-runs its setup after the migration, or every gate is refused (as with this release's other `gates.py` change: one re-run covers both). A broker with no host module, such as the incubator's, hashes the same files as before.
-- The factory bundle now ships the per-user request client (`host/factory-op-request`); the incubator's own setup still installs its own until a PR there changes it, which is CD's.
+- The factory bundle now ships the per-user request client (`host/factory-op-request`). The incubator's production setup installs it too, from a PR there that CD merged (2026-11-17); its host takes the shared client at the same setup re-run the `gates.py` change calls for.
 - Nothing installs the `factory-broker` bundle: it is a pilot (`process/factory-broker.md` § Adopting it by hand).
 
 ---
