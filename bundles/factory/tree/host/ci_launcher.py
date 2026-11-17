@@ -156,6 +156,10 @@ class Failed(Exception):
     pass
 
 
+class Refused(Failed):
+    """GitHub's answer refusing a request, so it did nothing: generate-jitconfig's 4xx registered no runner."""
+
+
 class Stopped(BaseException):
     """SIGTERM, the slot's unit stopping: unwinds through every finally, so the cycle cleans up after itself."""
 
@@ -273,8 +277,13 @@ def jitconfig(conf, tokens, name):
     status, data = tokens.call("POST", f"/orgs/{conf['org']}/actions/runners/generate-jitconfig",
                                {"name": name, "runner_group_id": conf["group_id"], "labels": jit_labels(conf),
                                 "work_folder": "_work"})
-    if status != 201 or not isinstance(data, dict) or not data.get("encoded_jit_config"):
-        raise Failed(f"JIT config: HTTP {status} {printable((data or {}).get('message', ''))}")
+    if status != 201:
+        # A 4xx registered nothing, but a 409 can mean a runner of this name exists, and a 5xx may come after the
+        # registration: those leave the name to be looked for (resolve_pending).
+        error = Refused if 400 <= status < 500 and status != 409 else Failed
+        raise error(f"JIT config: HTTP {status} {printable((data or {}).get('message', ''))}")
+    if not isinstance(data, dict) or not data.get("encoded_jit_config"):
+        raise Failed("JIT config: HTTP 201 without a JIT config")
     runner = data.get("runner")
     if not isinstance(runner, dict) or not isinstance(runner.get("id"), int):
         raise Failed("JIT config: no runner ID in GitHub's answer")
@@ -391,13 +400,15 @@ def record_files(conf, slot):
 
 
 def retired_slots(conf):
-    """Slots beyond the settings' slot count whose registrations are still on record (a current record, a leftover, a
-    pending marker): no cycle of theirs runs again to remove them."""
+    """Slots beyond the settings' slot count that still hold a registration on record (a current record, a leftover,
+    a pending marker), a failure count, or a temporary a killed write left: no cycle of theirs runs again to remove
+    them. A lock alone doesn't count, since it stays."""
     if "slots" not in conf:
         return []
     found = set()
-    for path in state_dir(conf).glob("slot-*"):
-        m = re.fullmatch(r"slot-(\d+)\.(runner|leftover-\d+|pending-[0-9a-f]+)", path.name)
+    state = state_dir(conf)
+    for path in [*state.glob("slot-*"), *state.glob(".slot-*.new")]:
+        m = re.fullmatch(r"\.?slot-(\d+)\.(runner|leftover-\d+|pending-[0-9a-f]+|fails|.+\.new)", path.name)
         if m and int(m.group(1)) > int(conf["slots"]):
             found.add(int(m.group(1)))
     return sorted(found)
@@ -426,11 +437,36 @@ def write_env_file(conf, path, jit):
         os.close(fd)
 
 
+@contextlib.contextmanager
+def slot_lock(conf, slot, wait=True):
+    """The slot's own lock, held by its cycle while it runs and by its stop while it removes registrations. Slot 1's
+    sweep of a retired slot takes it without waiting (wait=False, which yields False while the slot's own process holds
+    it), so the sweep never works on records a live cycle is writing. The file is never removed: a process holding the
+    old file and one that created a new one would each hold "the" lock."""
+    with open(state_dir(conf) / f"slot-{slot}.lock", "a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | (0 if wait else fcntl.LOCK_NB))
+        except BlockingIOError:
+            yield False
+            return
+        yield True
+
+
+def tidy(conf, slot, retired=False):
+    """What record_runner's temporaries a killed process left, under the slot's lock, so none is being written; and, for
+    a retired slot holding no registration any more, its failure count, which no cycle of its reads again."""
+    state = state_dir(conf)
+    for path in state.glob(f".slot-{slot}.*.new"):
+        path.unlink(missing_ok=True)
+    if retired and not any(p.exists() for p in record_files(conf, slot)) and not pending_files(conf, slot):
+        (state / f"slot-{slot}.fails").unlink(missing_ok=True)
+
+
 def record_runner(path, value):
     """A record in the state, written whole: the cycle's runner ID, kept before its container starts so a killed
     cycle's registration is removed later, or the name of a runner a cycle is asking GitHub for."""
-    # A temporary name of this process's own, hidden from the records' globs: slot 1's sweep and a retired slot's stop
-    # can write the same record at once.
+    # A temporary name of this process's own, hidden from the records' globs: a write a kill interrupts leaves no
+    # half-written record, and tidy() removes what it leaves.
     new = path.with_name(f".{path.name}.{os.getpid()}.new")
     new.write_text(str(value))
     os.replace(new, path)
@@ -451,8 +487,9 @@ def resolve_pending(conf, slot, tokens):
         try:
             ids = runners_named(conf, name, tokens) if name else []
         except Failed as e:
-            print(f"slot {slot}: {e}; the marker for {printable(name)} is kept for a later cycle", file=sys.stderr)
-            continue
+            # The next lookup would most likely fail the same way, each after a timeout's wait: this pass stops.
+            print(f"slot {slot}: {e}; the markers left are kept for a later cycle", file=sys.stderr)
+            return
         for runner_id in ids:
             record_runner(state / f"slot-{slot}.leftover-{runner_id}", runner_id)
         if ids or age > settle:
@@ -463,9 +500,9 @@ def deregister_leftover(conf, slot, tokens, spare_busy=False):
     """Registrations a stopped or killed cycle left behind (record_files, and resolve_pending's). One GitHub won't
     remove now (it can still call a dead runner busy for a while) is kept as slot-N.leftover-<id> for a later cycle,
     never a reason to stop this one; one GitHub no longer has is dropped. spare_busy, for another slot's records (slot
-    1's sweep of a retired slot, whose last cycle may still be running its job): GitHub is asked first, as retire asks,
-    and a registration it calls busy is left as it is, record and all, as is one whose removal fails (it may have taken
-    a job since): a record moved from under a live cycle would let retire answer idle."""
+    1's sweep of a retired slot, under that slot's lock): GitHub is asked first, as retire asks, and a registration it
+    calls busy is left as it is, record and all, as is one whose removal fails. A container a killed cycle left can
+    still be running a job, and the record stays where retire and that slot's stop read it."""
     state = state_dir(conf)
     resolve_pending(conf, slot, tokens)
     for path in record_files(conf, slot):
@@ -509,6 +546,13 @@ def run(conf, slot, conf_path=None):
     if "slots" in conf and slot > int(conf["slots"]):
         print(f"slot {slot}: beyond CI_RUNNERS ({conf['slots']}), so it starts no cycle", file=sys.stderr)
         return RETIRED
+    with slot_lock(conf, slot):
+        return cycle(conf, slot, conf_path)
+
+
+def cycle(conf, slot, conf_path):
+    """run's cycle, under the slot's lock."""
+    tidy(conf, slot)
     state = state_dir(conf)
     fails_file = state / f"slot-{slot}.fails"
     runner_file = state / f"slot-{slot}.runner"
@@ -529,9 +573,10 @@ def run(conf, slot, conf_path=None):
         if slot == 1:
             # A slot beyond the count never runs again, so what its last cycle and its stop couldn't remove (a
             # registration GitHub made after the stop looked, one it wouldn't remove yet) is slot 1's to remove. Only
-            # slot 1, so no two cycles do it at once; never a reason to fail this cycle. A registration GitHub calls
-            # busy is spared: the retired slot's last cycle may still be running its job. The count is read again
-            # here, since this cycle may have waited out its backoff while setup changed it.
+            # slot 1, so no two cycles do it at once; never a reason to fail this cycle. A slot whose own process still
+            # runs (its last cycle, or its stop) holds its lock and is left to it; a registration GitHub calls busy is
+            # spared. The count is read again here, since this cycle may have waited out its backoff while setup
+            # changed it.
             try:
                 now = load(conf_path) if conf_path else conf
                 retired = retired_slots({**conf, "slots": now["slots"]}) if "slots" in now else []
@@ -540,7 +585,11 @@ def run(conf, slot, conf_path=None):
                 retired = []
             for other in retired:
                 try:
-                    deregister_leftover(conf, other, tokens, spare_busy=True)
+                    with slot_lock(conf, other, wait=False) as held:
+                        if not held:  # its last cycle, or its stop, is still running: theirs to remove
+                            continue
+                        deregister_leftover(conf, other, tokens, spare_busy=True)
+                        tidy(conf, other, retired=True)
                 except (Failed, OSError) as e:
                     print(f"slot {slot}: slot {other}'s registrations: {printable(e)}", file=sys.stderr)
         docker(conf, "rm", "-f", "-v", name)  # a container a crash left behind
@@ -550,12 +599,18 @@ def run(conf, slot, conf_path=None):
             raise Failed(f"less than CI_MIN_FREE_GB free under {conf['home']}: no job starts")
         suffix = secrets.token_hex(3)
         # The name is recorded before GitHub is asked: a SIGTERM inside the call leaves a registration whose ID this
-        # cycle never hears, which a later cycle, the slot's stop or retire finds by its name (resolve_pending).
+        # cycle never hears, which a later cycle, the slot's stop or retire finds by its name (resolve_pending). The
+        # token comes first, so a cycle that can't get one leaves no marker; nor does one GitHub refuses.
+        tokens.get()
         pending = state / f"slot-{slot}.pending-{suffix}"
         record_runner(pending, f"{conf['name_prefix']}-{slot}-{suffix}")
-        runner_id, jit = jitconfig(conf, tokens, f"{conf['name_prefix']}-{slot}-{suffix}")
+        try:
+            runner_id, jit = jitconfig(conf, tokens, f"{conf['name_prefix']}-{slot}-{suffix}")
+        except Refused:
+            pending.unlink(missing_ok=True)
+            raise
         record_runner(runner_file, runner_id)
-        pending.unlink(missing_ok=True)  # slot 1's sweep may have resolved it first, for a slot retired meanwhile
+        pending.unlink(missing_ok=True)
         env_file = state / f"slot-{slot}.env"
         write_env_file(conf, env_file, jit)
         try:
@@ -674,6 +729,12 @@ def cleanup(conf, slot, name, runner_file, runner_id, tokens, removed):
         print(f"slot {slot}: {e}", file=sys.stderr)
 
 
+def read_record(path):
+    with contextlib.suppress(FileNotFoundError):
+        return path.read_text()
+    return None
+
+
 IDLE = 10  # retire's one answer that lets setup restart a slot: every other exit, an error's included, means don't
 
 
@@ -688,7 +749,7 @@ def retire(conf, slot):
     state = state_dir(conf)  # missing, or not root's alone: an error, so not idle
     tokens = Tokens(conf)
     current = state / f"slot-{slot}.runner"
-    before = current.read_text() if current.exists() else None
+    before = read_record(current)
     ids = []
     for path in record_files(conf, slot):
         try:
@@ -712,7 +773,7 @@ def retire(conf, slot):
             org_answers(conf, tokens)
         elif status != 204:
             return False, f"removing runner {runner_id}: HTTP {status}"
-    after = current.read_text() if current.exists() else None
+    after = read_record(current)  # slot 1's sweep may have removed it meanwhile
     if after not in (None, before):
         return False, "a new cycle registered a runner meanwhile"
     return True, ""
@@ -721,10 +782,13 @@ def retire(conf, slot):
 def stop(conf, slot):
     """After a slot stops (its unit's ExecStopPost): its container and any registration its cycle left."""
     state = state_dir(conf)
+    # The container and the JIT config first, outside the lock: slot 1's sweep never touches them, and a stop waiting
+    # behind a sweep (GitHub slow to answer) still removes them inside the unit's TimeoutStopSec.
     docker(conf, "rm", "-f", "-v", names(conf, slot)[0])
     with contextlib.suppress(FileNotFoundError):
         os.unlink(state / f"slot-{slot}.env")
-    deregister_leftover(conf, slot, Tokens(conf))
+    with slot_lock(conf, slot):
+        deregister_leftover(conf, slot, Tokens(conf))
     return 0
 
 

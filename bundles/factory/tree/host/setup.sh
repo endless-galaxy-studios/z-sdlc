@@ -973,11 +973,25 @@ runner_deps
 runner_busy() {
   pgrep -u "$RUNNER_USER" -f "$1/bin/Runner.Worker" > /dev/null
 }
+# The runners' archive, at RUNNER_VERSION: downloaded and checked once, the first time a runner needs it, and every
+# runner unpacks that one. So a download that fails stops setup before any runner has been stopped, and every runner
+# is as it was, running. Removed after the runners' loop below; one a setup that stopped partway left, at any
+# version, goes with the next download.
+RUNNER_ARCHIVE=$RUNNER_HOME/.actions-runner-$RUNNER_VERSION.tgz
+archive_ready=
+runner_archive() {
+  [[ -z $archive_ready ]] || return 0
+  as_runner "rm -f '$RUNNER_HOME'/.actions-runner-*.tgz \
+    && curl -fsSL -o '$RUNNER_ARCHIVE' https://github.com/actions/runner/releases/download/v$RUNNER_VERSION/actions-runner-linux-x64-$RUNNER_VERSION.tar.gz \
+    && echo '$RUNNER_SHA256  $RUNNER_ARCHIVE' | sha256sum -c -" \
+    || { as_runner "rm -f '$RUNNER_ARCHIVE'" || true; die "couldn't download actions/runner v$RUNNER_VERSION (above): every runner is as it was"; }
+  archive_ready=1
+}
 # Runner $1 in $2 (work folder $3), at RUNNER_VERSION. Runners never update themselves (--disableupdate), so a
-# RUNNER_VERSION bump reaches them here. The archive is downloaded and checked first, so a download that fails leaves
-# the runner as it was, running. An installed runner at another version is then stopped, unless it's running a job
-# (looked at again after the download, which takes a while), and the new one unpacked over it (its registration files
-# aren't in the archive); the restart below starts it. Stopped first, so no job starts on a half-unpacked runner.
+# RUNNER_VERSION bump reaches them here. An installed runner at another version is stopped once the archive is in
+# hand, unless it's running a job (looked at again then, since a download takes a while), and the new one unpacked
+# over it (its registration files aren't in the archive); the restart below starts it. Stopped first, so no job
+# starts on a half-unpacked runner.
 runner_install() {
   local i=$1 dir=$2 work=$3 installed='' upgrade=''
   if [[ -x $dir/config.sh ]]; then
@@ -989,20 +1003,16 @@ runner_install() {
     fi
     upgrade=1
   fi
-  as_runner "mkdir -p '$dir' '$work' && cd '$dir' && rm -f runner.tgz \
-    && curl -fsSL -o runner.tgz https://github.com/actions/runner/releases/download/v$RUNNER_VERSION/actions-runner-linux-x64-$RUNNER_VERSION.tar.gz \
-    && echo '$RUNNER_SHA256  runner.tgz' | sha256sum -c -" \
-    || { as_runner "rm -f '$dir/runner.tgz'" || true; die "couldn't download actions/runner v$RUNNER_VERSION (above): runner $i is as it was"; }
+  runner_archive
   if [[ -n $upgrade ]]; then
     if runner_busy "$dir"; then
-      as_runner "rm -f '$dir/runner.tgz'"
-      echo "Runner $i took a job during the download: not upgraded to $RUNNER_VERSION. Re-run setup when it's idle."
+      echo "Runner $i took a job meanwhile: not upgraded to $RUNNER_VERSION. Re-run setup when it's idle."
       return 0
     fi
     echo "Runner $i: ${installed:-an unknown version} -> $RUNNER_VERSION"
     systemctl stop "$RUNNER_UNIT@$i.service" 2> /dev/null || true
   fi
-  as_runner "cd '$dir' && tar xzf runner.tgz && rm runner.tgz"
+  as_runner "mkdir -p '$dir' '$work' && cd '$dir' && tar xzf '$RUNNER_ARCHIVE'"
 }
 token=
 if [[ -s $TOKEN_FILE ]]; then token=$(<"$TOKEN_FILE"); fi
@@ -1029,6 +1039,7 @@ for i in $(seq "$RUNNER_COUNT"); do
     && printf '%s\n' 'DOCKER_HOST=unix:///run/user/$RUID/docker.sock' 'XDG_RUNTIME_DIR=/run/user/$RUID' 'ACTIONS_RUNNER_REQUIRE_JOB_CONTAINER=true' >> .env \
     && cp -f bin/runsvc.sh ./runsvc.sh && chmod 755 runsvc.sh"
 done
+[[ -z $archive_ready ]] || as_runner "rm -f '$RUNNER_ARCHIVE'"
 # The bootstrap's checked copy, and the file it copied.
 if [[ -n $TOKEN_FILE ]]; then rm -f "$TOKEN_FILE" ${FACTORY_SETUP_TOKEN_FILE:+"$FACTORY_SETUP_TOKEN_FILE"}; fi
 

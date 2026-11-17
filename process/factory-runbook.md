@@ -464,7 +464,8 @@ right-hand column says what to do.
 - **Digest files:** a production host re-runs its setup after any change to `gates.py`, `ed25519.py`,
   the broker or `ops.json`, or every gate is refused.
 - **The runner audit** is regenerated after any intended change to runner groups or their runners, a
-  new project's workflows included.
+  new project's workflows included, and after a release that changes `runner_audit.py`: the workflow
+  carries its own copy of the script.
 - **Dependabot's actions updates:** on each PR, `render.py --adopt-pins`, `CLAUDE_CODE_VERSION`
   moved with the agent action, and `factory-smoke` after the merge (factory.md step 10).
 - **Tokens** a production tier holds are rotated on a schedule CD sets, and at once on any suspicion.

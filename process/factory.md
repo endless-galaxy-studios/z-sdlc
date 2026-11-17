@@ -211,7 +211,7 @@ Spec and plan stages make judgment calls that depend on how the system behaves i
 ### Rules
 
 1. **Two runner tiers.** Implement, execute and revise run on the strict tier (D2, unchanged: no production path). Spec and plan run only on the planning tier: runners under a separate Linux user (`factory-planner`), selected by their own runner label and group. A workflow can't move a code-writing stage onto planning runners without a CODEOWNERS-reviewed edit, and the workflow policy check refuses it.
-2. **One firewall exception.** The planning user may reach the production database port and nothing else on the host or LAN: on the runner host itself, or, when production runs on another machine, on the one address `host.conf`'s `PLANNING_DB_HOST` names (an address that doesn't change, such as the machine's Tailscale address). Setup's isolation test probes that address's other ports too, which must be closed. The address and port are set twice, in different repositories, and nothing compares them: the runner host's `host.conf` (`PLANNING_DB_HOST`, `PLANNING_DB_PORT`) builds the firewall, and each project's `planning.json` (`database.host`, `database.port`) is what its planning jobs connect to. They must agree; when they don't, the firewall refuses the connection, and `planning-services.sh`'s error names both settings. The strict user's firewall is unchanged. A database on a public address needs no exception, since the tier reaches the internet, but it is reached only over TLS: `planning-services.sh` requires it there and refuses `prefer` or `disable` (`planning.json`'s `database.sslmode`), where pgbouncer's own default would fall back to plaintext. On a private or tailnet address the network is the boundary, and TLS is used when the server offers it.
+2. **One firewall exception.** The planning user may reach the production database port and nothing else on the host or LAN: on the runner host itself, or, when production runs on another machine, on the one address `host.conf`'s `PLANNING_DB_HOST` names (an address that doesn't change, such as the machine's Tailscale address). When that address is a private or tailnet one, setup's isolation test also probes its other ports (`PROBE_PORTS`), which must be closed. The address and port are set twice, in different repositories, and nothing compares them: the runner host's `host.conf` (`PLANNING_DB_HOST`, `PLANNING_DB_PORT`) builds the firewall, and each project's `planning.json` (`database.host`, `database.port`) is what its planning jobs connect to. They must agree; when they don't, the firewall refuses the connection, and `planning-services.sh`'s error names both settings. The strict user's firewall is unchanged. A database on a public address needs no exception, since the tier reaches the internet, but it is reached only over TLS: `planning-services.sh` requires it there and refuses `prefer` or `disable` (`planning.json`'s `database.sslmode`), where pgbouncer's own default would fall back to plaintext. On a private or tailnet address the network is the boundary, and TLS is used when the server offers it.
 3. **The database login is read-only and excludes personal and secret data.** A dedicated role with `SELECT` only, granted per table and per column: everything except fields holding personal data (names, emails, phone numbers, addresses), credentials (password hashes, API keys, tokens, session data) and payment data. The exclusion list is generated from the models, or from the database's own catalog with `planning_reader.py` (any stack: it denies a column no rule knows is safe, and writes the role's SQL and its verify checks), and reviewed by CD; a migration that adds a table or column re-runs the check, and anything new and sensitive-looking stays excluded until CD approves it. The role also has a statement timeout and a connection limit. The agent reaches it through a connection proxy outside the sandbox that holds the password; the agent never sees it.
    - **Read-only is the role's privileges, never a session default.** Any session can open a read-write transaction (`COMMIT; BEGIN READ WRITE`), and what PUBLIC may do the role may do. So the role's SQL also:
      - revokes from PUBLIC `EXECUTE` on the large-object write functions (`lo_create`, `lo_creat`, `lo_from_bytea`, `lo_put`, `lowrite`, `lo_truncate`, `lo_truncate64`) and `TEMPORARY` on the database, granting back to the app's own roles what they use;
@@ -702,9 +702,10 @@ needs an organization owner's `gh` login (`admin:org`) for the runner groups and
    checksum it verifies. z-sdlc bumps it within 30 days of each actions/runner release, because GitHub
    stops sending jobs to older runners. After the release that brings a bump reaches each tier's owner
    (the host repository's copy of `host/` for the shared tiers, a migration for the CI tier's
-   project), run that tier's setup again from a fresh clone of the owner: it upgrades each idle runner
-   in place, downloading and checking the new version before it stops the runner, so a failed download
-   leaves the runner running.
+   project), run that tier's setup again from a fresh clone of the owner. On the strict and planning
+   tiers it upgrades each idle runner in place: it downloads and checks the new version once, before
+   it stops any runner, so a failed download leaves every runner as it was, running. The CI tier's
+   runner version is an input of its job image, which setup rebuilds.
 
    **Runner labels.** GitHub gives every self-hosted runner its own default labels (`self-hosted`,
    `linux`, `windows`, `macos`, `x64`, `x86`, `arm`, `arm64`): `self-hosted`, its OS and its
@@ -855,12 +856,14 @@ needs an organization owner's `gh` login (`admin:org`) for the runner groups and
          - free space under the runner's home falls below `CI_MIN_FREE_GB` (no cycle starts below
            it either).
       4. It removes the container and the runner's registration. A slot that stops mid-job
-         (setup, a reboot, a trip) cleans up first, and a registration it couldn't remove is
+         (a reboot, a trip) cleans up first, and a registration it couldn't remove is
          removed by its next cycle: the slot keeps it in `/var/lib/factory-runner/<unit>`, which
          outlives a reboot. The runner's name is kept there before GitHub is asked for it, so a
          registration made while the slot stopped, whose ID the cycle never heard, is found by its
-         name and removed too. A 404 on a runner counts as gone only once the organization's runner
-         list has answered: GitHub answers 404 for an organization the App can't see, too.
+         name and removed too; a name GitHub refused (a 4xx but 409) isn't kept. A 404 on a
+         registration left over, or during setup's `retire`, counts as gone only once the
+         organization's runner list has answered: GitHub answers 404 for an organization the App
+         can't see, too.
 
       While GitHub can't be read (an outage, a revoked key), every limit that needs its answer
       waits: the lifetime cap and the disk floor are what bound a container then. A token GitHub
@@ -947,8 +950,9 @@ needs an organization owner's `gh` login (`admin:org`) for the runner groups and
       image. `sudo CI_REBUILD=1 TIER=ci bash .github/factory/host/setup.sh` rebuilds it anyway,
       for the base image's and packages' updates. Earlier job images are removed only once the
       check (below) has passed on the new one. Lowering `CI_RUNNERS` disables the slots above it:
-      one running a job keeps it, and stops when its job ends. Slot 1's cycles remove any
-      registration such a slot left behind.
+      one running a job keeps it, and stops when its job ends. At the start of each of its
+      cycles, slot 1 removes any registration such a slot left behind, except one GitHub calls busy,
+      and leaves the slot alone while its own process still runs.
     - **The checks.** `ci_launcher.py check` runs before any slot starts (at boot too) and every
       6 hours. It checks:
       - the firewall table (loaded, and as setup loaded it, by fingerprint: flushing a chain or a
@@ -1069,7 +1073,8 @@ needs an organization owner's `gh` login (`admin:org`) for the runner groups and
     4. `runner_audit.py workflow expected.json > .github/workflows/factory-runner-audit.yml` in the
        audit's repository, committed; run it once by hand. After any intended change to the
        groups or their runners (a new runner, a re-registration, a new project's workflows),
-       regenerate it the same way. The schedule is hourly; `--cron` tightens it. GitHub starts scheduled
+       regenerate it the same way, and after a release that changes `runner_audit.py`, since the
+       workflow carries its own copy of the script. The schedule is hourly; `--cron` tightens it. GitHub starts scheduled
        runs late or not at all (an hourly schedule was measured starting in about one slot in five,
        with gaps of up to eleven hours), so a quiet audit is no all-clear: pair it with an outside
        heartbeat that alarms when runs stop, with its grace sized from measured gaps.

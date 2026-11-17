@@ -6,6 +6,7 @@ the real one with a generated key."""
 
 import base64
 import contextlib
+import fcntl
 import http.server
 import io
 import json
@@ -316,6 +317,10 @@ class Launcher(unittest.TestCase):
         GitHub has removed the runner by then: that kill finds the container gone, and is no kill of a job."""
         return [c["argv"] for c in self.calls() if c["argv"][:1] == ["kill"] and not c["exited"]]
 
+    def records(self, slot):
+        """What the state holds for the slot, but its lock (slot-N.lock, which stays)."""
+        return sorted(p.name for p in self.state.glob(f"slot-{slot}.*") if p.name != f"slot-{slot}.lock")
+
     def github(self, method=None):
         return [(m, p) for m, p, _, _ in FakeGitHub.calls if method in (None, m)]
 
@@ -477,7 +482,7 @@ class Launcher(unittest.TestCase):
         FakeGitHub.delete_status = 404
         with contextlib.redirect_stderr(io.StringIO()):
             launcher.stop(self.conf, 1)
-        self.assertEqual(list(self.state.glob("slot-1.*")), [])
+        self.assertEqual(self.records(1), [])
         self.assertIn(("GET", "/orgs/acme/actions/runners?per_page=1"), self.github())
 
     def test_a_slot_beyond_the_count_starts_no_cycle(self):
@@ -506,15 +511,16 @@ class Launcher(unittest.TestCase):
         self.assertEqual(launcher.run(conf, 1), 0)
         self.assertTrue({43, 44} <= FakeGitHub.deleted)
         self.assertEqual(launcher.retired_slots(conf), [])
-        # A retired slot still running its last job (CI_RUNNERS lowered while it was busy): GitHub is asked first, and
-        # its busy runner gets no DELETE and keeps its record, for its own cycle to remove when the job ends.
+        self.assertEqual(self.records(2), [])  # its failure count too, which no cycle of its reads again
+        # A container a killed cycle left still running its job (no process holds the slot's lock): GitHub is asked
+        # first, and its busy runner gets no DELETE and keeps its record.
         (self.state / "slot-2.runner").write_text("46")
         FakeGitHub.views[46] = BUSY
         self.assertEqual(launcher.run(conf, 1), 0)
         self.assertNotIn(("DELETE", "/orgs/acme/actions/runners/46"), self.github())
         self.assertEqual((self.state / "slot-2.runner").read_text(), "46")
-        # Idle when asked, but it takes a job before the removal (GitHub refuses it, 422): its record stays where its
-        # live cycle and retire read it, never moved to a leftover from under them.
+        # Idle when asked, but it takes a job before the removal (GitHub refuses it, 422): its record stays where retire
+        # and the slot's stop read it, never moved to a leftover.
         FakeGitHub.views[46] = ONLINE
         FakeGitHub.delete_status = 422
         with contextlib.redirect_stderr(io.StringIO()):
@@ -544,8 +550,8 @@ class Launcher(unittest.TestCase):
         self.assertEqual(launcher.retired_slots(self.conf), [])  # settings from before the count: none
 
     def test_a_marker_the_sweep_resolved_first_doesnt_fail_the_cycle(self):
-        # Slot 1's sweep can resolve a retiring slot's marker while that slot's cycle is between minting its runner
-        # and recording it: the cycle carries on with its runner, and its record, as usual.
+        # Whatever removed a cycle's marker between minting its runner and recording it, the cycle carries on with its
+        # runner, and its record, as usual.
         real = launcher.jitconfig
         def jitconfig(conf, tokens, name):
             result = real(conf, tokens, name)
@@ -557,18 +563,26 @@ class Launcher(unittest.TestCase):
         self.assertEqual(self.fails(2), "0")
 
     def test_a_record_is_written_whole_under_a_name_no_glob_reads(self):
-        # Slot 1's sweep and a retired slot's stop can write the same record at once: each through a temporary name
-        # of its own process, never one the other could truncate, and none a record's glob would take for a record.
-        written = []
+        # A record is written through a temporary name of the writing process's own, so a kill mid-write leaves no
+        # half-written record, and no record's glob takes the temporary for one.
+        written, seen = [], []
         real = os.replace
         def replace(src, dst):
             written.append(pathlib.Path(src).name)
+            # While the temporary file is there: no record's glob takes it for a record (retired_slots counts it, so
+            # slot 1's sweep tidies a retired slot's).
+            seen.append((launcher.record_files(self.conf, 2), launcher.pending_files(self.conf, 2)))
             return real(src, dst)
         with mock.patch.object(launcher.os, "replace", replace):
             launcher.record_runner(self.state / "slot-2.leftover-46", 46)
         self.assertEqual(written, [f".slot-2.leftover-46.{os.getpid()}.new"])
+        self.assertEqual(seen, [([self.state / "slot-2.runner"], [])])
         self.assertEqual(launcher.record_files(self.conf, 2), [self.state / "slot-2.runner",
                                                                self.state / "slot-2.leftover-46"])
+        # One a killed process left goes at the slot's next cycle, under its lock.
+        (self.state / f".slot-1.leftover-5.{os.getpid() + 1}.new").write_text("5")
+        self.assertEqual(launcher.run(self.conf, 1), 0)
+        self.assertEqual(list(self.state.glob(".slot-1.*")), [])
 
     def test_a_pending_registration_github_never_made_is_forgotten_once_old(self):
         marker = self.state / "slot-1.pending-abc123"
@@ -583,6 +597,115 @@ class Launcher(unittest.TestCase):
         launcher.stop(self.conf, 1)
         self.assertFalse(marker.exists())
         self.assertNotIn("DELETE", [m for m, _ in self.github()])
+
+    def test_a_slot_1_sweep_leaves_a_slot_its_own_process_holds(self):
+        # A retired slot whose own process still runs (a last cycle on the settings it started with, or its stop) holds
+        # its lock: slot 1's sweep sends nothing for it, so it never works on records that process is rewriting.
+        (self.state / "slot-2.leftover-49").write_text("49")
+        conf = {**self.conf, "slots": 1}
+        with open(self.state / "slot-2.lock", "a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            self.assertEqual(launcher.run(conf, 1), 0)
+            self.assertFalse([p for m, p in self.github() if "/runners/49" in p])
+            self.assertEqual((self.state / "slot-2.leftover-49").read_text(), "49")
+        self.assertEqual(launcher.run(conf, 1), 0)  # released: the next sweep removes it
+        self.assertIn(49, FakeGitHub.deleted)
+        self.assertEqual(self.records(2), [])
+
+    def test_a_cycle_and_a_stop_hold_their_slots_lock(self):
+        # The other half of the sweep's lock: while a cycle or a stop runs, the slot's lock is taken.
+        held = []
+        real_jit, real_leftover = launcher.jitconfig, launcher.deregister_leftover
+        def jitconfig(conf, tokens, name):
+            with launcher.slot_lock(conf, 1, wait=False) as free:
+                held.append(("cycle", not free))
+            return real_jit(conf, tokens, name)
+        def deregister_leftover(conf, slot, tokens, spare_busy=False):
+            with launcher.slot_lock(conf, slot, wait=False) as free:
+                held.append(("stop", not free))
+            return real_leftover(conf, slot, tokens, spare_busy)
+        with mock.patch.object(launcher, "jitconfig", jitconfig):
+            self.assertEqual(launcher.run(self.conf, 1), 0)
+        with mock.patch.object(launcher, "deregister_leftover", deregister_leftover):
+            launcher.stop(self.conf, 1)
+        self.assertEqual(held, [("cycle", True), ("stop", True)])
+        # A stop waiting behind the lock (a sweep slow on GitHub) has already removed the container.
+        lock = open(self.state / "slot-1.lock", "a")
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        stopper = threading.Thread(target=launcher.stop, args=(self.conf, 1))
+        try:
+            removals = len(self.argvs("rm"))
+            stopper.start()
+            deadline = time.monotonic() + 10
+            while len(self.argvs("rm")) == removals and time.monotonic() < deadline:
+                time.sleep(0.02)
+            self.assertEqual(self.argvs("rm")[removals:], [["rm", "-f", "-v", "factory-ci-1"]])
+            self.assertTrue(stopper.is_alive())
+        finally:
+            lock.close()
+            if stopper.is_alive() or stopper.ident:
+                stopper.join(10)
+        self.assertFalse(stopper.is_alive())
+
+    def test_a_cleanly_retired_slot_is_tidied_too(self):
+        # A retired slot whose stop removed every registration leaves its failure count, and maybe a killed write's
+        # temporary: slot 1's sweep removes those too, and its lock stays.
+        conf = {**self.conf, "slots": 2}
+        (self.state / "slot-3.lock").touch()
+        self.assertEqual(launcher.retired_slots(conf), [])  # a lock alone is nothing to tidy
+        for leftover in ("slot-3.fails", ".slot-3.runner.4321.new"):  # each on its own gets the slot swept
+            (self.state / leftover).write_text("2")
+            self.assertEqual(launcher.retired_slots(conf), [3])
+            self.assertEqual(launcher.run(conf, 1), 0)
+            self.assertEqual(launcher.retired_slots(conf), [])
+            self.assertFalse((self.state / leftover).exists())
+        self.assertTrue((self.state / "slot-3.lock").exists())
+
+    def test_slot_1_finds_a_retired_slots_registration_by_its_marker_alone(self):
+        # A retired slot's stop interrupted its last cycle inside generate-jitconfig, and GitHub registered the runner
+        # after the stop looked: its pending marker is all that's left, and slot 1's sweep finds the runner by its name.
+        FakeGitHub.registered[48] = "box-ci-2-cafe01"
+        (self.state / "slot-2.pending-cafe01").write_text("box-ci-2-cafe01")
+        conf = {**self.conf, "slots": 1}
+        self.assertEqual(launcher.retired_slots(conf), [2])
+        self.assertEqual(launcher.run(conf, 1), 0)
+        self.assertIn(48, FakeGitHub.deleted)
+        self.assertEqual(self.records(2), [])
+
+    def test_failed_cycles_leave_no_markers_to_pile_up(self):
+        # GitHub refusing the registration (a wrong organization, a 4xx) or no token at all: the cycle asked for
+        # nothing GitHub made, so it keeps no marker, and later cycles don't look the name up again and again.
+        with contextlib.redirect_stderr(io.StringIO()), mock.patch.object(launcher.time, "sleep"):
+            for conf in ({**self.conf, "org": "other"}, {**self.conf, "installation_id": 99}):
+                for _ in range(3):
+                    self.assertEqual(launcher.run(conf, 1), 1)
+                self.assertEqual(list(self.state.glob("slot-1.pending-*")), [])
+            self.assertEqual(FakeGitHub.minted, 3)  # one token a cycle, none looked up again for old markers
+            self.assertNotIn("/orgs/acme/actions/runners/generate-jitconfig", [p for _, p in self.github()])
+            # An answer that doesn't rule a registration out keeps the marker: a 5xx, or a 409 (that name exists).
+            for status in (502, 409):
+                FakeGitHub.jit_status = status
+                self.assertEqual(launcher.run(self.conf, 1), 1)
+                self.assertEqual(len(list(self.state.glob("slot-1.pending-*"))), 1)
+                for marker in self.state.glob("slot-1.pending-*"):
+                    marker.unlink()
+
+    def test_a_lookup_that_fails_ends_the_markers_pass(self):
+        # GitHub out of reach: each lookup would wait out a timeout, and a slot's stop has six minutes. The first
+        # failure ends the pass, and every marker is kept for a later one.
+        for suffix in ("aaaaa1", "aaaaa2", "aaaaa3"):
+            (self.state / f"slot-1.pending-{suffix}").write_text(f"box-ci-1-{suffix}")
+        with contextlib.redirect_stderr(io.StringIO()):
+            launcher.stop({**self.conf, "org": "other"}, 1)
+        lookups = [p for m, p in self.github("GET") if p.startswith("/orgs/other/actions/runners?name=")]
+        self.assertEqual(len(lookups), 1)
+        self.assertEqual(len(list(self.state.glob("slot-1.pending-*"))), 3)
+
+    def test_retire_survives_the_sweep_removing_the_record_it_reads(self):
+        # Slot 1's sweep can remove a retired slot's record between a look and a read: the record is then gone, and
+        # retire goes on as for no record, never ending in FileNotFoundError.
+        with mock.patch.object(launcher.pathlib.Path, "exists", lambda self: True):  # there at the look, gone at the read
+            self.assertEqual(launcher.retire(self.conf, 2), (True, ""))
 
     def test_two_groups_of_the_tiers_name_are_refused(self):
         with mock.patch.object(FakeGitHub, "groups", [FakeGitHub.groups[0], {**FakeGitHub.groups[0], "id": 6}]):
@@ -1161,7 +1284,7 @@ class Launcher(unittest.TestCase):
         # Once it has, the next look finds it by its name and removes it.
         launcher.stop(self.conf, 1)
         self.assertIn(42, FakeGitHub.deleted)
-        self.assertEqual([p.name for p in self.state.glob("slot-1.*") if p.name != "slot-1.fails"], [])
+        self.assertEqual([p for p in self.records(1) if p != "slot-1.fails"], [])
 
 
 if __name__ == "__main__":

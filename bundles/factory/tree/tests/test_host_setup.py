@@ -326,11 +326,23 @@ class SetupParts(unittest.TestCase):
                       RUNNER_USER="factory-runner")
         self.assertEqual((r.returncode, r.stdout), (0, ""))
 
-    def install_runner(self, installed=None, busy=(), curl_rc=0):
-        """runner_install for runner 1 in <root>/runner: installed at a version (None: not installed), busy on each
-        look at Runner.Worker in turn (the last answer repeats), with curl exiting curl_rc. Returns (result, the log of
-        curl, systemctl and tar in the order they ran)."""
-        runner = self.root / "runner"
+    def runner_tools(self, busy=(), curl_rc=0):
+        """The tools runner_install calls: pgrep answering from the busy list (one line a look; the last one stays),
+        curl exiting curl_rc, and curl, systemctl and tar logged in the order they ran. Returns the log's path."""
+        log = self.root / "log"
+        log.unlink(missing_ok=True)
+        (self.root / "busy").write_text("".join(f"{int(b)}\n" for b in busy) or "0\n")
+        self.tool("pgrep", f'b={self.root}/busy; v=$(head -1 "$b"); [[ $(wc -l < "$b") -gt 1 ]] && sed -i.x 1d "$b"\n'
+                           '[[ $v == 1 ]]\n')
+        self.tool("curl", f'echo curl >> {log}; touch "$3"; exit {curl_rc}\n')  # a failed one leaves a partial file
+        self.tool("sha256sum", "cat > /dev/null\n")
+        self.tool("tar", f'echo "tar $*" >> {log}\n')
+        self.tool("systemctl", f'echo "systemctl $*" >> {log}\n')
+        return log
+
+    def runner_at(self, n, installed=None):
+        """Runner n's directory, installed at a version (None: not installed)."""
+        runner = self.root / f"runner-{n}"
         shutil.rmtree(runner, ignore_errors=True)
         if installed:
             (runner / "bin").mkdir(parents=True)
@@ -338,51 +350,70 @@ class SetupParts(unittest.TestCase):
             (runner / "config.sh").chmod(0o755)
             (runner / "bin" / "Runner.Listener").write_text(f"#!/bin/sh\necho {installed}\n")
             (runner / "bin" / "Runner.Listener").chmod(0o755)
-        log = self.root / "log"
-        log.unlink(missing_ok=True)
-        (self.root / "busy").write_text("".join(f"{int(b)}\n" for b in busy) or "0\n")
-        # pgrep answers from the busy list, one line a look; the last one stays.
-        self.tool("pgrep", f'b={self.root}/busy; v=$(head -1 "$b"); [[ $(wc -l < "$b") -gt 1 ]] && sed -i.x 1d "$b"\n'
-                           '[[ $v == 1 ]]\n')
-        self.tool("curl", f'echo curl >> {log}; [[ {curl_rc} == 0 ]] && touch runner.tgz; exit {curl_rc}\n')
-        self.tool("sha256sum", "cat > /dev/null\n")
-        self.tool("tar", f'echo "tar $*" >> {log}\n')
-        self.tool("systemctl", f'echo "systemctl $*" >> {log}\n')
-        stub = 'as_runner() { bash -c "$1"; }\n'
-        r = self.bash(stub + function("runner_busy") + function("runner_install") +
-                      f"runner_install 1 {runner} {self.root / 'work'}\n",
+        return runner
+
+    def install_runners(self, *installed, busy=(), curl_rc=0):
+        """runner_install for runners 1, 2, ... in turn, as setup's loop runs it, each at the version given (None: not
+        installed). Returns (result, the log of curl, systemctl and tar)."""
+        log = self.runner_tools(busy, curl_rc)
+        calls = "".join(f"runner_install {n} {self.runner_at(n, v)} {self.root / f'work-{n}'}\n"
+                        for n, v in enumerate(installed, 1))
+        stub = 'as_runner() { bash -c "$1"; }\nRUNNER_ARCHIVE=$RUNNER_HOME/.actions-runner-$RUNNER_VERSION.tgz\n'
+        r = self.bash(stub + function("runner_archive") + function("runner_busy") + function("runner_install") + calls,
                       RUNNER_USER="factory-runner", RUNNER_UNIT="factory-runner", RUNNER_VERSION="2.338.2",
-                      RUNNER_SHA256="0" * 64)
+                      RUNNER_SHA256="0" * 64, RUNNER_HOME=str(self.root))
         return r, log.read_text().splitlines() if log.exists() else []
+
+    def archive(self):
+        return self.root / ".actions-runner-2.338.2.tgz"
 
     def test_a_runner_is_stopped_for_an_upgrade_only_once_the_download_is_checked(self):
         # A download that fails leaves the runner as it was, running.
-        r, log = self.install_runner(installed="2.337.0", curl_rc=22)
+        r, log = self.install_runners("2.337.0", curl_rc=22)
         self.assertEqual(r.returncode, 1)
-        self.assertIn("couldn't download actions/runner v2.338.2 (above): runner 1 is as it was", r.stderr)
+        self.assertIn("couldn't download actions/runner v2.338.2 (above): every runner is as it was", r.stderr)
         self.assertEqual(log, ["curl"])
-        self.assertFalse((self.root / "runner" / "runner.tgz").exists())
+        self.assertFalse(self.archive().exists())
         # A good one: downloaded, then the runner stopped, then unpacked.
-        r, log = self.install_runner(installed="2.337.0")
+        r, log = self.install_runners("2.337.0")
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(log, ["curl", "systemctl stop factory-runner@1.service", "tar xzf runner.tgz"])
+        self.assertEqual(log, ["curl", "systemctl stop factory-runner@1.service", f"tar xzf {self.archive()}"])
         # Running a job: left alone, nothing downloaded.
-        r, log = self.install_runner(installed="2.337.0", busy=[True])
+        r, log = self.install_runners("2.337.0", busy=[True])
         self.assertEqual((r.returncode, log), (0, []))
         self.assertIn("running a job: not upgraded", r.stdout)
-        # A job that starts during the download keeps its runner, and the archive goes.
-        r, log = self.install_runner(installed="2.337.0", busy=[False, True])
+        # A job that starts during the download keeps its runner.
+        r, log = self.install_runners("2.337.0", busy=[False, True])
         self.assertEqual((r.returncode, log), (0, ["curl"]))
-        self.assertIn("took a job during the download", r.stdout)
-        self.assertFalse((self.root / "runner" / "runner.tgz").exists())
+        self.assertIn("took a job meanwhile", r.stdout)
         # At the version already: nothing to do.
-        r, log = self.install_runner(installed="2.338.2")
+        r, log = self.install_runners("2.338.2")
         self.assertEqual((r.returncode, log), (0, []))
 
-    def test_a_new_runner_is_downloaded_and_unpacked(self):
-        r, log = self.install_runner()
+    def test_runners_share_one_download_so_a_failed_one_stops_none(self):
+        # Two runners to upgrade: one download, then each stopped and unpacked in turn.
+        r, log = self.install_runners("2.337.0", "2.337.0")
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(log, ["curl", "tar xzf runner.tgz"])
+        self.assertEqual(log, ["curl", "systemctl stop factory-runner@1.service", f"tar xzf {self.archive()}",
+                               "systemctl stop factory-runner@2.service", f"tar xzf {self.archive()}"])
+        # The first at the version already, the second's download failing: setup stops with neither stopped.
+        r, log = self.install_runners("2.338.2", "2.337.0", curl_rc=22)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("every runner is as it was", r.stderr)
+        self.assertEqual(log, ["curl"])
+        # An archive a setup that stopped partway left, at another version, goes with the next download.
+        stale = self.root / ".actions-runner-2.337.0.tgz"
+        stale.touch()
+        r, log = self.install_runners(None)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertFalse(stale.exists())
+        # Setup removes the archive once the runners' loop is done.
+        self.assertIn("[[ -z $archive_ready ]] || as_runner \"rm -f '$RUNNER_ARCHIVE'\"\n", SCRIPT.read_text())
+
+    def test_a_new_runner_is_downloaded_and_unpacked(self):
+        r, log = self.install_runners(None)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(log, ["curl", f"tar xzf {self.archive()}"])
 
     def test_the_planning_databases_own_host_is_probed_beyond_its_port(self):
         # The firewall file as step 3 writes it: its blocked4 set, from setup.sh's own heredoc.

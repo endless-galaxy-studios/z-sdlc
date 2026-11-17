@@ -33,9 +33,9 @@ Each audit run reads the organization's audit log since the last run and alarms 
   - Add the log next to the state comparison, not in place of it. The state check catches what's wrong now, including what the log doesn't record or what happened before the cursor began. The log catches what came and went between runs. The two checks are level-triggered and edge-triggered: each covers the other's misses.
   - Keep it in the scheduled workflow, hourly, rather than an always-on service. With a cursor, a dropped run loses nothing. An always-on watcher couldn't run on the runner host, which holds the key it guards against, so it would need another host and a liveness check of its own.
 - **Touches:**
-  - `create_app.py`: `AUDITOR_PERMISSIONS` (line 46) adds the organization's Administration permission, read. The manifest key is presumably `organization_administration`; check it. `auditor_done()` (line 195) checks the granted set equals it.
-  - `runner_audit.py`: a log step in `check`, the cursor, the docstring's "What it doesn't see" (line 22), and the `CRON` comments (lines 70–71 and 372).
-  - `process/factory.md` Enablement step 12: drop "The audit doesn't read it yet" (line 720). Say what Administration read also lets the auditor read: the organization's settings, and its whole audit log, not just runners.
+  - `create_app.py`: `AUDITOR_PERMISSIONS` adds the organization's Administration permission, read. The manifest key is presumably `organization_administration`; check it. `auditor_done()` checks the granted set equals it.
+  - `runner_audit.py`: a log step in `check`, the cursor, the docstring's "What it doesn't see", and the comments on `CRON` (above its definition, and in `workflow()`).
+  - `process/factory.md` Enablement step 12: drop "The audit doesn't read it yet". Say what Administration read also lets the auditor read: the organization's settings, and its whole audit log, not just runners.
   - `tests/test_runner_audit.py`.
   - As with the other follow-ups, fixes go in the bundle and then to the incubator with `zsdlc-import-factory --to-incubator`.
 
@@ -45,7 +45,7 @@ Each audit run reads the organization's audit log since the last run and alarms 
 - **Seen working (2026-10-15, from item 15):** an organization owner's token answers 200 and records `org.register_self_hosted_runner`.
 - **The endpoint's limits (its page):** 1,750 queries an hour per user and IP address. By default it returns up to 30 events from the past three months; older events need `phrase` with a `created` qualifier.
 - **The dropped runs:** the pilot organization's audit, from 2026-10-15T19:48Z to 2026-10-16T06:31Z. After two manual runs at setup, scheduled runs started only at 22:25Z and 01:26Z, against a `17 * * * *` schedule. The workflow was active throughout.
-- **Code:** `runner_audit.py:25` and `:71`, and `process/factory.md:719–720`, say the log would close the gap and isn't read yet.
+- **Code:** `runner_audit.py`'s docstring ("What it doesn't see") and its comment above `CRON`, and `process/factory.md` Enablement step 12 ("The audit doesn't read it yet"), say the log would close the gap and isn't read yet.
 
 ## Recommended next step
 

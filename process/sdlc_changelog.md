@@ -37,6 +37,68 @@ Each entry contains:
 
 ---
 
+## 2026-11-17: The CI tier follow-ups' review fixes
+
+**Origin:** CD (2026-11-17), on the final review of the follow-ups below: "fix those yes, then send them over."
+
+**What happened:** Two fresh reviewers checked what no one had reviewed: the follow-ups' last launcher fixes and their tests, and the docs and changelog against the code. Neither found anything critical or major. The code review found four minor problems, and the docs review found five things to fix before a release and a few smaller ones.
+
+**Changes made:**
+
+1. **`host/ci_launcher.py`:**
+   - **Each slot holds a lock while its cycle, or its stop's removal of registrations, runs** (`slot-N.lock`, never removed). Slot 1's sweep of a retired slot takes it without waiting, and leaves the slot alone while it's held. A stop removes its container and JIT config before it takes the lock, so a stop waiting behind a sweep still removes them in time. Before this, the sweep could delete a record that the retired slot's live cycle had just rewritten with a new runner's ID, leaving that runner with no record. It was the third review to find a race between the sweep and a live cycle, so this closes the whole class rather than the one case.
+   - **Failed cycles no longer pile up pending markers.**
+     - The token comes before the marker, so a cycle that can't get one writes none.
+     - A refusal from `generate-jitconfig` (a 4xx other than 409) drops the marker, since GitHub registered nothing (`Refused`).
+     - A lookup that fails ends `resolve_pending`'s pass, rather than each marker waiting out a timeout in turn. The reviewer worked out that, on a network dropping packets, about eleven markers would take a slot's stop past its six minutes.
+   - **The tidy-up:**
+     - a cycle removes its slot's temporary files that a killed write left;
+     - the sweep tidies every retired slot, including one whose stop removed every registration: its temporaries, and its failure count once it holds nothing.
+   - **`retire`** reads the slot's record without a separate existence check. The sweep removing it in between made `retire` answer "not idle: FileNotFoundError".
+2. **`host/setup.sh`:** the runners' archive is downloaded and checked once, the first time a runner needs it, and every runner unpacks that one. Before, each runner downloaded in turn, so a second runner's failed download left the first, already upgraded, stopped until setup ran again. Now a failed download stops setup before any runner is stopped. The archive (`$RUNNER_HOME/.actions-runner-<version>.tgz`) is removed after the runners' loop. One left by a setup that stopped partway, at any version, goes with the next download.
+3. **`process/factory.md`:**
+   - Enablement step 8: the upgrade sentence says every runner is as it was after a failed download, and that this applies to the strict and planning tiers only, since the CI tier's runner version is a job-image input.
+   - D3 rule 2: the database address's other ports are probed only when it's private or tailnet, and only those in `PROBE_PORTS`.
+   - The CI tier's step 4:
+     - a reboot or a trip stops a slot mid-job; setup no longer does;
+     - a refused name isn't kept;
+     - the 404 rule covers leftovers and `retire`.
+   - The setup notes: slot 1's sweep runs at the start of its cycles, spares a busy runner, and leaves a slot alone while its own process runs.
+   - Step 12.4: regenerate the audit's workflow after a release that changes `runner_audit.py`, since the workflow carries its own copy.
+4. **`process/factory-runbook.md`:** the same for the audit, in its list of what to regenerate.
+5. **This changelog:**
+   - the follow-ups' upgrade notes now name the `x86` refusal, the one change that can fail a project's CI after migrating;
+   - the import entry no longer says the deleted handoff remains.
+6. **`docs/current_work/ideas/runner-audit-reads-audit-log_handoff.md`:** its references point to names and quoted phrases, not line numbers, which had drifted (`create_app.py`'s two by about 20 lines, `factory.md`'s by about 300).
+7. **Tests:**
+   - `tests/test_ci_launcher.py`:
+     - the sweep leaving a locked slot alone, and a cycle and a stop holding the lock (a stop waiting on it has already removed its container);
+     - a cleanly retired slot tidied;
+     - a retired slot found by its marker alone;
+     - failed cycles leaving no markers, with a 5xx and a 409 keeping theirs;
+     - a failed lookup ending the pass;
+     - `retire` surviving a record removed mid-read;
+     - the temporaries' tidy-up;
+     - the temporary-name test now looks while the file exists.
+   - `tests/test_host_setup.py`: one download shared by two runners, a failed one stopping neither and leaving no partial file, and a stale archive removed.
+
+   Each new test failed against a copy of the code with its fix taken out.
+
+A fresh review of this change found nothing critical or major. Its five minor findings are fixed:
+- nothing tested that a cycle and a stop hold their lock;
+- a cleanly retired slot was never tidied;
+- a stop could wait behind a sweep before removing its container;
+- an archive left at an older version was never removed, and the failed download's clean-up was untested;
+- four comments still described the sweep running beside a live cycle.
+
+**Not done:** of the code review's smaller notes, nothing. Of the docs review's, the commit messages' two slips ("five copies" for two tests, and "16" of 17 findings): rewording them would rewrite history under another session's commits.
+
+**Rationale:** The follow-ups said their cleanups couldn't leak. These close the cases where they still could, and make the docs say what the code does.
+
+**Upgrading:** as for the follow-ups below: a project with a CI tier runs its setup again after the migration, and the shared host's repository copies `host/` and runs the strict and planning tiers' setup again. Nothing else.
+
+---
+
 ## 2026-11-16: The factory-broker bundle, a checks-only production broker (pilot)
 
 **Origin:** the third project's factory install, whose broker (a checks-only one, for a host that deploys the release branch by itself) any next project would write again. CD (2026-11-16): an opt-in bundle whose fixes reach projects through migration; the bundle owns the generic broker and the project its host module; root runs no project code; the whole bundle piloted before it debuts; the request client in the factory bundle. Plan: `docs/current_work/ideas/factory-broker-bundle_plan.md`.
@@ -182,7 +244,7 @@ Each entry contains:
 
 **Changes made:**
 1. **`.claude/skills/zsdlc-import-factory/import.json`:** `last_import` is `6094011`. Nothing was copied.
-2. **`docs/current_work/ideas/factory-ci-tier-follow-ups_handoff.md`:** the hand-off is done; what's left is the release.
+2. **`docs/current_work/ideas/factory-ci-tier-follow-ups_handoff.md`:** the hand-off is done, and was removed afterwards.
 
 **Rationale:** Until the merge was recorded, the next z-sdlc change to one of these files would have read as a conflict, as if both sides had changed it.
 
@@ -196,6 +258,7 @@ Each entry contains:
 - **A project with a CI tier:** run its setup again after the migration that brings this (`sudo TIER=ci bash .github/factory/host/setup.sh`). It writes the slot count into the launcher's settings and the slots' new unit.
 - **The shared host's own repository:** copy the bundle's `host/` at the release's tag, then run the strict and planning tiers' setup again. Nothing changes on the host until then.
 - **The runner audit:** regenerate its workflow (`runner_audit.py workflow expected.json`, Enablement step 12) to get the rename and malformed-answer handling. The expected state doesn't change.
+- **`policy.hosted_labels`:** `x86` is now refused there as one of GitHub's default labels (item 8). A project whose `factory.json` names it fails its workflow policy check, and every PR's CI with it, until `x86` is removed.
 
 **What happened, and the changes made** (by the handoff's numbers):
 1. **A registration could leak when SIGTERM landed inside `generate-jitconfig`.** GitHub had registered the runner, but the cycle never heard its ID. `host/ci_launcher.py` now writes the runner's name to `slot-N.pending-<suffix>` before it asks. A later cycle and the slot's stop look that name up (`GET orgs/<org>/actions/runners?name=`, matched exactly) and turn a registration they find into a leftover record, which is then removed. A marker with no registration behind it is dropped once it's `PENDING_SETTLE` (300 s) old, since the request may still have been in flight. `retire` counts a marker's registration as one of the slot's but leaves the marker, since its cycle may still be running. A slot beyond the count (item 2) never runs another cycle, so slot 1's cycles remove what such a slot left: a registration made after its stop looked, or one GitHub wouldn't remove then (`retired_slots`). Only slot 1 does this, so two cycles never do it at once. It asks GitHub first, as `retire` does, and leaves a registration GitHub calls busy as it is, record and all, since the retired slot's last cycle may still be running its job. The handoff's start, a sweep by the slot's name prefix, could remove the slot's own live runner. An exact name can't.
