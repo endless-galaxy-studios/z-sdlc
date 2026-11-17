@@ -1,18 +1,18 @@
 # Test Infrastructure Patterns
 # How to structure, run, and maintain a test suite so it serves the team
 # rather than slowing it down.
-# Last updated: 2026-04-21
+# Last updated: 2026-11-17
 
 id: test-infrastructure-patterns
 name: "Test Infrastructure Patterns"
-description: "Patterns for test suite structure, CI execution, result reporting, and flake management"
+description: "Patterns for test suite structure, CI execution (including skipping the jobs a change doesn't need without leaving a required check waiting), result reporting, and flake management"
 pattern: entries
 category: testing
 spec_relevant: false
 project_applicability:
   relevant_when: "Any project with a test suite that runs in CI"
   action_if_irrelevant: customize
-last_updated: 2026-04-21
+last_updated: 2026-11-17
 
 # ─────────────────────────────────────────────
 # Core Principles
@@ -89,6 +89,95 @@ ci_execution:
       affected_only: "Run tests whose dependency graph intersects the changed files. Requires build-system support (Nx, Turborepo, Bazel)."
       tag_based: "Tag tests by area (auth, payments, search). Run tags matching the change. Requires discipline to tag correctly."
       full_suite_on_main: "Short-circuit on PRs (affected only) but always run the full suite on main branch post-merge."
+
+  change_gating:
+    principle: >
+      Skip the jobs a change doesn't need inside the workflow, never by
+      skipping the workflow. Every push and pull request starts the same
+      workflow. Its first job works out which areas the change touched,
+      the jobs for the other areas skip, and one aggregate job always
+      reports. A docs-only change then runs the detecting job and the
+      aggregate, and no check the branch rules require is left waiting.
+    required_check:
+      rule: "Require one aggregate check in the branch rules, not each job."
+      how: >
+        The aggregate job lists every other job in `needs`, runs on
+        `if: always()`, and passes only when the detecting job succeeded
+        and every other job succeeded or was skipped: it reads each
+        `.result` from `toJSON(needs)`.
+      why: >
+        A job skipped by its condition reports "Success" (documented, in
+        GitHub's "Troubleshooting required status checks"). A failed job
+        skips the jobs that need it through their default `success()`
+        condition, so an aggregate without `if: always()` and its own
+        result check is skipped when a gate fails, and its skip counts as
+        a pass.
+    detection:
+      rule: "Decide in a job that always runs and does nothing else, from the files the change touched."
+      how: >
+        Compare the change's base with its head through GitHub's compare
+        API (a pull request's base and head SHAs, a merge group's, or a
+        push's `before` and SHA) and set one output per area, true when a
+        changed path matches that area's patterns. Every gated job needs
+        the detecting job and runs on
+        `if: needs.<detector>.outputs.<area> == 'true'`. Kept to detection
+        alone, that job fails only when detection does, and the aggregate
+        then fails too.
+      area_patterns: >
+        An area's patterns list every path its jobs read, not just its
+        directory: a test that reads a config file elsewhere lists that
+        file too. The workflow file itself is in every area's patterns, so
+        an edit to CI runs every job it can change.
+      any_doubt_runs_everything: >
+        Every area is set true when the list can't be trusted: a manual
+        run, no base to compare (a new branch's first push has an all-zero
+        `before`), a failed compare call, or 300 files or more (the compare
+        API lists at most 300, documented).
+      default_branch: >
+        Detection can apply to default-branch pushes too. A project that
+        runs the full suite after every merge (`full_suite_on_main` above)
+        sets every area true on those pushes instead.
+    concurrency:
+      rule: "Cancel a pull request's superseded runs, and keep every default-branch run."
+      how: >
+        `concurrency` with
+        `group: ci-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}`
+        and `cancel-in-progress: ${{ github.event_name == 'pull_request' }}`.
+        A new push to a pull request cancels the run it replaces, and every
+        other run is in a group of its own.
+      why: >
+        One group per branch isn't enough for the default branch, even
+        without `cancel-in-progress`. By default a group holds one pending
+        run, and a newly queued run cancels the one already pending
+        (documented, in GitHub's "Control the concurrency of workflows and
+        jobs"), so three quick merges lose the middle one's result.
+    triggers:
+      rule: >
+        No `paths` or `paths-ignore` filter on a workflow whose check is
+        required, a branch filter only when it covers every branch whose
+        rules require the check, and no commit-message skip.
+      why: >
+        A required check whose workflow is skipped by path filtering, by
+        branch filtering or by a commit message stays "Pending" and blocks
+        the merge (documented, in the same page's "Handling skipped but
+        required checks"). With a merge queue, the workflow also listens to
+        `merge_group`, or the queue waits on a check that never starts.
+    commit_message_skips:
+      rule: "Never skip CI with a commit-message note such as `[skip ci]`."
+      observed: >
+        Seen 2026-11-16 over 53 runs in a throwaway repository, and not in
+        GitHub's docs unless marked. GitHub reads the note on a push's head commit
+        only: a note lower in the push is ignored, and a note on the head
+        skips the run for every commit under it. A pull request whose head
+        carries it gets no `pull_request` run when it's opened, pushed to,
+        marked ready, merged or closed, so its required checks stay
+        Pending (documented). A squash merge whose message is the branch's commit
+        messages (a new repository's default) copies the note into the
+        default branch, whose push then starts no run. A rebase merge can
+        leave the note's commit as the default branch's head, with the
+        same result. A tag pushed onto a commit carrying it starts no run,
+        releases included. A merge commit runs as usual.
+      instead: "Change gating above: a docs-only change costs two short jobs and blocks nothing."
 
   caching:
     dependencies: "Cache node_modules / venv / .cargo / etc. Bust on lockfile change."

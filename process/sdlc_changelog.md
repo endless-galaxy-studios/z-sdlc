@@ -37,6 +37,71 @@ Each entry contains:
 
 ---
 
+## 2026-11-17: CI skips the jobs a change doesn't need, never the run
+
+**Origin:** CD (2026-11-16), in a project's execution session: "for docs only commit messages, we should add this as an upstream rule in z-sdlc." That session relayed it. CD (2026-11-17), after the draft's reviews: drop the rule, keep what the experiment found, and write up gating in CI instead.
+
+**What happened:**
+- In one project, a draft pull request took about 141 pushes in 8 days. Each push re-ran a pre-merge workflow of about 19 jobs, with a median wall time of about 72 minutes, and 6 of one session's 10 pushes were docs-only commits.
+- The directive asked for docs-only commits to carry GitHub's skip note. To be safe, the draft rule needed five checks:
+  - the commit is docs-only by nature;
+  - its branch has no pull request, or a draft one;
+  - nothing the skip silences matters;
+  - no other commit rides under it;
+  - no merge can carry it to the default branch.
+- Four adversarial review rounds found 2 critical and 4 major problems, then 1 and 5, then 0 and 3, then 0 and 1 (a merge queue can carry the note).
+- The checks fail on GitHub's default merge settings, in every project with the factory bundle (its advance runs on `pull_request: closed`, which the note silences), and in the project that prompted it. So the rule would almost never apply. It was dropped before it was committed.
+- Gating inside CI saves the same runs without those traps, and the incubator's CI already works that way.
+
+**What GitHub did** (seen 2026-11-16 in a throwaway private repository, with one workflow on `push` and one on `pull_request`, over three passes and 53 runs; not in GitHub's docs unless marked):
+
+| Case | Result |
+|---|---|
+| A push whose head carries the note, with or without other commits under it | no `push` run |
+| A push with a note commit under a commit without one | runs |
+| A note commit pushed to a draft PR whose head had none | no `push` run, no `synchronize` run |
+| An empty commit without the note pushed on top of it | both run, and so do marked ready and merged |
+| A PR whose head carries the note, when opened, marked ready, merged or closed unmerged | no `pull_request` run (the docs say only "the HEAD commit of a pull request") |
+| The default branch after a merge commit merge | runs |
+| After a squash merge with `COMMIT_MESSAGES` (a new repository's default) | no run: the squash commit's message holds the note |
+| After a squash merge with `PR_BODY` | runs |
+| After a rebase merge whose head was the empty commit | no run: the rebase dropped the empty commit, and the note commit became the head |
+| A release-style `git merge --no-ff` of a range holding a note commit, or of a tag on one | runs |
+| A lightweight tag pushed onto a note commit | no run (a tag on a commit without one runs) |
+
+**Not tested:**
+- merge queues;
+- a `BLANK` squash message;
+- `reopened` and `labeled` runs, and `workflow_run` chains;
+- annotated tags;
+- a fast-forward of a deploy branch onto a note head;
+- services other than GitHub Actions that build from the repository and may honor the note too.
+
+**Documented** (GitHub's "Troubleshooting required status checks", "Compare two commits" and "Control the concurrency of workflows and jobs", read 2026-11-17):
+- a required check whose workflow is skipped by path filtering, branch filtering or a commit message stays Pending and blocks the merge;
+- a job skipped by its condition reports Success;
+- the compare API lists at most 300 changed files;
+- by default a concurrency group holds one pending run, and a newly queued run cancels it.
+
+**Changes made:**
+
+1. **`knowledge/testing/test-infrastructure-patterns.yaml`** § `ci_execution`, a new `change_gating` entry:
+   - **One aggregate check is required,** on `if: always()`. It reads each job's result, so a failed gate can't skip it into a pass.
+   - **A detecting job, doing nothing else, sets one output per area** from the compare API. An area's patterns cover every path its jobs read, and the workflow file is in each of them.
+   - **Any doubt runs everything.**
+   - **`concurrency` cancels a pull request's superseded runs only.** Every other run gets a group of its own, since a group's newly queued run cancels its pending one even without `cancel-in-progress`. One group per branch would drop a default-branch run that was waiting.
+   - **The triggers:** no path filter on a required workflow, and `merge_group` with a merge queue.
+   - **Never a commit-message skip,** with the findings above in short.
+2. **`knowledge/provenance_log.md`:** an entry for the experiment and the two docs pages, since GitHub can change the behavior seen.
+
+**Rationale:**
+- **A skip note costs more than it saves.** A missed skip costs minutes; a wrong one can skip a deploy, a release, or the factory's advance, and leave a pull request blocked on checks that never start.
+- **Gating in CI decides from the files changed,** not from what the committer believed about them. It saves the same runs on every push, draft or not, and works the same on GitHub's default settings.
+
+**Release:** patch (guidance in an existing knowledge store).
+
+---
+
 ## 2026-11-17: The factory imported from the incubator (6094011..32271b0): the CI tier's optional GPU
 
 **Origin:** CD (2026-11-16/17): a pull request's code may use a GPU on a CI-only host, after the incubator's measurement of what a GPU does for the CI tier's Playwright browser suites.

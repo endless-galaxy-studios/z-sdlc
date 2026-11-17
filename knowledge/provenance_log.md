@@ -32,6 +32,22 @@ Append-only record of where knowledge entered the SDLC knowledge layer. Enables 
 
 ## Log
 
+## [2026-11-17] GitHub skip notes and required checks (an experiment and GitHub's docs) — testing
+
+- **id:** prov-2026-11-17-001
+- **status:** ingested
+- **source-type:** manual
+- **source:** an experiment in a throwaway private repository (2026-11-16, 53 runs over three passes, one workflow on `push` and one on `pull_request`), and GitHub's docs pages "Troubleshooting required status checks", "Control the concurrency of workflows and jobs" and the REST API's "Compare two commits" (read 2026-11-17)
+- **source-url:** https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/collaborating-on-repositories-with-code-quality-features/troubleshooting-required-status-checks
+- **discipline:** testing
+- **files-created:** none
+- **files-updated:** knowledge/testing/test-infrastructure-patterns.yaml
+- **rule-count:** 5
+- **ingested-by:** manual (Claude session)
+- **notes:** The experiment's behavior isn't documented by GitHub and can change, so re-run it before relying on `commit_message_skips.observed`. Its full results are in the changelog's 2026-11-17 entry, "CI skips the jobs a change doesn't need, never the run".
+
+---
+
 ## [2026-10-23] pstack fix order and plain-writing cues (cursor/plugins) — process-improvement
 
 - **id:** prov-2026-10-23-006
