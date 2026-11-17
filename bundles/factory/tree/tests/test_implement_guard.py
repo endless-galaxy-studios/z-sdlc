@@ -773,8 +773,6 @@ class Result(unittest.TestCase):
             self.assertIn("**Models and cost:** not recorded", self.body(self.ok(), stats=stats))
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class Revise(unittest.TestCase):
@@ -907,6 +905,42 @@ class FocusRules(unittest.TestCase):
         # read_focus_rules() raises on a broken rule in this repository's factory.json, so CI fails on the PR
         # that adds one, before any publish job reads it.
         self.assertIsInstance(guard.read_focus_rules(), list)
+
+    def test_the_projects_line_regexes_finish_on_long_lines(self):
+        # Line regexes read whole lines with no timeout, and a diff line can be most of MAX_DIFF_BYTES, so one that
+        # backtracks badly would hang the publish job. Each of this project's rules runs on long lines in a child
+        # process this test can stop, which says which rule it was on.
+        script = """
+import json, pathlib, sys, time
+sys.path.insert(0, sys.argv[1])
+import implement_guard as guard
+n = 20000
+lines = ["a" * n, " " * n, "(" * n, "x(" * (n // 2), '"' * n, "'" * n, "update " * (n // 7), "UPDATE a" + " " * n + "(",
+         "text(" * (n // 5), "a." * (n // 2), '\"\"\"' + " " * n, "delete(" * (n // 7), "_" * n + "(", "\t" * n + "x",
+         "a1" * (n // 2) + "!", "Aa" * (n // 2) + "(", "--" * (n // 2), "/" * n, ". " * (n // 2) + "x"]
+slow = {}
+for i, rule in enumerate(guard.read_focus_rules(), 1):
+    for key in ("added", "removed", "changed"):
+        if key in rule:
+            print(f"rule {i} ({rule['name']}) {key}", file=sys.stderr, flush=True)
+            start = time.perf_counter()
+            for line in lines:
+                rule[key].search(line)
+            seconds = time.perf_counter() - start
+            if seconds > 2:
+                slow[f"rule {i} ({rule['name']}) {key}"] = round(seconds, 1)
+print(json.dumps(slow))
+"""
+        try:
+            run = subprocess.run([sys.executable, "-I", "-c", script, str(FACTORY)], capture_output=True, text=True,
+                                 timeout=120)
+        except subprocess.TimeoutExpired as e:
+            started = (e.stderr.decode() if isinstance(e.stderr, bytes) else e.stderr or "").strip().splitlines()
+            self.fail(f"factory.json review.focus: {started[-1] if started else 'a rule'} didn't finish on a long "
+                      "line within 120 s; simplify its regex")
+        self.assertEqual(run.returncode, 0, run.stderr[-2000:])
+        self.assertEqual(json.loads(run.stdout), {}, "these review.focus line regexes take over 2 s on long lines; "
+                                                     "simplify them")
 
     def test_refuses_broken_rules(self):
         good = {"name": "n", "why": "w", "paths": ["app/"]}
@@ -1321,3 +1355,42 @@ class FocusDiffs(unittest.TestCase):
         self.agent_adds_a_migration()
         with mock.patch.object(guard, "MAX_POST", 500):
             self.assertIsNone(self.publish(self.base, "implement", Result().ok(), expect=1))
+
+
+class ProfileBuildFiles(unittest.TestCase):
+    """The lists a project's seeded test_codeowners.py reads (profile_build_files), against the profiles shipped."""
+
+    def test_every_profile_has_its_lists(self):
+        shipped = {p.name for p in (FACTORY / "profiles").iterdir() if p.is_dir()}
+        self.assertEqual(set(guard.PROFILE_BUILD_FILES), shipped)
+
+    def test_the_paths_sit_in_the_stack_s_directories(self):
+        paths = guard.profile_build_files({"profile": "python-uv-node", "python": "api", "node": "web/"})
+        self.assertIn("api/uv.lock", paths)
+        self.assertIn("api/requirements.txt", paths)  # python-node's list, in a uv project too
+        self.assertIn("web/pnpm-lock.yaml", paths)
+        self.assertNotIn("web/package-lock.json", paths)
+        self.assertIn("pyproject.toml", guard.profile_build_files({"profile": "python-node", "python": ".", "node": "."}))
+        self.assertEqual(guard.profile_build_files({"profile": "no-such-profile", "python": "a", "node": "b"}), [])
+
+    def test_the_guard_s_own_codeowners_patterns_cover_them_at_any_depth(self):
+        # The globs factory.md's list names, as the empty project's CODEOWNERS writes them: every sample matches one.
+        globs = ["requirements*.txt", "pyproject.toml", "setup.py", "setup.cfg", "pytest.ini", ".pytest.ini",
+                 "pytest.toml", ".pytest.toml", "tox.ini", "conftest.py", "sitecustomize.py", "hatch.toml",
+                 "hatch_build.py", "uv.lock", "uv.toml", ".python-version", ".python-versions", "ruff.toml",
+                 ".ruff.toml", "mypy.ini", ".mypy.ini", ".coveragerc", "alembic.ini", "*.csproj", "*.fsproj",
+                 "*.vbproj", "*.csproj.user", "*.props", "*.targets", "*.rsp", "*.sln", "*.slnx", "*.slnf",
+                 "global.json", "nuget.config", "NuGet.config", "NuGet.Config", ".config/dotnet-tools.json",
+                 "dotnet-tools.json", "*.runsettings", "xunit.runner.json", ".editorconfig", ".globalconfig",
+                 "package.json", "package-lock.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", ".npmrc",
+                 ".pnpmfile.cjs", "eslint.config.*", "tsconfig*.json", "vite.config.*", "vitest.config.*",
+                 "vitest.workspace.*", ".eslintrc*", "postcss.config.*", ".postcssrc*", "babel.config.*", ".babelrc*"]
+        patterns = guard.codeowners_patterns("".join(f"{g} @owner\n" for g in globs))
+        for profile in guard.PROFILE_BUILD_FILES:
+            for path in guard.profile_build_files({"profile": profile, "python": "a/b", "node": "c"}):
+                with self.subTest(profile=profile, path=path):
+                    self.assertIsNotNone(guard.protected(path, patterns), path)
+
+
+if __name__ == "__main__":
+    unittest.main()

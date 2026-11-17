@@ -45,6 +45,10 @@ GATE_ID = re.compile(r"^G[1-9][0-9]?$")
 PLAN_PATH = re.compile(r"^docs/current_work/(sdlc-lite|planning)/d[0-9]+[a-z]?_[a-z0-9_]+_plan\.md$")
 KINDS = ("read", "change")
 MAX_STEPS = 12
+# A gate's run is one job, factory-gate.yml's `execute`, with timeout-minutes 300 (a test ties the two). The broker's
+# own time and every step it may run sit inside it, so a gate whose worst case doesn't fit is refused in the plan
+# (budget_errors), not killed by the job's limit partway through, which leaves what it changed unknown.
+GATE_JOB_S = 300 * 60
 MARKER = re.compile(r"\A<!-- (factory-gate-(?:tracker|request|result)): (\{.*?\}) -->\n", re.S)
 TRACKER, REQUEST, RESULT = "factory-gate-tracker", "factory-gate-request", "factory-gate-result"
 TITLE = re.compile(r"^factory-gate #([0-9]+) (G[1-9][0-9]?) a([0-9]+) (ops|cd|release) ([0-9a-f]{64})$")
@@ -112,6 +116,18 @@ def load_catalog(text):
     # gate would pin, open its release PR and deploy on CD's merge, and only then find the broker refusing its run.
     if not isinstance(cat.get("release_gates", False), bool):
         raise Invalid("catalog: release_gates must be true or false")
+    # The broker's own word on its time, for the plan's budget check (budget_errors): gate_overhead_s, the worst case
+    # of what it does around a gate's steps (its lock wait, fetches, state captures, the checks before a release
+    # gate); step_margin_s, what stopping a step past its timeout takes; release_wait, the read operation it runs
+    # itself before a release gate's steps unless the block starts with it. Each is optional and 0 or none without.
+    for key, top in (("gate_overhead_s", GATE_JOB_S), ("step_margin_s", 3600)):
+        value = cat.get(key, 0)
+        if type(value) is not int or not 0 <= value <= top:
+            raise Invalid(f"catalog: {key} must be a whole number of seconds from 0 to {top}")
+    wait = cat.get("release_wait")
+    if wait is not None and (not isinstance(wait, str) or ops.get(wait, {}).get("kind") != "read"
+                             or ops[wait].get("rollback_only")):
+        raise Invalid("catalog: release_wait must name a read operation in the catalog")
     return cat
 
 
@@ -323,20 +339,47 @@ def check_block(gate_id, block, catalog, outputs_of):
     return errors
 
 
+def budget_errors(g, catalog):
+    """A gate whose worst case could outrun its run's job (GATE_JOB_S): the broker's own time (the catalog's
+    gate_overhead_s), then every step it may run to its timeout and stop (timeout_s plus step_margin_s each): a release
+    gate's wait (release_wait) when the block doesn't start with it, the steps, and the rollback, which runs after a
+    failed step. A CD gate runs nothing, so it has none. Call it only on a gate whose block check_block passed."""
+    ops = catalog["operations"]
+    steps = [s["op"] for s in (g["block"] or {}).get("steps", [])]
+    rollback = [s["op"] for s in (g["block"] or {}).get("rollback", [])]
+    wait = catalog.get("release_wait")
+    if g["release"] and wait and (not steps or steps[0] != wait):
+        steps.insert(0, wait)
+    if not steps and not rollback:
+        return []
+    overhead, margin = catalog.get("gate_overhead_s", 0), catalog.get("step_margin_s", 0)
+    worst = overhead + sum(ops[name]["timeout_s"] + margin for name in steps + rollback)
+    if worst <= GATE_JOB_S:
+        return []
+    return [f"{g['id']}: its steps could take {worst} s with the broker's own {overhead} s and the rollback, more than "
+            f"the gate run's {GATE_JOB_S} s (factory-gate.yml's execute job): use fewer or shorter steps, or split the gate"]
+
+
 def check_plan(plan, catalog):
-    """Every error in the plan's gates against the catalog. A gate without a block is a CD gate."""
+    """Every error in the plan's gates against the catalog. A gate without a block is a CD gate, or, with a Release
+    line, a release gate whose broker runs only its own wait."""
     try:
         gates = parse_gates(plan)
     except Invalid as e:
         return [str(e)]
     errors, outputs_of = [], {}
     for g in gates:
-        if g["block"] is None:
-            outputs_of[g["id"]] = {}
-            continue
-        errors += check_block(g["id"], g["block"], catalog, outputs_of)
+        # Before the block is looked at: a release gate needs a broker that takes it, with or without a block.
         if g["release"] and not takes_release_gates(catalog):
             errors.append(f"{g['id']}: {RELEASE_GATES_REFUSED}")
+        if g["block"] is None:
+            outputs_of[g["id"]] = {}
+            errors += budget_errors(g, catalog)
+            continue
+        block_errors = check_block(g["id"], g["block"], catalog, outputs_of)
+        errors += block_errors
+        if not block_errors:
+            errors += budget_errors(g, catalog)
         if g["release"] and isinstance(g["block"], dict):
             # The release PR's merge is the deploy: the broker only checks production after it, and can't
             # deploy, so it can't roll a release back either (D4 rule 13).

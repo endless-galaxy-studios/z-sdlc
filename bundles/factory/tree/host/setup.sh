@@ -276,7 +276,7 @@ for k in json.load(urllib.request.urlopen("https://api.github.com/meta", timeout
 # The bootstrap (WHAT ROOT RUNS, above). It runs from the checkout, so it reads nothing there but host.conf's
 # RUNNER_INSTANCE (as text) and the registration token, and ends in exec or die.
 bootstrap_and_exec() {
-  local c instance unit repo key clone url branch work stage token_copy= v pass=()
+  local c instance unit repo key clone url branch work stage token_copy='' v pass=()
   PATH=$SETUP_PATH
   unset BASH_ENV ENV CDPATH TMPDIR
   umask 022

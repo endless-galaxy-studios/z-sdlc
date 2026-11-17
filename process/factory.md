@@ -212,7 +212,7 @@ Spec and plan stages make judgment calls that depend on how the system behaves i
 
 1. **Two runner tiers.** Implement, execute and revise run on the strict tier (D2, unchanged: no production path). Spec and plan run only on the planning tier: runners under a separate Linux user (`factory-planner`), selected by their own runner label and group. A workflow can't move a code-writing stage onto planning runners without a CODEOWNERS-reviewed edit, and the workflow policy check refuses it.
 2. **One firewall exception.** The planning user may reach the production database port and nothing else on the host or LAN: on the runner host itself, or, when production runs on another machine, on the one address `host.conf`'s `PLANNING_DB_HOST` names (an address that doesn't change, such as the machine's Tailscale address). Setup's isolation test probes that address's other ports too, which must be closed. The address and port are set twice, in different repositories, and nothing compares them: the runner host's `host.conf` (`PLANNING_DB_HOST`, `PLANNING_DB_PORT`) builds the firewall, and each project's `planning.json` (`database.host`, `database.port`) is what its planning jobs connect to. They must agree; when they don't, the firewall refuses the connection, and `planning-services.sh`'s error names both settings. The strict user's firewall is unchanged. A database on a public address needs no exception, since the tier reaches the internet, but it is reached only over TLS: `planning-services.sh` requires it there and refuses `prefer` or `disable` (`planning.json`'s `database.sslmode`), where pgbouncer's own default would fall back to plaintext. On a private or tailnet address the network is the boundary, and TLS is used when the server offers it.
-3. **The database login is read-only and excludes personal and secret data.** A dedicated role with `SELECT` only, granted per table and per column: everything except fields holding personal data (names, emails, phone numbers, addresses), credentials (password hashes, API keys, tokens, session data) and payment data. The exclusion list is generated from the models and reviewed by CD; a migration that adds a table or column re-runs the check, and anything new and sensitive-looking stays excluded until CD approves it. The role also has a statement timeout and a connection limit. The agent reaches it through a connection proxy outside the sandbox that holds the password; the agent never sees it.
+3. **The database login is read-only and excludes personal and secret data.** A dedicated role with `SELECT` only, granted per table and per column: everything except fields holding personal data (names, emails, phone numbers, addresses), credentials (password hashes, API keys, tokens, session data) and payment data. The exclusion list is generated from the models, or from the database's own catalog with `planning_reader.py` (any stack: it denies a column no rule knows is safe, and writes the role's SQL and its verify checks), and reviewed by CD; a migration that adds a table or column re-runs the check, and anything new and sensitive-looking stays excluded until CD approves it. The role also has a statement timeout and a connection limit. The agent reaches it through a connection proxy outside the sandbox that holds the password; the agent never sees it.
    - **Read-only is the role's privileges, never a session default.** Any session can open a read-write transaction (`COMMIT; BEGIN READ WRITE`), and what PUBLIC may do the role may do. So the role's SQL also:
      - revokes from PUBLIC `EXECUTE` on the large-object write functions (`lo_create`, `lo_creat`, `lo_from_bytea`, `lo_put`, `lowrite`, `lo_truncate`, `lo_truncate64`) and `TEMPORARY` on the database, granting back to the app's own roles what they use;
      - sets `temp_file_limit` on the role, which only a superuser can change.
@@ -254,7 +254,7 @@ Some plans need production: deploys, migrations, restarts, backups, checks again
 
 1. **No agent in the production tier.** Agents plan gates and write code; a deterministic broker runs the gates. D2 and D3 hold unchanged.
 2. **Production work happens only through the release branch, or in gates** (`[sdlc-root]/process/production-gates.md`). A deploy is a release PR CD merges (rule 13): a release gate's, partway through a plan, or the one that follows a plan's execution PR. Gates between phases hold what isn't a deploy (a backup, a live check), and, on the fallback without a release branch, the deploys too. The plan's last item is a phase; the factory also needs a phase before the first gate.
-3. **Operations come from a reviewed catalog** (`.github/factory/production/ops.json`, code-owned): kind, parameters and outputs with an anchored pattern each, timeout, required earlier operations, rollback-only operations, and `release_gates`, the broker's own word that it runs release gates' gate runs (rule 13). Outputs are typed values, never free text. Scripts are installed root-owned by CD's setup run, never loaded from a workspace.
+3. **Operations come from a reviewed catalog** (`.github/factory/production/ops.json`, code-owned): kind, parameters and outputs with an anchored pattern each, timeout, required earlier operations, rollback-only operations, and `release_gates`, the broker's own word that it runs release gates' gate runs (rule 13). Outputs are typed values, never free text. Scripts are installed root-owned by CD's setup run, never loaded from a workspace. The catalog also gives the broker's own time, for the plan guard's budget: `gate_overhead_s` (the worst case of what it does around a gate's steps: its lock wait, fetches, state captures, a release gate's checks), `step_margin_s` (what stopping a step past its timeout takes) and `release_wait` (the read operation it runs itself before a release gate's steps, unless the block starts with it). Each is optional, and none or 0 without. The guard refuses a gate whose worst case (that time, then every step it may run to its timeout and stop, the rollback included) is over the gate run's job limit (`factory-gate.yml`'s `execute`, 300 minutes), rather than let the job's limit kill it partway: for a release gate, that would come after the deploy.
 4. **Two approvals.** Merging the plan approves what each gate may do; the plan guard refuses an unknown operation or a broken parameter. Approving the gate run approves doing it now, with the values filled in.
 5. **Approval is GitHub's deployment review.** Each gate gets a run of `factory-gate.yml` whose title carries the request's digest; its job waits on environment `factory-production` (CD the required reviewer, `main` only). Labels and comments authorize nothing: `factory:gate-retry` only asks for a fresh run.
 6. **The digest binds everything:** repository, issue, PR, gate, attempt, plan path and blob, PR head, the resolved steps and rollback, and a hash of the installed operations; for a release gate (rule 13), its release PR and merge commit too.
@@ -414,14 +414,21 @@ names the files CD should always look at, and the factory finds them in each cod
 - **Deterministic only.** No model judges the diff: the writer job that renders the PR runs no agent.
   Line regexes read whole lines and have no timeout, so keep them simple. Rules that don't load turn
   Where to look off, and Review focus says so; the PR still publishes, so the agent's run isn't lost.
-  The bundle's tests load the project's rules, so CI catches a broken one on the PR that adds it.
+  The bundle's tests load the project's rules, so CI catches a broken one on the PR that adds it, and
+  run each line regex on long lines in a process they can stop: one that takes over 2 s, or never
+  finishes, fails CI with its rule's name.
 - **The project's always-high areas** (the PR template's Risk Tiers) are checked as `high` rules, and
   the template's project block says so; a change to one changes the other.
 - **The seed** starts a project with rules for migrations (the `migrations/`, `Migrations/` and
-  `alembic/` directories), bulk writes and raw SQL, access checks and configuration reads, scoped to
-  source files and leaving out test directories (and Django's `tests.py`). The bulk-write and
-  access-check rules know Django's and ASP.NET Core's names, so a project on another framework (a
-  `python-uv-node` one, say) adds its own. `QuerySet.update(` isn't in it: no regex tells it from
+  `alembic/` directories), bulk writes and raw SQL, access checks, auth code and configuration reads,
+  scoped to source files and leaving out test directories (and Django's `tests.py`). The line rules
+  come in packs by framework: the first ones know Django's and ASP.NET Core's names, and the ones
+  marked (SQLAlchemy) and (FastAPI) know `text()`, a driver's own connection (asyncpg, psycopg), SQL in a
+  string (a line opening with `UPDATE`, `INSERT` or `DELETE`, or a quoted one), Core's `delete(Model)`
+  and `update(Model)`, upserts and bulk mappings, and FastAPI's security dependencies, CORS and
+  middleware. A project keeps the packs its stack uses, and one on another framework adds its own.
+  Auth code is a paths rule (`auth/`, `auth.py`, `security.py`, `permissions.py`, `deps.py`): check it
+  names where the project's auth lives. `QuerySet.update(` isn't in it: no regex tells it from
   `dict.update(`. A project adds its own always-high areas as rules with
   paths, such as the code that computes money. Migrations never touch seeds: a project installed before
   this has no `review` block, and its PRs list nothing until it copies the seed's in.
@@ -511,7 +518,9 @@ Both rely on no factory commit having changed a file a tool loads just because i
 publish guard and the branch check refuse only what CODEOWNERS covers, so it must cover each of
 these at any depth, whether or not the project has one yet. GitHub's CODEOWNERS matching is
 case-sensitive, so cover every casing a tool accepts (the guard itself matches an owned line in any
-case).
+case). The guard keeps a sample of every name below for each profile (`implement_guard.PROFILE_BUILD_FILES`),
+which the project's seeded CODEOWNERS test reads: a change to this list changes those samples with it, and a
+new profile adds its own.
 - **`python-node`:** `requirements*.txt`, `pyproject.toml`, `setup.py`, `setup.cfg`, `pytest.ini`,
   `.pytest.ini`, `pytest.toml` and `.pytest.toml` (pytest 9 reads them before `pyproject.toml`),
   `tox.ini`, `conftest.py`, `sitecustomize.py`, `hatch.toml` and `hatch_build.py` (a hatchling build
@@ -769,8 +778,13 @@ needs an organization owner's `gh` login (`admin:org`) for the runner groups and
      release branch's history instead.
    - The seeded `tests/test_codeowners.py` checks the file against the guard, the governing list
      and the order included, and against GitHub's case-sensitive matching for the agent files' casings
-     (`implement_guard.owner_on_github`). Until CODEOWNERS exists it fails. Its path lists are the project's to
-     extend: its test and build configuration, the profile's list, its source paths.
+     (`implement_guard.owner_on_github`). Until CODEOWNERS exists it fails. The profile's list it reads
+     from the guard (`implement_guard.profile_build_files`), so a release that changes it reaches the test
+     on migration: a seed never updates, and a copied list drifted at the first release that changed it.
+     Its other path lists are the project's to extend: its test and build configuration, its other
+     directories' build files (a second uv project, a second Node app), its source paths. A test
+     seeded before the guard kept the lists has its own copy of them (`PROFILE_FILES`, `NODE_FILES`,
+     `PACKAGE_MANAGER_FILES`): replace them with `guard.profile_build_files(stack)`.
 10. **CI**, required on `main`: `python .github/factory/render.py --check`, then
     `python .github/factory/workflow_policy.py .github/workflows`, then
     `python -m unittest discover -s .github/factory/tests` (with PyYAML; with a CI tier, on a
@@ -798,7 +812,11 @@ needs an organization owner's `gh` login (`admin:org`) for the runner groups and
 
     **The project's existing CI runs agent-written code.** Factory branches live in the repository,
     so a factory PR's `pull_request` runs get the repository's secrets. Before the first run, hold
-    every job that builds, tests or lints a PR's code to an agent job's rules:
+    every job that builds, tests or lints a PR's code to an agent job's rules. `python3 -I
+    .github/factory/ci_audit.py --repo <owner>/<repo> --runs 20` reads every workflow against them:
+    its triggers and which branch's copy each runs, each job's runners, token and checkouts, every
+    secret it references and whether that secret exists (by name), and how often each scheduled
+    workflow really ran. It changes nothing, and exits 1 while it has findings:
     - no secret in that job, whether before or after the PR's code runs. A build step can write
       `$GITHUB_ENV` or `$GITHUB_PATH` and redirect every later step;
     - `persist-credentials: false` on its checkout, and a read-only token;

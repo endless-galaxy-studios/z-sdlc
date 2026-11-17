@@ -103,9 +103,9 @@ One research agent, about 30 minutes. It answers § 1's B, C and D rows and find
    CI's command lines. List the moves: those files are code-owned, so CD reviews them.
 3. **The project's own guard tests,** for anything they'd refuse in factory files: the toolchain's name,
    another stack's Dockerfile.
-4. **A CI audit:** every workflow's triggers, every secret it references and whether that secret
-   exists (by name, `gh secret list` at each level), each checkout's `persist-credentials`, and its
-   runners. A job that runs agent-written code holds to an agent job's rules (step 10). For each
+4. **A CI audit** (`python3 -I .github/factory/ci_audit.py --repo <owner>/<repo> --runs 20`):
+   every workflow's triggers, every secret it references and whether that secret exists (by name, at
+   each level), each checkout's `persist-credentials`, and its runners. A job that runs agent-written code holds to an agent job's rules (step 10). For each
    scheduled workflow, how often it actually ran (`gh run list --workflow <file> --event schedule`,
    the gaps against its cron): GitHub starts scheduled runs late or not at all, and an alarm designed
    on the nominal period won't hold.
@@ -309,7 +309,10 @@ only the default branch.
 - **The login is read-only by its privileges** (D3 rule 3), whatever the route: a service's own
   read-only mode is no boundary. Generate the column list from the schema, deny any column not on an
   allow rule (an unknown short text column or a name ending `_id` is not safe by default), and have CD
-  classify the held ones. Revoke the large-object write functions and `TEMPORARY` from `PUBLIC`, and
+  classify the held ones. `planning_reader.py` does this from the database's own catalog, for any
+  stack: `catalog-query` prints the query, `update` writes the listing, `create_role.sql` and
+  `verify_role.sql` from it and a rules file of CD's decisions, and `check` fails the project's CI when a
+  migration adds a column the listing lacks. Revoke the large-object write functions and `TEMPORARY` from `PUBLIC`, and
   set the role's `temp_file_limit` and timeouts.
 - **Verify as the role it really runs as,** through the real route: `current_user` and `rolsuper`, then
   `planning-services.sh`'s check.
@@ -328,7 +331,10 @@ only the default branch.
    the ledger, sandboxed steps, an instance suffix on every name when a host runs several tiers, and a
    per-user request client.
 4. **The catalog** (`production/ops.json`): typed read operations, and backups; `release_gates: true`
-   only once the broker runs a release gate's gate run.
+   only once the broker runs a release gate's gate run. Declare the broker's own time too
+   (`gate_overhead_s`, `step_margin_s`, `release_wait`, D4 rule 3), from its constants, with a test of
+   the broker's that ties the two: the plan guard then refuses a gate that can't finish inside its run,
+   before a release gate's merge deploys it.
 5. **Health that names the deployment** (rule 15): the serving deployment's id on health and a
    heartbeat. If services deploy concurrently from one merge, a newer process can meet an older schema
    or job contract: give it a startup wait and keep contracts add-only for one release. A CI check of

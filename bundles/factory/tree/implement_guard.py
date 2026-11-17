@@ -84,6 +84,53 @@ GOVERNING_KNOWLEDGE = tuple("ops/sdlc/knowledge/" + name for name in (
     "architecture/security-review-taxonomy.yaml",
 ))
 
+# What each stack profile's tools load just because it exists (z-sdlc process/factory.md, § Stack Profiles, What
+# CODEOWNERS must cover): sample names, present or not, that the project's CODEOWNERS must own. The guard refuses
+# only what CODEOWNERS covers, and a revise run installs a factory branch's dependencies outside the sandbox. The
+# project's seeded test_codeowners.py reads them through profile_build_files, so a release that changes a list
+# reaches every project's test on migration (a seed is never updated, and a copied list drifts). Each glob in
+# factory.md's list has a sample here.
+NODE_BUILD_FILES = (
+    "package.json", ".npmrc", "eslint.config.js", "eslint.config.mjs", ".eslintrc.json", ".eslintrc.js",
+    "tsconfig.json", "tsconfig.app.json", "vite.config.ts", "vitest.config.ts", "vitest.workspace.ts",
+    "postcss.config.js", "postcss.config.mjs", ".postcssrc", ".postcssrc.json", "babel.config.js", ".babelrc",
+    ".babelrc.json")
+# Each package manager's own files: npm (python-node) reads its lockfile; pnpm its lockfile, workspace file and
+# .pnpmfile.cjs.
+NPM_FILES = ("package-lock.json",)
+PNPM_FILES = ("pnpm-lock.yaml", "pnpm-workspace.yaml", ".pnpmfile.cjs")
+PYTHON_BUILD_FILES = (
+    "requirements.txt", "requirements-dev.txt", "pyproject.toml", "setup.py", "setup.cfg", "pytest.ini",
+    ".pytest.ini", "pytest.toml", ".pytest.toml", "tox.ini", "conftest.py", "tests/conftest.py", "sitecustomize.py",
+    "hatch.toml", "hatch_build.py")
+# python-uv-node: python-node's list in every uv project (each top-level one, not only stack.python's: the project's
+# own test adds theirs), plus what uv, ruff, mypy, coverage and alembic load.
+UV_BUILD_FILES = PYTHON_BUILD_FILES + (
+    "uv.lock", "uv.toml", ".python-version", ".python-versions", "ruff.toml", ".ruff.toml", "mypy.ini", ".mypy.ini",
+    ".coveragerc", "alembic.ini")
+DOTNET_BUILD_FILES = (
+    "App.csproj", "src/App/App.csproj", "src/App/App.fsproj", "src/App/App.vbproj", "src/App/App.csproj.user",
+    "Directory.Build.props", "Directory.Build.targets", "src/Directory.Build.rsp", "Directory.Packages.props",
+    "Directory.Solution.props", "Directory.Solution.targets", "build/common.targets", "App.sln", "App.slnx",
+    "App.slnf", "global.json", "dotnet-tools.json", "nuget.config", "NuGet.config", "NuGet.Config",
+    ".config/dotnet-tools.json", "tests/test.runsettings", "tests/xunit.runner.json", ".editorconfig",
+    "src/.globalconfig")
+# profile: (the files in stack.python, which holds the .NET solution for dotnet-node; the files in stack.node).
+PROFILE_BUILD_FILES = {
+    "python-node": (PYTHON_BUILD_FILES, NODE_BUILD_FILES + NPM_FILES),
+    "python-uv-node": (UV_BUILD_FILES, NODE_BUILD_FILES + PNPM_FILES),
+    "dotnet-node": (DOTNET_BUILD_FILES, NODE_BUILD_FILES + PNPM_FILES),
+}
+
+
+def profile_build_files(stack):
+    """The sample paths a project's CODEOWNERS must own for its stack (factory.json's stack block): the profile's
+    own files under stack.python and the Node ones under stack.node. An unknown profile has none here: a new
+    profile adds its lists above with its tests."""
+    own, node = PROFILE_BUILD_FILES.get(stack.get("profile"), ((), ()))
+    return ([os.path.normpath(f"{stack.get('python') or '.'}/{p}") for p in own]
+            + [os.path.normpath(f"{stack.get('node') or '.'}/{p}") for p in node])
+
 # Where to look (factory.json review.focus). Line patterns read whole lines: the patch cap bounds them, and
 # the patterns are CD's. A shown path is cut to MAX_SHOWN_PATH characters, and a body or comment over
 # MAX_POST bytes is refused before anything is pushed (GitHub's cap is 65,536 characters; bytes, because

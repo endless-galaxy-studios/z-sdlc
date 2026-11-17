@@ -5,19 +5,20 @@
 #   categories/03-infrastructure/docker-expert.md (supply chain security)
 #   categories/03-infrastructure/kubernetes-specialist.md (PDB, graceful shutdown, service mesh)
 # Covers DORA metrics, deployment strategies, GitOps, feature flags, pipeline taxonomy,
-# ChatOps, supply chain security, and deployment safety controls.
-# Last updated: 2026-03-14
+# ChatOps, supply chain security, deployment safety controls, and add-only contracts for services
+# deployed concurrently from one merge.
+# Last updated: 2026-11-16
 
 id: deployment-patterns
 name: "Deployment Patterns"
-description: "Safe deployment methodology covering DORA metrics, blue-green/canary strategies, GitOps, feature flags, ChatOps, supply chain security, and K8s safety controls"
+description: "Safe deployment methodology covering DORA metrics, blue-green/canary strategies, GitOps, feature flags, ChatOps, supply chain security, K8s safety controls, and add-only contracts for services deployed concurrently from one merge"
 pattern: entries
 category: architecture
 spec_relevant: false
 project_applicability:
   relevant_when: "Always relevant — all projects deploy"
   action_if_irrelevant: keep
-last_updated: 2026-03-14
+last_updated: 2026-11-16
 
 # ─────────────────────────────────────────────
 # DORA Metrics Benchmarks
@@ -327,6 +328,45 @@ deployment_safety_controls:
       max_retries: 3
       per_try_timeout: "Set to p99 latency of downstream, not global timeout"
     timeout_hierarchy: "Client timeout > gateway timeout > service timeout > downstream timeout"
+
+# ─────────────────────────────────────────────
+# Services Deployed Concurrently From One Merge
+# ─────────────────────────────────────────────
+
+concurrent_service_deploys:
+  rule: >
+    When one merge deploys several services that share a contract (an API and its background
+    worker on one database, say), keep every contract between them add-only for one release:
+    the database schema, background-job arguments, and the payloads they pass each other. A
+    removal, rename or type change waits for the next release, once every service runs code
+    that no longer needs the old shape.
+
+  why: >
+    A platform that deploys a branch restarts each service on its own schedule: concurrently,
+    in any order, and with a build or migration step of its own before the new process starts.
+    For minutes, a new process meets the old schema or an old peer, and an old process meets
+    the new one. A job the new API enqueues with a new argument reaches an old worker that
+    refuses it, or the reverse; a new worker reads a column the migration hasn't added yet.
+    Nothing in a single service's tests shows this, because each service is right on its own.
+
+  origin: "A factory install on a platform that deployed an API and its worker concurrently from one merge (2026-11). In a project with the factory bundle, [sdlc-root]/process/factory-runbook.md § 4.3 applies it to a production tier."
+
+  what_add_only_means:
+    schema: "Expand only: add tables, nullable columns or columns with defaults, and indexes. Drop or rename in a later release (expand/contract), and never in the release whose code stops using the old shape."
+    job_arguments: "Add optional arguments with defaults; the consumer accepts both shapes. Never remove, rename or retype an argument in the release that changes its producer."
+    payloads: "Between services, readers ignore unknown fields and tolerate a missing new one."
+
+  consuming_side:
+    - "A new process waits at startup, bounded, for the database to reach its migration head, then starts anyway and reports which state it started in, so health can tell (a schema-ready field on readiness, say)."
+    - "Health names the deployment it serves (its deployment id or commit), so a check after a release can tell the new process from the old one's last word."
+    - "A CI check can compare a PR's contracts with the release branch's tip (what production runs): it catches a removal or retype on the consuming side before merge."
+  producing_side:
+    - "Never enqueue a job shape before the release that accepts it is live everywhere: ship the consumer first, the producer in the next release. Review holds this unless a check makes every new job type take two releases."
+
+  gotchas:
+    - "A CI check against the release branch's tip fails every PR while production holds a change the default branch lacks (after a release partway through a plan), until the default branch catches up: a known false failure, not a broken contract."
+    - "An add-only check alone makes a dead job type or column undeletable: decide up front how one is retired (never through the check, or a reviewed exception), not when the first one has to go."
+    - "A revert of a release is a deploy too: the reverted code meets the newer schema, which the add-only rule already makes safe."
 
 # ─────────────────────────────────────────────
 # Pre-Deploy Readiness Checks

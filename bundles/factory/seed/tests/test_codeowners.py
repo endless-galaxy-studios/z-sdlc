@@ -17,31 +17,6 @@ import implement_guard as guard  # noqa: E402
 
 PATH = FACTORY.parent / "CODEOWNERS"
 CODEOWNERS = PATH.read_text() if PATH.exists() else ""
-# What the stack profile's tools load just because it exists (z-sdlc process/factory.md, § Stack Profiles, What
-# CODEOWNERS must cover): sample paths in the project's two directories (factory.json's stack), present or not.
-NODE_FILES = ["package.json", ".npmrc", "eslint.config.js", "tsconfig.json", "tsconfig.app.json", "vite.config.ts",
-              "vitest.config.ts", "postcss.config.js", ".postcssrc", "babel.config.js", ".babelrc"]
-# Each profile's package manager: npm reads its own lockfile, pnpm its own, its workspace file and .pnpmfile.cjs.
-PACKAGE_MANAGER_FILES = {"python-node": ["package-lock.json"],
-                         "dotnet-node": ["pnpm-lock.yaml", "pnpm-workspace.yaml", ".pnpmfile.cjs"],
-                         "python-uv-node": ["pnpm-lock.yaml", "pnpm-workspace.yaml", ".pnpmfile.cjs"]}
-PROFILE_FILES = {
-    "python-node": ["requirements.txt", "requirements-dev.txt", "pyproject.toml", "setup.py", "setup.cfg", "pytest.ini",
-                    ".pytest.ini", "pytest.toml", ".pytest.toml", "tox.ini", "conftest.py", "tests/conftest.py",
-                    "sitecustomize.py", "hatch.toml", "hatch_build.py"],
-    # Every uv project, not only stack.python's (the profile installs and checks each top-level one): add theirs.
-    "python-uv-node": ["pyproject.toml", "uv.lock", "uv.toml", ".python-version", ".python-versions", "setup.py",
-                       "setup.cfg", "pytest.ini", ".pytest.ini", "pytest.toml", ".pytest.toml", "tox.ini",
-                       "conftest.py", "tests/conftest.py", "sitecustomize.py", "hatch.toml", "hatch_build.py",
-                       "ruff.toml", ".ruff.toml", "mypy.ini", ".mypy.ini", ".coveragerc", "alembic.ini"],
-    "dotnet-node": ["App.csproj", "src/App/App.csproj", "src/App/App.csproj.user", "Directory.Build.props",
-                    "Directory.Build.targets",
-                    "src/Directory.Build.rsp", "Directory.Packages.props", "Directory.Solution.props",
-                    "Directory.Solution.targets", "build/common.targets", "App.sln", "App.slnx", "App.slnf", "global.json",
-                    "dotnet-tools.json", "nuget.config", "NuGet.config", "NuGet.Config", ".config/dotnet-tools.json", "tests/test.runsettings",
-                    "tests/xunit.runner.json", ".editorconfig", "src/.globalconfig"],
-}
-
 
 # A project may track files with Git LFS, and CI's checkout leaves them as pointers: a local clone would make
 # git-lfs fetch objects that aren't there. These tests never read LFS content.
@@ -93,11 +68,13 @@ class CodeownersPaths(unittest.TestCase):
             self.assertIsNotNone(guard.protected(path, self.patterns), path)
 
     def test_the_profiles_build_files(self):
-        # A revise run installs a factory branch's dependencies outside the sandbox, and CI builds a factory PR.
+        # A revise run installs a factory branch's dependencies outside the sandbox, and CI builds a factory PR. The
+        # guard keeps each profile's list (z-sdlc process/factory.md, § Stack Profiles, What CODEOWNERS must cover),
+        # so a release that changes one reaches this test on migration. Add your other directories' own files (a
+        # second uv project, a second Node app) in a test of your own below.
         stack = json.loads((FACTORY / "factory.json").read_text())["stack"]
-        paths = [os.path.normpath(f"{stack['python']}/{p}") for p in PROFILE_FILES.get(stack["profile"], [])]
-        paths += [os.path.normpath(f"{stack['node']}/{p}")
-                  for p in NODE_FILES + PACKAGE_MANAGER_FILES.get(stack["profile"], [])]
+        paths = guard.profile_build_files(stack)
+        self.assertTrue(paths, f"the guard has no build files for profile {stack.get('profile')!r}")
         for path in paths:
             self.assertIsNotNone(guard.protected(path, self.patterns), path)
 

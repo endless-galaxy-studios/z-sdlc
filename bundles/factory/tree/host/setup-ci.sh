@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # The CI tier's half of host setup (z-sdlc process/factory.md, Enablement step 10, The CI tier). Sourced by
 # setup.sh for TIER=ci after its step 6: the runner user, its firewall, caps, delegated controllers, rootless
 # Docker and the isolation test are in place, and setup.sh has checked the CI settings and the App's key. This adds
@@ -57,6 +58,8 @@ rm -f "$NEW_CONF"
 # The tier's table as loaded, for the checks: flushing a chain or a set leaves the table there, changed.
 fw_print=$(python3 -I "$SCRIPT_DIR/ci_launcher.py" fingerprint "$NFT_TABLE") \
   || die "can't fingerprint firewall table $NFT_TABLE"
+# targets and ports: setup.sh sets them (its step 6's isolation test) before it sources this file.
+# shellcheck disable=SC2154
 write_conf "api=\"https://api.github.com\"" "org=$(json_str "$FACTORY_ORG")" "client_id=$(json_str "$CI_APP_CLIENT_ID")" \
   "key=$(json_str "$CONF_DIR/app.pem")" "group=$(json_str "$RUNNER_GROUP")" "labels=$labels" \
   "name_prefix=$(json_str "$RUNNER_NAME_PREFIX-ci")" "container=$(json_str "$RUNNER_UNIT")" \
