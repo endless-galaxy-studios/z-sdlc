@@ -181,6 +181,14 @@ if args[:1] == ["wait"]:
 if args[:1] == ["info"]:
     sys.exit(int(control("info_rc")))
 if args[:1] == ["run"] and "--entrypoint" in args and "-d" not in args:
+    if args[args.index("--entrypoint") + 1] == "sh":
+        device = args[args.index("--device") + 1] if "--device" in args else ""
+        if device in control("gpu_fail", "").split():
+            sys.exit(1)
+        name = device.split("=", 1)[-1]
+        report = json.loads(control("gpu_reports", "{}")).get(device)
+        print(report if report is not None else name if name.startswith(("GPU-", "MIG-")) else "GPU-" + name.replace(":", "-"))
+        sys.exit(0)
     network = args[args.index("--network") + 1]
     sys.exit(int(control("reach_rc" if network.endswith("-check-a") else "probe_rc")))
 '''
@@ -750,6 +758,187 @@ class Launcher(unittest.TestCase):
             self.assertEqual(r.returncode, 0, r.stderr)
         finally:
             subprocess.run(["docker", "image", "rm", image], capture_output=True, timeout=120)
+
+    UUID = "GPU-00000000-0000-4000-8000-000000000001"
+    OTHER = "GPU-00000000-0000-4000-8000-000000000002"
+
+    def gpu_conf(self, gpus, slots=2):
+        return {**self.conf, "slots": slots, "job": {**self.conf["job"], "gpus": gpus}}
+
+    def gpu_flags(self, conf, slot):
+        """What a slot's flags add to the job flags every container gets."""
+        base = launcher.job_flags(conf)
+        flags = launcher.job_flags(conf, slot)
+        self.assertEqual(flags[:len(base)], base)
+        return flags[len(base):]
+
+    def test_with_no_gpus_the_flags_are_what_they_were(self):
+        # The default: nothing about a GPU, for a slot's job or a probe, and the settings carry no "gpus" key.
+        expected = ["--cpus", "4", "--memory", "8g", "--memory-swap", "8g", "--pids-limit", "8192", "--shm-size", "1g",
+                    "--security-opt", "no-new-privileges", "--log-driver", "local", "--log-opt", "max-size=20m",
+                    "--log-opt", "max-file=1", "--log-opt", "compress=false", "--cap-drop", "NET_RAW", "--cap-drop", "MKNOD"]
+        for slot in (None, 1, 2):
+            self.assertEqual(launcher.job_flags(self.conf, slot), expected)
+        self.assertEqual(launcher.job_flags(self.conf), expected)
+        self.assertEqual(launcher.job_flags({**self.conf, "job": {**self.conf["job"], "gpus": []}}, 1), expected)
+
+    def test_each_slot_gets_its_own_gpu_and_nothing_else_does(self):
+        conf = self.gpu_conf(["0", self.UUID])
+        self.assertEqual(self.gpu_flags(conf, 1), ["--device", "nvidia.com/gpu=0", "-e", "NVIDIA_VISIBLE_DEVICES=void"])
+        self.assertEqual(self.gpu_flags(conf, 2), ["--device", f"nvidia.com/gpu={self.UUID}", "-e",
+                                                   "NVIDIA_VISIBLE_DEVICES=void"])
+        # Not for a container that isn't a slot's job, and never "all".
+        self.assertEqual(launcher.job_flags(conf), launcher.job_flags(self.conf))
+        for slot in (1, 2):
+            self.assertEqual(len([a for a in launcher.job_flags(conf, slot) if a == "--device"]), 1)
+        self.assertEqual(self.gpu_flags(self.gpu_conf(["0:1"]), 1)[1], "nvidia.com/gpu=0:1")
+        for name in ("MIG-" + self.UUID[4:], "GPU-" + "a" * 80, "999", "0:0"):
+            with self.subTest(name=name):
+                self.assertEqual(self.gpu_flags(self.gpu_conf([name]), 1)[1], f"nvidia.com/gpu={name}")
+
+    def test_a_gpu_name_is_one_argument_or_no_job(self):
+        too_long = "GPU-" + "a" * 81
+        for bad in ("all", "0 --privileged", "0,1", "", " 0", "0\n", "-1", "GPU-a b", "../0", "nvidia.com/gpu=0", 0, None,
+                    "1000", "0:1000", too_long, "MIG-" + "a" * 81, self.UUID + "\n", self.UUID + " ", "gpu-abc", "GPU-"):
+            with self.subTest(name=bad):
+                with self.assertRaises(launcher.Failed):
+                    launcher.job_flags(self.gpu_conf([bad]), 1)
+        for slot in (0, 3, -1):
+            with self.subTest(slot=slot), self.assertRaises(launcher.Failed):
+                launcher.job_flags(self.gpu_conf(["0", "1"]), slot)
+        with self.assertRaises(launcher.Failed):
+            launcher.job_flags({**self.conf, "job": {**self.conf["job"], "gpus": "0"}}, 1)
+
+    def test_a_cycle_starts_its_job_on_its_slots_gpu(self):
+        self.conf = self.gpu_conf(["0", self.UUID])
+        self.assertEqual(launcher.run(self.conf, 1), 0)
+        argv = self.argvs("run")[0]
+        self.assertEqual(argv[argv.index("--device") + 1], "nvidia.com/gpu=0")
+        self.assertIn("NVIDIA_VISIBLE_DEVICES=void", argv)
+        self.assertEqual(argv[-1], self.conf["image"])
+
+    def test_a_slot_with_no_gpu_in_the_settings_registers_nothing(self):
+        # Slot 2 beyond the list: the cycle fails before GitHub is asked for a registration, and no container starts.
+        self.assertEqual(launcher.run(self.gpu_conf(["0"], slots=2), 2), 1)
+        self.assertEqual([c for c in self.github() if "generate-jitconfig" in c[1]], [])
+        self.assertEqual(self.argvs("run"), [])
+
+    def test_the_check_runs_each_slots_job_with_its_gpu(self):
+        self.assertEqual(launcher.check(self.gpu_conf(["0", self.UUID])), 0)
+        runs = self.argvs("run")
+        self.assertEqual(len(runs), 5)  # the listener, the reach test, the probe container, then one per slot's GPU
+        # The isolation probe is a job's flags with no GPU: a stale CDI spec is the GPU check's to report, once.
+        self.assertNotIn("--device", runs[2])
+        self.assertEqual(runs[2][runs[2].index("--entrypoint") + 1], "python3")
+        for argv, gpu in zip(runs[3:], ("0", self.UUID)):
+            self.assertEqual(argv[argv.index("--device") + 1], f"nvidia.com/gpu={gpu}")
+            self.assertEqual(argv[argv.index("--network") + 1], "none")
+            self.assertEqual(argv[argv.index("--entrypoint") + 1], "sh")
+            self.assertEqual(argv[argv.index(launcher.GPU_PROBE) + 1:], ["gpu-probe", gpu])
+
+    def test_the_check_trips_when_a_slot_does_not_see_exactly_its_gpu(self):
+        conf = self.gpu_conf(["0", self.UUID])
+        # Each slot's own failure is reported (the other slot's passing hides neither one).
+        for failing, slot, gpu in ((f"nvidia.com/gpu={self.UUID}", 2, self.UUID), ("nvidia.com/gpu=0", 1, "0")):
+            with self.subTest(slot=slot):
+                (self.state / "tripped").unlink(missing_ok=True)
+                self.control("gpu_fail", failing)
+                self.assertEqual(launcher.check(conf), 1)
+                tripped = (self.state / "tripped").read_text()
+                self.assertIn(f"slot {slot}'s job container doesn't see exactly its GPU {gpu}", tripped)
+                self.assertNotIn(f"slot {3 - slot}'s job container doesn't see", tripped)
+        (self.state / "tripped").unlink(missing_ok=True)
+        # Fewer GPUs than slots is refused, as setup refuses it.
+        self.control("gpu_fail", "")
+        self.assertEqual(launcher.check(self.gpu_conf(["0"], slots=2)), 1)
+        self.assertIn("2 slot(s) but 1 GPU(s)", (self.state / "tripped").read_text())
+
+    def test_two_slots_on_one_card_trip_the_check_whatever_their_names(self):
+        for what, names, reports in (
+                ("an index and that card's UUID", ["0", self.UUID],
+                 {"nvidia.com/gpu=0": self.UUID}),
+                ("the same UUID in two cases", [self.UUID, "0"],
+                 {"nvidia.com/gpu=0": self.UUID.replace("GPU-0000", "GPU-ABCD").lower().replace("gpu-", "GPU-"),
+                  f"nvidia.com/gpu={self.UUID}": self.UUID.replace("GPU-0000", "GPU-ABCD")}),
+                ("two names the card answers to", ["0", "0:0"], {"nvidia.com/gpu=0:0": "GPU-0"})):
+            with self.subTest(what=what):
+                (self.state / "tripped").unlink(missing_ok=True)
+                self.control("gpu_reports", json.dumps(reports))
+                self.assertEqual(launcher.check(self.gpu_conf(names)), 1)
+                self.assertIn("slots 1 and 2 reach the same GPU", (self.state / "tripped").read_text())
+        (self.state / "tripped").unlink(missing_ok=True)
+        # Different cards pass; so do two MIG devices of one card, which are separate instances.
+        self.control("gpu_reports", json.dumps({}))
+        self.assertEqual(launcher.check(self.gpu_conf(["0", "1"])), 0)
+        self.assertEqual(launcher.check(self.gpu_conf(["MIG-a", "MIG-b"])), 0)
+
+    def test_a_container_that_reports_no_uuid_trips_the_check(self):
+        for report in ("", "not a uuid", "GPU-" + "a" * 81, "rm -rf /", "gpu-abc"):
+            with self.subTest(report=report):
+                (self.state / "tripped").unlink(missing_ok=True)
+                self.control("gpu_reports", json.dumps({"nvidia.com/gpu=0": report}))
+                self.assertEqual(launcher.check(self.gpu_conf(["0"], slots=1)), 1)
+                self.assertIn("slot 1's job container reported no GPU UUID", (self.state / "tripped").read_text())
+
+    def test_the_gpu_probe_reads_only_what_the_container_shows(self):
+        # GPU_PROBE with a stand-in nvidia-smi: exactly one GPU (and at most one MIG device), and for a UUID, that one;
+        # what it prints last is the UUID of what it sees.
+        smi = self.bin / "nvidia-smi"
+        mig = "GPU-00000000-0000-4000-8000-0000000000aa"
+        listing = {"one": f"GPU 0: Test GPU (UUID: {self.UUID})\n",
+                   "two": f"GPU 0: Test GPU (UUID: {self.UUID})\nGPU 1: Test GPU (UUID: {self.OTHER})\n",
+                   "none": "", "other": f"GPU 0: Test GPU (UUID: {self.OTHER})\n",
+                   "mig": f"GPU 0: Test GPU (UUID: {mig})\n  MIG 1g.5gb Device 0: (UUID: MIG-one)\n",
+                   "migs": f"GPU 0: Test GPU (UUID: {mig})\n  MIG 1g.5gb Device 0: (UUID: MIG-one)\n"
+                           f"  MIG 1g.5gb Device 1: (UUID: MIG-two)\n"}
+
+        def probe(shows, name, tool=True):
+            if tool:
+                smi.write_text("#!/bin/sh\nprintf '" + listing[shows].replace("\n", "\\n") + "'\n")
+                smi.chmod(0o755)
+            else:
+                smi.unlink(missing_ok=True)
+            r = subprocess.run(["sh", "-c", launcher.GPU_PROBE, "gpu-probe", name], capture_output=True, text=True,
+                               env={"PATH": f"{self.bin}:/usr/bin:/bin"})
+            return r.returncode, r.stdout
+        self.assertEqual(probe("one", self.UUID), (0, self.UUID + "\n"))
+        self.assertEqual(probe("one", "0"), (0, self.UUID + "\n"))  # an index: whatever the one GPU is, it reports it
+        self.assertEqual(probe("two", self.UUID)[0], 1)
+        self.assertEqual(probe("two", "0")[0], 1)
+        self.assertEqual(probe("none", "0")[0], 1)
+        self.assertEqual(probe("other", self.UUID)[0], 1)
+        self.assertEqual(probe("one", "0", tool=False)[0], 1)
+        self.assertEqual(probe("mig", "MIG-one"), (0, "MIG-one\n"))
+        self.assertEqual(probe("mig", "MIG-two")[0], 1)  # not the device the container shows
+        self.assertEqual(probe("migs", "MIG-one")[0], 1)  # several MIG devices visible
+        self.assertEqual(launcher.GPU_REPORT.fullmatch(probe("one", "0")[1].strip()) is not None, True)
+
+    def test_the_gpu_layer_changes_the_job_images_inputs_only_when_it_is_staged(self):
+        # setup-ci.sh stages the layer's Dockerfile under <build>/gpu only with GPUs; the image's fingerprint covers
+        # everything staged, so it is what it was without them and different with them.
+        text = (HOST / "setup-ci.sh").read_text()
+        layer = re.search(r"<<'GPUEOF'\n(.*?)\nGPUEOF", text, re.S).group(1) + "\n"
+        root = pathlib.Path(self.tmp.name)
+
+        def staged(name, gpu):
+            build = root / name
+            (build / "toolchain").mkdir(parents=True)
+            (build / "toolchain" / "a.txt").write_text("a")
+            (build / "toolchain.Dockerfile").write_text("FROM x\n")
+            (build / "runner").mkdir()
+            (build / "runner" / "Dockerfile").write_text("FROM ${BASE}\n")
+            if gpu:
+                (build / "gpu").mkdir()
+                (build / "gpu" / "Dockerfile").write_text(layer)
+            return str(build)
+        args = ("--build-arg=A=1", "2.338.0", "abc")
+        plain, again, with_gpu, with_gpu_again = (staged("p1", False), staged("p2", False), staged("g1", True),
+                                                  staged("g2", True))
+        self.assertEqual(launcher.build_inputs(plain, *args), launcher.build_inputs(again, *args))
+        self.assertEqual(launcher.build_inputs(with_gpu, *args), launcher.build_inputs(with_gpu_again, *args))
+        self.assertNotEqual(launcher.build_inputs(plain, *args), launcher.build_inputs(with_gpu, *args))
+        (pathlib.Path(with_gpu_again) / "gpu" / "Dockerfile").write_text(layer.replace("libegl1", "libegl2"))
+        self.assertNotEqual(launcher.build_inputs(with_gpu, *args), launcher.build_inputs(with_gpu_again, *args))
 
     def test_the_job_images_inputs_are_fingerprinted(self):
         def tree(root):

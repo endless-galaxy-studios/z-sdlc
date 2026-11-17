@@ -107,6 +107,15 @@ class HostSettings(unittest.TestCase):
         # The other tiers keep the shared pool.
         self.assertEqual(self.settings("FACTORY_ORG=acme\n", factory={"runners": runners})["RUNNER_GROUP"], "factory-pool")
 
+    def test_ci_job_gpus_is_off_by_default_and_listed_when_set(self):
+        runners = {"strict": "s", "planning": "p", "ci": "ci-pool"}
+        s = self.settings("FACTORY_ORG=acme\n", tier="ci", factory={"runners": runners})
+        self.assertNotIn("CI_JOB_GPUS", s)
+        s = self.settings("FACTORY_ORG=acme\nCI_JOB_GPUS=\"0 GPU-abc\"\n", tier="ci", factory={"runners": runners})
+        self.assertEqual(s["CI_JOB_GPUS"], "0 GPU-abc")
+        # No other tier has the setting.
+        self.assertNotIn("CI_JOB_GPUS", self.settings("FACTORY_ORG=acme\nCI_JOB_GPUS=0\n", factory={"runners": runners}))
+
     def test_a_factory_json_from_before_the_ci_tier(self):
         with tempfile.TemporaryDirectory() as tmp:
             cfg = pathlib.Path(tmp) / "factory.json"
@@ -440,6 +449,90 @@ class SetupParts(unittest.TestCase):
         r = ports("10.0.0.5", nft_file=self.root / "other.nft")
         self.assertEqual(r.returncode, 1)
         self.assertIn("can't read the blocked4 set", r.stderr)
+
+    def test_ci_job_gpus_is_one_device_per_slot_never_shared_never_all(self):
+        uuid = "GPU-00000000-0000-4000-8000-000000000001"
+        run = lambda ids, slots: self.bash(function("check_ci_gpus") + f'check_ci_gpus "{ids}" {slots}\n')  # noqa: E731
+        for ids, slots in (("0", 1), ("0 1", 2), ("0,1", 2), (f"{uuid} 0", 2), ("0 1 2", 2), ("0:1", 1), ("MIG-abc.1", 1),
+                           ("GPU-aaa GPU-bbb", 2)):
+            with self.subTest(ids=ids, slots=slots):
+                self.assertEqual(run(ids, slots).returncode, 0, run(ids, slots).stderr)
+        refused = (("all", 1, "isn't a device name"), ("0 --privileged", 2, "isn't a device name"),
+                   ("0;id", 1, "isn't a device name"), ("../0", 1, "isn't a device name"), ("", 1, "names 0 device(s)"),
+                   ("0 0", 2, "names 0 twice"), ("GPU-AbC GPU-abc", 2, "names GPU-abc twice"),
+                   ("MIG-X MIG-x", 2, "twice"), ("0", 2, "names 1 device(s) for 2 slot(s)"),
+                   ("nvidia.com/gpu=0", 1, "isn't a device name"), ("-1", 1, "isn't a device name"))
+        for ids, slots, message in refused:
+            with self.subTest(ids=ids, slots=slots):
+                r = run(ids, slots)
+                self.assertEqual(r.returncode, 1)
+                self.assertIn(message, r.stderr)
+
+    def test_the_gpu_name_pattern_is_the_launchers(self):
+        # setup.sh and ci_launcher.py each hold the pattern (each runs where the other's file isn't read), so one test does.
+        m = re.search(r"local pattern='([^']+)'", function("check_ci_gpus"))
+        self.assertTrue(m)
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("ci_launcher", SCRIPT.parent / "ci_launcher.py")
+        launcher = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(launcher)
+        self.assertEqual(m.group(1), "^(" + launcher.GPU_ID.pattern + ")$")
+
+    # What `docker info --format '{{json .DiscoveredDevices}}'` printed for the rootless Docker user on a host with the NVIDIA
+    # container toolkit's CDI spec (checked on a test host): one compact JSON list, a Source and an ID for each device,
+    # the toolkit's names for them (an index, the card's UUID, and all).
+    REAL = ('[{"Source":"cdi","ID":"nvidia.com/gpu=0"},{"Source":"cdi","ID":"nvidia.com/gpu=GPU-00000000-0000-4000-8000-'
+            '000000000001"},{"Source":"cdi","ID":"nvidia.com/gpu=all"}]')
+
+    def gpu_block(self, gpus, devices, count=2, rc=0):
+        """setup-ci.sh's GPU block, run with a stand-in for the runner user's `docker info` that prints `devices`."""
+        text = SETUP_CI.read_text()
+        block = re.search(r"^gpus_json=\nif \[\[ -n \$CI_JOB_GPUS \]\]; then\n.*?^fi\n", text, re.S | re.M)
+        self.assertTrue(block)
+        script = (f"RUNNER_USER=factory-ci\nRUNNER_COUNT={count}\nCI_JOB_GPUS={shlex.quote(gpus)}\n"
+                  f"as_runner() {{ printf '%s' {shlex.quote(devices)}; return {rc}; }}\n"
+                  + block.group(0) + 'printf "[%s]" "$gpus_json"\n')
+        return self.bash(script)
+
+    def test_setup_asks_the_runner_users_docker_for_each_gpu(self):
+        uuid = "GPU-00000000-0000-4000-8000-000000000001"
+        # The command setup runs is the one the shape above came from.
+        self.assertIn("docker info --format '{{json .DiscoveredDevices}}'", SETUP_CI.read_text())
+        r = self.gpu_block("", self.REAL)  # none: nothing is added to the settings
+        self.assertEqual((r.returncode, r.stdout), (0, "[]"), r.stderr)
+        r = self.gpu_block("0 " + uuid, self.REAL)
+        self.assertEqual((r.returncode, r.stdout), (0, f'[, "gpus": ["0", "{uuid}"]]'), r.stderr)
+        r = self.gpu_block("0 " + uuid + " 7", self.REAL, count=2)  # only as many as slots
+        self.assertEqual((r.returncode, r.stdout), (0, f'[, "gpus": ["0", "{uuid}"]]'), r.stderr)
+        other = '[{"Source":"other","ID":"nvidia.com/gpu=0"},{"Source":"cdi","ID":"nvidia.com/gpu=1"}]'
+        for gpus, devices, rc, message in (
+                ("0 1", self.REAL, 0, "sees no CDI device nvidia.com/gpu=1"),
+                ("0 GPU-other", self.REAL, 0, "sees no CDI device nvidia.com/gpu=GPU-other"),
+                ("0 1", other, 0, "sees no CDI device nvidia.com/gpu=0"),
+                ("0 1", "null", 0, "sees no CDI device"), ("0 1", "[]", 0, "sees no CDI device"),
+                ("0 1", self.REAL, 1, "can't list its CDI devices")):
+            with self.subTest(gpus=gpus, message=message):
+                r = self.gpu_block(gpus, devices, rc=rc)
+                self.assertEqual(r.returncode, 1)
+                self.assertIn(message, r.stderr)
+
+    def test_the_job_image_changes_only_when_there_are_gpus(self):
+        text = SETUP_CI.read_text()
+        # The settings' job block gains "gpus" only through gpus_json, empty by default.
+        self.assertIn('\\"hours\\": $CI_JOB_HOURS$gpus_json}"', text)
+        # The GPU layer's Dockerfile is staged only with GPUs, so the inputs' fingerprint (of everything staged) is
+        # the same without them, and the libraries are the ones Chromium needs to render on a GPU.
+        stage = re.search(r'^if \[\[ -n \$CI_JOB_GPUS \]\]; then\n  install -d -m 755 "\$build/gpu"\n.*?^fi\n', text, re.S | re.M)
+        self.assertTrue(stage)
+        self.assertIn("libegl1 libgles2 libgl1 libglx0 libglvnd0 libvulkan1 libxcb1 libx11-xcb1", stage.group(0))
+        self.assertEqual(text.count("libegl1"), 1)
+        self.assertEqual(text.count('"$build/gpu"'), 1)
+        # Without GPUs the runner image is built as it was, labelled and tagged as the job image; with them the layer on it is.
+        self.assertIn('runner_keep="--label factory.keep=1"\n  job_tag=$RUNNER_UNIT-runner:latest', text)
+        self.assertIn("then runner_keep=; job_tag=$RUNNER_UNIT-runner-gpu:latest; fi", text)
+        self.assertIn('docker build -q $runner_keep --build-arg BASE=$RUNNER_UNIT-toolchain:latest', text)
+        self.assertIn("docker build -q --label factory.keep=1 --build-arg BASE=$RUNNER_UNIT-runner:latest -t $job_tag", text)
+        self.assertIn("docker image inspect -f '{{.Id}}' $job_tag", text)
 
     def test_the_ci_units(self):
         text = SETUP_CI.read_text()

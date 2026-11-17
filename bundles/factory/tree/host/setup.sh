@@ -447,6 +447,10 @@ case $TIER in
     CI_JOB_CPUS=${CI_JOB_CPUS:-4}; CI_JOB_MEMORY=${CI_JOB_MEMORY:-6g}; CI_JOB_PIDS=${CI_JOB_PIDS:-8192}
     CI_JOB_SHM=${CI_JOB_SHM:-1g}; CI_JOB_HOURS=${CI_JOB_HOURS:-6}; CI_IDLE_HOURS=${CI_IDLE_HOURS:-24}
     CI_MIN_FREE_GB=${CI_MIN_FREE_GB:-20}
+    # One GPU per slot, each named as the NVIDIA container toolkit's CDI spec names it (the part after
+    # nvidia.com/gpu=: an index like 0, or a UUID like GPU-...), space or comma separated, slot 1 first. Empty, the
+    # default, gives jobs no GPU, and nothing below changes.
+    CI_JOB_GPUS=${CI_JOB_GPUS:-}
     DB_PORT= ;;
   *) printf 'ERROR: TIER must be strict, planning or ci\n' >&2; exit 1 ;;
 esac
@@ -491,6 +495,7 @@ RUNNER_SHA256=baebf204307bac6193480852732f0aba2ae97b6c5597c244f4d5558390147c40
 if [[ ${1:-} == --print-settings ]]; then
   ci_settings=
   [[ $TIER == ci ]] && ci_settings="CI_APP_CLIENT_ID CI_JOB_CPUS CI_JOB_MEMORY CI_JOB_PIDS CI_JOB_SHM CI_JOB_HOURS CI_IDLE_HOURS CI_MIN_FREE_GB"
+  [[ $TIER == ci && -n $CI_JOB_GPUS ]] && ci_settings+=" CI_JOB_GPUS"
   for v in TIER FACTORY_ORG RUNNER_URL RUNNER_GROUP RUNNER_LABELS RUNNER_INSTANCE RUNNER_USER RUNNER_HOME RUNNER_UNIT \
            FW_UNIT NFT_TABLE NFT_FILE RUNNER_COUNT MEM_HIGH MEM_MAX CPU_QUOTA SLICE_TASKS DB_PORT DB_HOST LAN_DNS PROBE_PORTS $ci_settings; do
     printf '%s=%s\n' "$v" "${!v}"
@@ -510,6 +515,25 @@ for i in $(seq 99); do
     die "$RUNNER_USER's runner $i is registered to $url, not $RUNNER_URL: for a second organization on this host, set RUNNER_INSTANCE in its host.conf"
   fi
 done
+
+# CI_JOB_GPUS ($1) for the slots ($2): one device name per slot, never "all", none twice (compared without regard to
+# case) and at least as many as slots. That is all a name can tell setup: two names can still be one card (an index and
+# that card's UUID), which only the isolation check sees, by comparing the UUIDs each slot's container reports. The
+# pattern is ci_launcher.py's GPU_ID (tests/test_host_setup.py holds the two to each other): the launcher passes a name
+# as one argument of docker run, and a name that isn't one of these never gets that far.
+check_ci_gpus() {
+  local -a ids
+  local pattern='^([0-9]{1,3}(:[0-9]{1,3})?|(GPU|MIG)-[0-9A-Za-z.:-]{1,80})$' id lower seen=" "
+  read -ra ids <<< "${1//,/ }"
+  for id in "${ids[@]}"; do
+    [[ $id =~ $pattern ]] || die "CI_JOB_GPUS: '$id' isn't a device name: an index like 0, or a UUID like GPU-... (never all)"
+    lower=$(printf '%s' "$id" | tr '[:upper:]' '[:lower:]')
+    [[ $seen == *" $lower "* ]] && die "CI_JOB_GPUS names $id twice: two slots would share it"
+    seen+="$lower "
+  done
+  ((${#ids[@]} >= $2)) \
+    || die "CI_JOB_GPUS names ${#ids[@]} device(s) for $2 slot(s): one GPU per slot, so name at least as many as CI_RUNNERS"
+}
 
 # The runner-registration App's key ($1) reaches every runner group in the organization: root-only, never in a
 # checkout.
@@ -585,6 +609,7 @@ if [[ $TIER == ci ]]; then
   done
   for v in CI_JOB_PIDS CI_MIN_FREE_GB; do [[ ${!v} =~ ^[1-9][0-9]*$ ]] || die "$v must be a whole number above 0"; done
   for v in CI_JOB_MEMORY CI_JOB_SHM; do [[ ${!v} =~ ^[1-9][0-9]*[kmg]$ ]] || die "$v must be like 6g or 512m"; done
+  [[ -z $CI_JOB_GPUS ]] || check_ci_gpus "$CI_JOB_GPUS" "$RUNNER_COUNT"
   python3 -I - "$CI_JOB_MEMORY" "$RUNNER_COUNT" "$MEM_HIGH" "$MEM_MAX" <<'PY' || die "the CI tier's memory settings (above)"
 import sys
 def size(text):

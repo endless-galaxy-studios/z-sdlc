@@ -37,6 +37,22 @@ Each entry contains:
 
 ---
 
+## 2026-11-17: The factory imported from the incubator (6094011..32271b0): the CI tier's optional GPU
+
+**Origin:** CD (2026-11-16/17): a pull request's code may use a GPU on a CI-only host, after the incubator's measurement of what a GPU does for the CI tier's Playwright browser suites.
+
+**What happened:** The incubator added `CI_JOB_GPUS` (#140: one CDI device name per CI slot, checked by setup and the launcher, a library layer on the job image, an isolation probe) and took z-sdlc's review fixes (#141). It then took z-sdlc's own changes back (#142), which cleared the import's two [fix first] items, and this import followed.
+
+**Changes made:**
+
+1. `bundles/factory/tree/host/ci_launcher.py`, `setup.sh`, `setup-ci.sh` and the tests `test_ci_launcher.py`, `test_host_setup.py`: the incubator's versions (five files changed on both sides, the incubator's holding both sets). z-sdlc's own shellcheck fixes in `setup.sh` and `setup-ci.sh` are kept, and stay `ahead` for the incubator.
+2. `process/factory.md` step 10: a GPU bullet under the CI tier's browser-suite notes (what the setting is, what setup needs and refuses, that the project's Playwright config must ask for the GPU, and that the host should do nothing else).
+3. `bundles/factory/seed/host/host.conf`: a commented `CI_JOB_GPUS` after `CI_CPU_QUOTA`.
+
+**Rationale:** The setting is off by default and changes nothing for a project that doesn't set it, so it is documented where the CI tier's other settings are.
+
+---
+
 ## 2026-11-17: The CI tier follow-ups' review fixes
 
 **Origin:** CD (2026-11-17), on the final review of the follow-ups below: "fix those yes, then send them over."

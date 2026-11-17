@@ -1011,6 +1011,19 @@ needs an organization owner's `gh` login (`admin:org`) for the runner groups and
         changes layouts that tests hover over. No container's writable layer
       has a size cap, so put `RUNNER_HOME_BASE` on a filesystem of its own: a full disk then stops
       only the factory. Check the jobs' `timeout-minutes` against the first capped runs.
+    - **GPU (`CI_JOB_GPUS`, optional).** For a CI-only host with an NVIDIA card, whose browser suites
+      render WebGL: one CDI device name per slot (an index like `0`, or a UUID from `nvidia-smi -L`,
+      never `all`), at least as many as `CI_RUNNERS`. Empty, the default, changes nothing: no flag, no
+      layer, the same job image. Setup refuses without the NVIDIA driver, the container toolkit and its
+      CDI spec (`nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml`, root's to write, which setup
+      never installs), and a slot's job sees exactly one GPU: setup's isolation test compares the
+      UUIDs the slots report. A layer on the job image adds the EGL/GL/Vulkan libraries Chromium
+      needs; without them it falls back to SwiftShader without a word. The project's Playwright
+      config still has to ask for the GPU (`--use-gl=angle --use-angle=gl-egl
+      --ignore-gpu-blocklist`). A pull request's code can use the GPU, so the host should do nothing
+      else. Measured on a mobile-class card: the GPU shortens a browser suite and needs fewer CPUs
+      per job, and it exposed test races software rendering hid; a second, integrated GPU gave no
+      gain from running more jobs at once.
     - **Runner versions.** A just-in-time runner takes its settings from GitHub, so it may update
       itself when GitHub asks, inside its throwaway container. Bumping `RUNNER_VERSION` (and
       running setup) keeps that from costing every job a download.

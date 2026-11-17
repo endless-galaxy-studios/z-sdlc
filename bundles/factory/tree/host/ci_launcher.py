@@ -37,10 +37,22 @@ Root-side rules (the job owns its container, so root trusts nothing that comes o
   runner user owns, created in a directory only root can write and deleted once `docker run` returns. Inside the
   container it stays readable to the job (run.sh's environment, the container's config) until the container is
   removed: it is single-use, and registers only the runner the job is already running on;
+- a slot's GPU, where the settings give each slot one (job.gpus, from CI_JOB_GPUS), is one `--device nvidia.com/gpu=<name>`
+  flag built from a name that matches GPU_ID, so it is one argument and nothing more; a slot without one, or with a name
+  that doesn't match, starts no job. The check runs each slot's flags (GPU_PROBE): the slot's container must see exactly
+  one GPU, and the one it was given where the name is a UUID. That is the one place root reads a container's output,
+  and only as a UUID that matches GPU_REPORT, which it compares with the other slots' (two slots that report the same
+  UUID share a card, however their names differ, and trip the check). A job image that lies about its own UUID defeats
+  that comparison; the image is built by setup from the default branch, not by a pull request;
 - every docker call runs as the runner user with a fixed environment and a timeout, never as root. setpriv execs
   docker (runuser would fork a parent that a timeout kills, orphaning docker).
 A container escape is a compromise of the runner user, held by the outer boundary: its own user, the firewall,
 the caps. Tested by tests/test_ci_launcher.py.
+That holds only for a slot without a GPU. A slot with one holds the NVIDIA kernel driver's device nodes
+(/dev/nvidiactl, /dev/nvidia-uvm and /dev/nvidiaN) inside the job's container, so a bug in the driver's ioctl handling
+is reachable from a pull request's code and runs in the host kernel, outside the rootless user namespace: a compromise
+of the host, not only of the runner user, which the firewall and the caps don't hold. GPU slots belong on a host that
+does nothing else, with the driver kept patched. (Inferred from how the driver is exposed; not tested here.)
 """
 
 import base64
@@ -69,6 +81,26 @@ import urllib.request
 ACCEPT = "application/vnd.github+json"
 API_VERSION = "2022-11-28"
 DROPPED_CAPS = ("NET_RAW", "MKNOD")
+# A GPU's CDI device name, the part after nvidia.com/gpu= (an index, or a UUID): setup.sh's check_ci_gpus holds the same
+# pattern, and tests/test_host_setup.py holds the two to each other. A name is one argument of docker run, never more.
+GPU_ID = re.compile(r"[0-9]{1,3}(:[0-9]{1,3})?|(GPU|MIG)-[0-9A-Za-z.:-]{1,80}")
+# What the check runs inside a slot's job container to see its GPU: exactly one GPU is visible (and at most one MIG
+# device), and when the slot's device is named by UUID, it is that one; it then prints the UUID of what it sees. An
+# index can't be told apart from inside (every job sees its device as GPU 0), which is why gpu_problems compares the
+# UUIDs the slots report: two slots on one card are caught however they name it.
+GPU_PROBE = r"""
+list=$(nvidia-smi -L) || exit 1
+count() { printf '%s\n' "$list" | grep -c "$1"; }
+[ "$(count '^GPU ')" = 1 ] || exit 1
+[ "$(count '^ *MIG ')" -le 1 ] || exit 1
+case "$1" in GPU-*|MIG-*) printf '%s\n' "$list" | grep -qF "(UUID: $1)" || exit 1 ;; esac
+case "$1" in
+  MIG-*) printf '%s\n' "$1" ;;
+  *) printf '%s\n' "$list" | sed -n 's/^GPU [0-9]*: .*(UUID: \(GPU-[^)]*\)).*/\1/p' ;;
+esac
+"""
+# What GPU_PROBE prints last: the UUID of the one device the container sees. Anything else is no answer.
+GPU_REPORT = re.compile(r"(GPU|MIG)-[0-9A-Za-z.:-]{1,80}")
 LOG_MAX = "20m"
 # The check's inter-slot test: a listener at a fixed address on a network of its own (outside Docker's default
 # address pools, so no slot network has it), which a container on another network must not reach.
@@ -369,8 +401,28 @@ def memory_bytes(text):
     return int(text[:-1]) * 1024 ** "kmg".index(text[-1].lower()) * 1024 // page * page
 
 
-def job_flags(conf):
-    """Every job container's caps and hardening. The check's probe runs with the same flags, so it proves them."""
+def gpu_device(conf, slot):
+    """The CDI device flag for the slot's own GPU, or no flags where the settings name none (the default). One GPU per
+    slot, never all: the settings' list is read by slot number, and an entry that isn't a device name, or a slot
+    without one, fails the cycle rather than start a job on another slot's GPU or on none when it should have one."""
+    gpus = conf["job"].get("gpus")
+    if not gpus:
+        return []
+    if not isinstance(gpus, list) or not 1 <= slot <= len(gpus):
+        named = len(gpus) if isinstance(gpus, list) else repr(gpus)
+        raise Failed(f"slot {slot} has no GPU in the settings (job.gpus names {named})")
+    gpu = gpus[slot - 1]
+    if not isinstance(gpu, str) or not GPU_ID.fullmatch(gpu):
+        raise Failed(f"slot {slot}'s GPU {printable(gpu)!r} isn't a device name")
+    # NVIDIA_VISIBLE_DEVICES=void: the container toolkit's own (legacy) runtime hook, where one is configured, hands a
+    # container every GPU its variable names; void names none, so the CDI device is the only way in. The toolkit's CDI
+    # spec sets the same value; checked on a test host that a CDI GPU is still the one device the container sees.
+    return ["--device", f"nvidia.com/gpu={gpu}", "-e", "NVIDIA_VISIBLE_DEVICES=void"]
+
+
+def job_flags(conf, slot=None):
+    """Every job container's caps and hardening, and its GPU where the settings give each slot one (slot: the job's slot;
+    none for a container that isn't a slot's job). The check's probe runs with the same flags, so it proves them."""
     job = conf["job"]
     flags = ["--cpus", str(job["cpus"]), "--memory", job["memory"], "--memory-swap", job["memory"],
              "--pids-limit", str(job["pids"]), "--shm-size", job["shm"], "--security-opt", "no-new-privileges",
@@ -380,6 +432,8 @@ def job_flags(conf):
              "--log-opt", "compress=false"]
     for cap in DROPPED_CAPS:
         flags += ["--cap-drop", cap]
+    if slot is not None:
+        flags += gpu_device(conf, slot)
     return flags
 
 
@@ -597,6 +651,7 @@ def cycle(conf, slot, conf_path):
             docker(conf, "network", "create", "--label", "factory-ci", network)
         if low_disk(conf):
             raise Failed(f"less than CI_MIN_FREE_GB free under {conf['home']}: no job starts")
+        flags = job_flags(conf, slot)  # a slot with no usable GPU in the settings fails here, before GitHub is asked
         suffix = secrets.token_hex(3)
         # The name is recorded before GitHub is asked: a SIGTERM inside the call leaves a registration whose ID this
         # cycle never hears, which a later cycle, the slot's stop or retire finds by its name (resolve_pending). The
@@ -615,7 +670,7 @@ def cycle(conf, slot, conf_path):
         write_env_file(conf, env_file, jit)
         try:
             started = docker(conf, "run", "-d", "--name", name, "--network", network, "--label", "factory-ci",
-                             *job_flags(conf), "--env-file", str(env_file), conf["image"])
+                             *flags, "--env-file", str(env_file), conf["image"])
         finally:
             with contextlib.suppress(FileNotFoundError):
                 os.unlink(env_file)
@@ -1001,12 +1056,51 @@ def inspect(conf, problems, notes):
             problems.append("the check's listener can't be reached on its own network, so the slots' isolation "
                             "from each other is untested")
             return
-        # A job's container: the job's flags, a network like a slot's, and another network's listener closed to it.
+        # A job's container: the job's flags (no GPU: gpu_problems checks those, so a stale CDI spec isn't blamed on
+        # isolation), a network like a slot's, and another network's listener closed to it.
         judge("the probe container", docker(conf, "run", "--rm", "--network", other, *job_flags(conf),
                                             "--entrypoint", "python3", conf["image"], "-c", PROBE,
                                             " ".join(v4 + [LISTENER_IP]), " ".join(ports), caps, timeout=300))
+        gpu_problems(conf, problems)
     finally:
         docker(conf, "rm", "-f", "-v", listener)
+
+
+def gpu_problems(conf, problems):
+    """With GPUs in the settings, each slot's job container must see exactly its own (GPU_PROBE), the slots must report
+    different UUIDs (two slots on one card are caught here whatever their names: `0` and that card's UUID, a name in
+    another case, a MIG name), and no slot may lack one: a host with fewer GPUs than slots is refused here, as setup
+    refuses it. What a container prints is acted on only as its exit status and one line vetted by GPU_REPORT;
+    the rest is logged as printable ASCII."""
+    gpus = conf["job"].get("gpus")
+    if not gpus:
+        return
+    slots = int(conf.get("slots", len(gpus)))
+    if not isinstance(gpus, list) or len(gpus) < slots:
+        problems.append(f"{slots} slot(s) but {len(gpus) if isinstance(gpus, list) else gpus!r} GPU(s) in the settings")
+        return
+    seen = {}
+    for slot in range(1, slots + 1):
+        try:
+            flags = job_flags(conf, slot)
+        except Failed as e:
+            problems.append(str(e))
+            continue
+        result = docker(conf, "run", "--rm", "--network", "none", *flags, "--entrypoint", "sh", conf["image"], "-c",
+                        GPU_PROBE, "gpu-probe", gpus[slot - 1], timeout=300)
+        if result.returncode:
+            problems.append(f"slot {slot}'s job container doesn't see exactly its GPU {printable(gpus[slot - 1])} "
+                            f"(exit {result.returncode}): {printable(result.stdout) or printable(result.stderr)}")
+            continue
+        lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+        if not lines or not GPU_REPORT.fullmatch(lines[-1]):
+            problems.append(f"slot {slot}'s job container reported no GPU UUID: {printable(result.stdout)}")
+            continue
+        uuid = lines[-1].lower()
+        if uuid in seen:
+            problems.append(f"slots {seen[uuid]} and {slot} reach the same GPU ({printable(lines[-1])}): "
+                            "one GPU per slot")
+        seen.setdefault(uuid, slot)
 
 
 def fwcheck(conf):
