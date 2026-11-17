@@ -55,6 +55,9 @@ this tier's step units is still running, and refuses, naming it, while one is: a
 step running until the step's own time limit, and nothing may start beside it or close its run. Wait for it, or stop
 the unit (`systemctl stop <unit>`), then try again. A step that times out returns only once its unit is gone.
 
+**Earlier gates count only as the plan defines them now:** the same title, block and kind, so a gate the plan has
+since made a release gate, or stopped making one, runs again (D4 rule 7).
+
 **The digest** (D4 rule 6) covers the host module by name (`gates.BROKER_MODULES`) and, for a broker with a host
 module, `config.json`, with `gates.py`, `ed25519.py`, `factory_op.py`, `ops.json` and any `ops/*.sh`. Changing any of
 them means re-running setup on the host, or every gate is refused; a gate also stops if the installed package changes
@@ -77,8 +80,8 @@ before it changes anything, and refuses while a gate runs.
 
 **The ledger** is append-only, and one damaged line stops every command rather than be guessed at. A last line left
 half-written by a crash mid-append is reported by `check` and refuses gates as an interrupted run;
-`resolve --torn-line NOTE` moves the torn bytes to a side file beside the ledger, cuts the ledger back to its last
-whole line, and appends a signed note of what it moved, who and why. Any other unreadable line is CD's to repair by
+`resolve --torn-line NOTE` moves the torn bytes to a side file beside the ledger, then replaces the ledger, in one
+rename, with its whole lines and a signed note of what it moved, who and why. Any other unreadable line is CD's to repair by
 hand.
 
 **What it refuses:** a rollback, for every request kind (its catalog says `"rollbacks": false`, so the plan guard
@@ -195,10 +198,12 @@ written `factory-op`.
 6. **[CD] GitHub's side:** now that `ops.json` exists, run the factory's `bootstrap.py --apply` again
    (`[sdlc-root]/process/factory.md` § Enablement): it creates the `factory-production` environment and the
    production runner group (`factory-pool-<repository>-prod`). **Check:** `bootstrap.py` reports both in place.
-7. **[CD] Set up the host** as root. Put a runner registration token in `host/reg-token` first (as the factory's
-   runner setup takes one; without it the runner installs but doesn't register). The tier's first run names the
-   repository: `sudo TIER_OWNER=<owner>/<repository> bash .github/factory/host/setup-production.sh`; later runs
-   don't. Then write each `by: cd` secret where setup's `ACTION NEEDED` lines say. **Check:** setup's acceptance
+7. **[CD] Set up the host** as root, from a checkout no agent session can write, such as a fresh clone made just
+   before by a login no agent session uses: setup's first stage is the checkout's own script, so whoever can change
+   it before it runs gets root (the factory's runner setup has the same rule). Put a runner registration token in
+   `host/reg-token` first (as the factory's runner setup takes one; without it the runner installs but doesn't
+   register). The tier's first run names the repository: `sudo TIER_OWNER=<owner>/<repository> bash
+   .github/factory/host/setup-production.sh`; later runs don't. Then write each `by: cd` secret where setup's `ACTION NEEDED` lines say. **Check:** setup's acceptance
    checks pass, and `sudo factory-op check` prints `"ok": true`.
 8. **[CD] Commit the public key** setup printed (`production/receipt.pub`). **Check:** it's on the default branch.
 9. **[CD] Record a first `baseline`:** `sudo factory-op baseline NOTE`. It checks the release branch's provenance

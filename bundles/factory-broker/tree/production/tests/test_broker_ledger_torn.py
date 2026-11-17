@@ -147,6 +147,18 @@ class ResolveTornLineTest(LedgerBase):
         self.assertEqual(self.ledger.read_bytes(), before)  # still torn, never cut without its note
         self.assertEqual(sorted(p.name for p in self.ledger.parent.iterdir()), [self.ledger.name])  # no side file either
 
+    def test_the_cut_and_the_note_land_together_or_not_at_all(self):
+        before = self.tear()
+        with mock.patch.object(fo.os, "replace", side_effect=OSError("disk full")):
+            with self.assertRaises(OSError):
+                fo.cmd_resolve_torn(self.cfg, gates, self.env.secret, "n", lock_wait_s=0)
+        self.assertEqual(self.ledger.read_bytes(), before)  # still torn: never cut without its note
+        self.assertEqual(fo.ledger_entries(self.ledger).torn, TORN)
+        self.assertFalse([p for p in self.ledger.parent.iterdir() if p.name.endswith(".tmp")])  # no half-written copy left
+        side = fo.cmd_resolve_torn(self.cfg, gates, self.env.secret, "n", lock_wait_s=0)  # and it resolves again
+        self.assertEqual(side.read_bytes(), TORN)
+        self.assertEqual(fo.ledger_entries(self.ledger)[-1]["event"], "torn-line")
+
     def test_nothing_torn_is_refused_and_changes_nothing(self):
         before = self.ledger.read_bytes()
         with self.assertRaises(fo.Refused) as cm:

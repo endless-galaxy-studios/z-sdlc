@@ -2637,15 +2637,30 @@ def rebuild(cfg, gates, catalog, gh, pr, title, entries, budget=None):
                       "operations give now (something changed since approval). If production/ops.json, config.json, factory_op.py "
                       "or factory_op_host.py changed since this host was set up, its installed copy is older than the plan's "
                       "digest: CD re-runs setup on the production host")
-    done = done_runs(entries, cfg["repo"], pr)
+    return request, earlier_gates(gates, plan_text, request["gate"], done_runs(entries, cfg["repo"], pr))
+
+
+def gate_kind(g):
+    """The kind of request the plan gives a gate now, as gates.build_request decides it: a release gate, a CD gate (no
+    gate-ops block) or an ops gate."""
+    return "release" if g["release"] is not None else ("cd" if g["block"] is None else "ops")
+
+
+def earlier_gates(gates, plan_text, gate_id, done):
+    """The gate's definition, once every gate before it in the plan is done on this host as the plan defines it now
+    (D4 rule 7): the same title and block, and the same kind. A gate the plan has since made a release gate, or stopped
+    making one, must run again: its result is of another kind, without (or with) the release's own checks."""
     for g in gates.parse_gates(plan_text):
-        if g["id"] == request["gate"]:
-            return request, gate_def(gates, g)
+        if g["id"] == gate_id:
+            return gate_def(gates, g)
         if g["id"] not in done:
             raise Refused(f"{g['id']} isn't done on this host")
         if done[g["id"]].get("gate_def") != gate_def(gates, g):
             raise Refused(f"{g['id']} changed in the plan since it ran; it must run again")
-    raise Refused(f"the plan has no gate {request['gate']}")
+        if done[g["id"]].get("kind") != gate_kind(g):
+            raise Refused(f"{g['id']} ran as a {safe(done[g['id']].get('kind'), 20)} gate, and the plan now makes it a "
+                          f"{gate_kind(g)} gate; it must run again")
+    raise Refused(f"the plan has no gate {gate_id}")
 
 
 # ---------------------------------------------------------------- executing a gate
@@ -3438,7 +3453,8 @@ def cmd_resolve(cfg, gates, secret, run, note, lock_wait_s=60, package=None):
 def cmd_resolve_torn(cfg, gates, secret, note, lock_wait_s=60, package=None):
     """`resolve --torn-line NOTE`: set the ledger's torn last line aside, never silently. Under the lock (and with no step of
     this tier running), the torn bytes go to a side file in the ledger's directory, the ledger is cut back to its last whole
-    line, and a signed note records what was set aside, where, its hash, who and why. Returns the side file's path. Any other
+    line, and a signed note records what was set aside, where, its hash, who and why: the cut and the note land together, in
+    one rename. Returns the side file's path. Any other
     line that doesn't parse is refused (LedgerBroken): that one is CD's to repair by hand."""
     with broker_lock(lock_wait_s, package=package):
         path = pathlib.Path(cfg["ledger"])
@@ -3457,19 +3473,34 @@ def cmd_resolve_torn(cfg, gates, secret, note, lock_wait_s=60, package=None):
                         "sha256": hashlib.sha256(torn).hexdigest(), "note": note,
                         "by": os.environ.get("SUDO_USER", "root"), "at": now()}
         signed = gates.sign_receipt(secret, note_receipt)
-        out = os.open(side, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
-        with os.fdopen(out, "wb") as f:
-            f.write(torn)
-            f.flush()
-            os.fsync(f.fileno())
-        fsync_dir(path.parent)
-        fd = os.open(path, os.O_WRONLY | os.O_NOFOLLOW)
         try:
-            os.ftruncate(fd, cut)
-            os.fsync(fd)
+            out = os.open(side, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        except FileExistsError:  # an earlier attempt that stopped before its rename left this same side file: keep it
+            fd = os.open(side, os.O_RDONLY | os.O_NOFOLLOW)
+            with os.fdopen(fd, "rb") as f:
+                if f.read(len(torn) + 1) != torn:
+                    raise Refused(f"{side} already exists with other bytes: move it aside, then run resolve --torn-line again")
+        else:
+            with os.fdopen(out, "wb") as f:
+                f.write(torn)
+                f.flush()
+                os.fsync(f.fileno())
+        fsync_dir(path.parent)
+        # The cut ledger and its note replace the ledger in one rename: a crash at any point leaves either the torn ledger
+        # as it was (and a side file to resolve again) or the whole lines with the note, never a cut without the note.
+        entry = {"event": "torn-line", "run": run, "repo": cfg["repo"], "at": now(), "signed": signed}
+        tmp = path.parent / f".{path.name}.{run}.tmp"
+        try:
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+            with os.fdopen(fd, "wb") as f:
+                f.write(data[:cut] + json.dumps(entry, sort_keys=True).encode() + b"\n")
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, path)
         finally:
-            os.close(fd)
-        ledger_append(path, {"event": "torn-line", "run": run, "repo": cfg["repo"], "at": now(), "signed": signed})
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(tmp)
+        fsync_dir(path.parent)
     return side
 
 
