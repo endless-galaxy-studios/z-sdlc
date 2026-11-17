@@ -150,7 +150,11 @@ ci_execution:
         without `cancel-in-progress`. By default a group holds one pending
         run, and a newly queued run cancels the one already pending
         (documented, in GitHub's "Control the concurrency of workflows and
-        jobs"), so three quick merges lose the middle one's result.
+        jobs"), so of three quick merges, the middle one's run is
+        cancelled. With change detection that loses more than a result:
+        each run checks only the files its own push changed, so no later
+        run checks the middle merge's changes, and a break there sits on
+        the default branch under a later run's pass.
     triggers:
       rule: >
         No `paths` or `paths-ignore` filter on a workflow whose check is

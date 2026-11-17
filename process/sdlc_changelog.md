@@ -89,7 +89,7 @@ Each entry contains:
    - **One aggregate check is required,** on `if: always()`. It reads each job's result, so a failed gate can't skip it into a pass.
    - **A detecting job, doing nothing else, sets one output per area** from the compare API. An area's patterns cover every path its jobs read, and the workflow file is in each of them.
    - **Any doubt runs everything.**
-   - **`concurrency` cancels a pull request's superseded runs only.** Every other run gets a group of its own, since a group's newly queued run cancels its pending one even without `cancel-in-progress`. One group per branch would drop a default-branch run that was waiting.
+   - **`concurrency` cancels a pull request's superseded runs only.** Every other run gets a group of its own, since a group's newly queued run cancels its pending one even without `cancel-in-progress`. One group per branch would drop a default-branch run that was waiting. With change detection, no later run would check that merge's changes either, since each run checks only its own push's files. The incubator's CI had this gap, and fixed it in its own PR.
    - **The triggers:** no path filter on a required workflow, and `merge_group` with a merge queue.
    - **Never a commit-message skip,** with the findings above in short.
 2. **`knowledge/provenance_log.md`:** an entry for the experiment and the two docs pages, since GitHub can change the behavior seen.
