@@ -14,7 +14,7 @@ description: >
 Scan the project's SDLC artifacts and present a status summary. This is read-only — take no actions, modify no files.
 
 <!-- MIRROR-START: headless-mode.md#headless-stop-rule -->
-**Headless runs (no person present).** This run is headless if the caller's prompt or appended system prompt has a line starting `SDLC headless mode:`, or if no ask-the-user tool (`AskUserQuestion`, or the harness's equivalent such as OpenCode's `question`) can be used — none is available or loadable, or a call to it is denied without an answer. A dispatched subagent is never headless itself; in a headless run the orchestrator tells each subagent so, and the limits below bind it too. In a headless run, every point in this skill that asks CD something the next step depends on, waits for CD's approval, or escalates to CD **stops the run there**: save the work so far, return the questions, the document or action plan awaiting approval, or the open-findings table as the run's result (in the caller's output schema if it passed one), and end the turn normally — a stop is a result, not an error. A missing precondition the caller must fix ends the run with status `failed` and the reason. Never guess an answer, take a default for a decision CD owns, approve your own work, or skip the gate. List questions the next step does not depend on in the result instead of stopping. Take the no path on optional offers. Cause no side effect outside the working tree — no push, post, comment, label, publish, external send, or live-system change — unless the caller's prompt names it; list those actions in the result. Reads are fine. A question the prompt or thread already answers is not a gate. Full rule and result format: `[sdlc-root]/process/headless-mode.md`.
+**Headless runs (no person present).** This run is headless if the caller's prompt or appended system prompt has a line starting `SDLC headless mode:`, or if no ask-the-user tool (`AskUserQuestion`, or the harness's equivalent such as OpenCode's `question`) can be used — none is available or loadable, or a call to it is denied without an answer. A dispatched subagent is never headless itself; in a headless run the orchestrator tells each subagent so, and the limits below bind it too. In a headless run, every point in this skill that asks CD something the next step depends on, waits for CD's approval, or escalates to CD **stops the run there**: save the work so far, return the questions, the document or action plan awaiting approval, or the open-findings table as the run's result (in the caller's output schema if it passed one), and end the turn normally — a stop is a result, not an error. A missing precondition the caller must fix ends the run with status `failed` and the reason. Never guess an answer, take a default for a decision CD owns, approve your own work, or skip the gate. List questions the next step does not depend on in the result instead of stopping. Take the no path on optional offers. Cause no side effect outside the working tree — no push, post, comment, label, publish, external send, or live-system change — unless the caller's prompt names it; list those actions in the result. Two exceptions stand: writes to the project's knowledge backend count as local work, and the External Review Gate may send to a hosted provider the project has durably authorized (`[sdlc-root]/process/external-review-gate.md` § Data egress). Reads are fine. A question the prompt or thread already answers is not a gate. Full rule and result format: `[sdlc-root]/process/headless-mode.md`.
 <!-- MIRROR-END: headless-mode.md#headless-stop-rule -->
 
 ## Steps
@@ -44,6 +44,8 @@ Scan the project's SDLC artifacts and present a status summary. This is read-onl
 
 4. **Scan recent chronicles** — list the 5 most recently modified `_index.md` files under `docs/chronicle/`.
 
+4a. **Find open runbooks** (`[sdlc-root]/process/runbooks.md`): each marker line in `[sdlc-root]/process/*.md` (its full form: `[sdlc-root]/process/runbooks.md` § What makes a doc a runbook) names a runbook and its record. Read the record's **Status** and **Next**. List an `enable` runbook that isn't done ("no record yet" when its record doesn't exist), a `setup` one that isn't done or declined (likewise), and an `on-demand` one that is in progress; leave out the rest.
+
 5. **Present the dashboard:**
 
 ```
@@ -64,6 +66,10 @@ Scan the project's SDLC artifacts and present a status summary. This is read-onl
 
 - [issue filename]: brief description from first line
 
+## Open Runbooks ({N})
+
+- factory-enablement: in progress — next § 3.3 (continue with `sdlc-run-runbook factory-enablement`)
+
 ## Recent Archives ({N})
 
 - concept-name: brief description
@@ -79,5 +85,5 @@ Do NOT suggest or take any follow-up actions beyond what appears in the Next Act
 | "I'll fix the catalog while I'm reading it" | Display only. If the catalog has issues, the user decides what to do about them. |
 
 ## Integration
-- **Depends on:** `docs/_index.md`, `docs/current_work/` (reads current state)
+- **Depends on:** `docs/_index.md`, `docs/current_work/`, and the runbooks' records (`[sdlc-root]/process/runbooks.md`) (reads current state)
 - **Display only:** Do NOT invoke any other skill from here

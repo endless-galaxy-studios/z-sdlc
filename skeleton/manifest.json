@@ -93,6 +93,7 @@
       "process/html-rendering.md",
       "process/headless-mode.md",
       "process/production-gates.md",
+      "process/runbooks.md",
       "process/writing-for-cd.md",
       "process/skill-agent-review.md",
       "process/adr-practice.md"
@@ -268,6 +269,7 @@
       "skills/sdlc-port-opencode/SKILL.md",
       "skills/sdlc-port-opencode/references/local-model-serving.md",
       "skills/sdlc-handoff/SKILL.md",
+      "skills/sdlc-run-runbook/SKILL.md",
       "skills/sdlc-reflect/SKILL.md",
       "skills/sdlc-walkthru/SKILL.md",
       "skills/sdlc-explain/SKILL.md"

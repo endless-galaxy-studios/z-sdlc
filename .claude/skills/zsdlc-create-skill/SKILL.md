@@ -24,6 +24,7 @@ Create a new SDLC framework skill in the z-sdlc source repo. Scaffold the comple
 ### 1. Purpose Definition
 
 Clarify with the user:
+- **Is it repeatable?** A one-time or rare procedure (enabling a bundle, setting up a host) is a runbook that `sdlc-run-runbook` drives, not a skill: `process/runbooks.md` § A skill or a runbook (CD, 2026-11-16). Stop here and write the runbook instead.
 - **What does this skill do?** (one sentence)
 - **What skill type?**
   - **Orchestration** — dispatches domain agents, has agent selection criteria, review loops (e.g., sdlc-plan, sdlc-execute, sdlc-review-code)

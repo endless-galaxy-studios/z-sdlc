@@ -30,6 +30,7 @@ The standard deliverable lifecycle: **ideation → plan → execute**. Most work
 | `/sdlc-status` | Show active deliverables, blocked items, and recent archives |
 | `/sdlc-manage-github` or "check the project board" | *(github-provenance bundle)* Invokes `sdlc-manage-github` — inspect/update GitHub Projects v2 boards and repo issues via `gh`; also home to the SDLC checkpoint recipes |
 | `/sdlc-handoff` or "create a handoff" | Invokes `sdlc-handoff` — capture the current session as a self-contained handoff doc at `docs/current_work/ideas/{slug}_handoff.md` for another session to pick up via `sdlc-idea`, `sdlc-lite-plan`, `sdlc-plan`, or `sdlc-debug-incident` |
+| `/sdlc-run-runbook` or "continue the factory install" | Invokes `sdlc-run-runbook` — runs a runbook (`[sdlc-root]/process/runbooks.md`): a one-time or occasional procedure such as a bundle's enablement, resumed from its record step by step, each check written down. With no argument, lists the runbooks and where each stands |
 | `/sdlc-reflect` or "capture learnings" | Invokes `sdlc-reflect` — surface session learnings into discipline parking lots after direct-dispatch or ad-hoc work sessions |
 
 ## Auditing

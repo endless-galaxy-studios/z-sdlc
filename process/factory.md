@@ -550,8 +550,9 @@ new profile adds its own.
 
 **The order to do these in, what to ask CD before starting, how to tell each step worked, and what to
 build when a project brings a stack, data route or production host the factory hasn't seen:**
-`[sdlc-root]/process/factory-runbook.md`. Read its first section before starting: these steps are a
-small part of an install whose project doesn't fit an existing profile or host.
+`[sdlc-root]/process/factory-runbook.md`. Read its opening and its § 0 before starting: these steps are a
+small part of an install whose project doesn't fit an existing profile or host. `sdlc-run-runbook`
+runs it in the project's session (`factory-enablement`).
 
 The bundle installs inert: nothing runs until a person adds `factory:triage` to an issue, and the
 first run fails without the setup below, done in order. Steps 3 to 5 replace the seed's placeholders
@@ -1113,3 +1114,30 @@ needs an organization owner's `gh` login (`admin:org`) for the runner groups and
        included. It copies itself to `~/.config/agent-sessions/`, records the App there, and adds the
        hook to Claude Code's user settings once. New sessions pick it up; `session_identity.py status
        <a clone>` says which identity a session there gets.
+
+---
+
+## After migrating
+
+What a release of the bundle can make due. `sdlc-migrate` follows this after it copies the bundle's files and
+renders (`[sdlc-root]/process/runbooks.md` § After migrating), and puts each item that applies in the migration
+report. The items name CD's steps; the migration does none of them. Compare the bundle's files at the
+project's previous version with the release's.
+
+- **The operations digest:** `gates.py`, `ed25519.py` or a broker file changed → a project with a production tier
+  re-runs that tier's setup on its host before the next gate, or every gate is refused (D4 rule 6). CD's root
+  step.
+- **Action pins:** the templates' action pins changed → run `factory-smoke` once the migration's PR merges
+  (D2 rule 5).
+- **The runner's version:** `host/setup.sh`'s `RUNNER_VERSION` changed → re-run each runner tier's setup within
+  30 days: GitHub stops sending jobs to a runner more than 30 days behind its latest release. The shared host's
+  own repository copies the bundle's `host/` at the release's tag first (Enablement step 8).
+- **The CI tier:** `host/ci_launcher.py`, `host/setup-ci.sh` or the CI tier's image changed → re-run the CI
+  tier's setup (`TIER=ci`).
+- **A seed change:** the release's changelog entry names a seed change (a setting, a test's list, a review rule)
+  → the migration doesn't apply it, since seeds are the project's: list it for CD, with what to copy.
+- **The runner audit:** a template's runner labels or groups changed → regenerate the audit's expected state
+  (Enablement step 12).
+
+The rest of the factory's upkeep isn't release-triggered (token rotation, a runner more than 30 days behind
+without a release, Dependabot's pin updates): `[sdlc-root]/process/factory-runbook.md` § 7.

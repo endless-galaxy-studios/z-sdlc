@@ -116,35 +116,51 @@ the convention to function at all when a board is configured: `registered` and `
 
 ## Enablement
 
-Run once, with CD, to activate the convention. Completing this section — filling the config
+**Runbook:** `github-provenance-enablement` · **When:** enable · **Record:** `docs/runbooks/github-provenance-enablement.md` § Record
+
+Run once, with CD, to activate the convention (`sdlc-run-runbook github-provenance-enablement` runs it; it fills the
+config block, and keeps its record apart). Read § Activation and Configuration first: the block this fills.
+
+**Ask first**, each with its recommendation: board or issues-only (step 3; the board when the project already
+runs a Projects v2 board, else issues-only); the conditional labels (none to start), and whether to prune
+GitHub's default labels (step 4; keep them unless CD wants them gone); and the block's `stakeholders`,
+`terminology`, `sensitive_data` and `labels.human` (each left at its default unless CD names entries). **Done when:** every step passed and `enabled: true`. Completing this section — filling the config
 block and setting `enabled: true` — **is CD's standing authorization for the entire
 checkpoint map** (see § No Per-Call Human Confirmation).
 
 1. **Preflight.** `gh` CLI installed and authenticated for the target host; the org resolves;
-   CD confirms the token's account may create issues and (if a board is used) edit the
+   **[CD]** confirms the token's account may create issues and (if a board is used) edit the
    project. Any failure stops enablement — never enable a convention whose first checkpoint
-   would fail through.
+   would fail through. **Check:** `gh auth status` succeeds for the host, and CD's confirmation is in the
+   record.
 2. **Fill `github` and `repos`.** Confirm each driving repo's owner/name against its actual
-   git remote, never from memory.
+   git remote, never from memory, and the rest of the block from the answers asked first. **Check:** each
+   driving repo's owner/name equals its `git remote -v`, and `gh api orgs/<org>` (or `users/<user>`) resolves.
 3. **Board, or issues-only.** If the project runs a Projects v2 board, set `board.default`
    to its project number and map every column role to that board's real column names —
    verify each name exists by fetching the board's fields live. Roles the board has no
    column for are set to `null` (their checkpoints become comment-only). List the
    deploy-pipeline-owned columns under `never_write`. If there is no board, set
-   `board.default: none` — issue narration still runs in full.
+   `board.default: none` — issue narration still runs in full. **Check:** every non-null column name is
+   one of the board's live Status options (`gh project field-list`).
 4. **Provision the taxonomy.** Create the universal label and any conditional labels in
    every driving repo (idempotent — an existing label is success). Record each conditional
    label's plain-language condition in the config block; the classification is owned here,
    not by calling skills. Optionally prune GitHub's default labels that have no consumer (a
    CD decision). If the org has GitHub issue types enabled, confirm the `default` set's
    names exist (or record custom ones); otherwise set `issue_types: none`. List any
-   human-owned board fields under `board.human_fields`.
+   human-owned board fields under `board.human_fields`. **Check:** `gh label list` in each driving repo
+   shows every label the config names.
 5. **Gitignore the miss-log.** Ensure `[sdlc-root]/.local/` is gitignored before any
-   checkpoint can write `[sdlc-root]/.local/github-checkpoint-misses.jsonl`.
+   checkpoint can write `[sdlc-root]/.local/github-checkpoint-misses.jsonl`. **Check:**
+   `git check-ignore [sdlc-root]/.local/github-checkpoint-misses.jsonl` names the rule.
 6. **Set the reconciliation cutoff** to the next unassigned D-number. Rows below it are
-   pre-convention and permanently out of reconciliation scope. Set once; never moved.
-7. **Set `enabled: true`** — last, after every step above verified. Log the enablement in
-   `[sdlc-root]/process/sdlc_changelog.md`.
+   pre-convention and permanently out of reconciliation scope. Set once; never moved. **Check:** the cutoff
+   equals `docs/_index.md`'s next unassigned D-number.
+7. **[CD] Set `enabled: true`** — last, after every step above verified: it is CD's standing
+   authorization for the checkpoint map. Log the enablement in
+   `[sdlc-root]/process/sdlc_changelog.md`. **Check:** the block reads `enabled: true` and the changelog
+   entry is there.
 
 To deliberately deactivate, set `enabled: false` — every consumer goes quiet; nothing is
 deleted. Reconciliation findings that reflect config drift (a renamed board, a deleted

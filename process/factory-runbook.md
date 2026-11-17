@@ -1,5 +1,10 @@
 # Installing the Software Factory: Runbook
 
+**Runbook:** `factory-enablement` · **When:** enable · **Record:** `.github/factory/README.md` § Enablement record
+
+**Order:** § 0 holds the ground rules, agreed each session (not a step); then § 2 (the inventory) before § 1 (the
+form it informs), then § 3 in order; § 4 when a step needs what it covers.
+
 How to take a project from "the bundle is installed" to "a real issue has gone through the factory".
 The rules are `[sdlc-root]/process/factory.md` (D1 to D5); its Enablement section's numbered steps
 are what must be true. This runbook is the order to do them in, what to ask before starting, how to tell
@@ -16,6 +21,9 @@ each step worked, and what to build when the project brings something the factor
 The first two projects needed none of that, because they were alike: one fit each existing profile,
 and the incubator's production was a host its broker could deploy to. So before touching anything,
 find out which kind of project this is: § 1 and § 2 do that in about an hour.
+
+`sdlc-run-runbook factory-enablement` runs it in the project's session: it resumes from the record, asks § 1 four
+at a time, and writes each step's check to the record (`[sdlc-root]/process/runbooks.md`).
 
 ---
 
@@ -182,7 +190,7 @@ batching). Check: the migration's tests pass in the project, and `render.py --ch
    state; **[CD]** commits it, since agents don't commit there. A new project's workflows are drift
    until then. With § 1 A3 answered "CD's login", CD can't approve that PR either, and merges it with
    the ruleset bypass.
-6. **Step 9, the rulesets:** the default branch's (code-owner review, a team of people as required
+6. **[CD] Step 9, the rulesets:** the default branch's (code-owner review, a team of people as required
    reviewers of every file, one approving review, stale approvals dismissed on push, no last-push
    approval, merge commits only in the ruleset and the repository's settings and so no linear-history
    rule, the aggregate check, bypass mode `pull_request`: every factory project's the same, CD
@@ -270,7 +278,7 @@ only the default branch.
 
 - **The first release:** a PR from the default branch into the release branch, merged by CD, and each
   host serving it.
-- **A production tier's first `baseline`,** and its drills before the first real release: a restore,
+- **A production tier's first `baseline`,** if § 1 C3 chose one, and its drills before the first real release: a restore,
   a rollback, a fix-forward, a hung pre-deploy step. The rollback drill also proves the revert's path:
   a revert PR can fail a required check (a contract check, for one), and whether a ruleset's
   pull-request bypass covers a failing required check is to be shown in the drill, not assumed. The

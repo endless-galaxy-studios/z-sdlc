@@ -98,6 +98,17 @@ or logged by the provider. This is an outward-facing action:
   model / endpoint) so CD sees the egress. If the project has not durably
   authorized egress to a hosted provider, confirm with CD before the first
   hosted-model run of a session.
+- **Durable authorization is the destination CD decided in the gate's
+  runbook** (step 2 of § Enabling the gate, recorded in
+  `docs/runbooks/external-review-gate.md`): a hosted provider is authorized
+  when that decision, not since dropped, names it and the wrapper still sends
+  to it. A destination is a provider and a model. For a Codex wrapper the
+  provider is OpenAI unless the wrapper's flags, or the Codex configuration it
+  runs under (`model_provider`), name another; for a local model it is the
+  host serving it. Until step 2 has passed (no record yet, a record
+  `declined`, or a run stopped before it), an authorization the project wrote
+  down before (in its `CLAUDE.md`, say) still counts. Declining the runbook
+  changes nothing: a wrapper already there keeps running.
 - **In a headless run** (no person present) nobody can confirm. Without durable
   authorization, skip hosted-model runs and list the gate under the result's
   `skipped` (`[sdlc-root]/process/headless-mode.md`). A local model, or a hosted
@@ -106,6 +117,8 @@ or logged by the provider. This is an outward-facing action:
 If the codebase's sensitivity is unknown, default to local-only or skip the gate.
 
 ## Enabling the gate
+
+**Runbook:** `external-review-gate` · **When:** setup · **Record:** `docs/runbooks/external-review-gate.md` § Record
 
 The gate is convention-driven — no manifest schema change. It activates when an
 executable wrapper exists at:
@@ -116,6 +129,53 @@ executable wrapper exists at:
 
 If the file is absent or not executable, the gate is **skipped silently** (it is
 optional). If present, the skill runs it as the gate.
+
+Set it up with CD, or change where it sends payloads, with `sdlc-run-runbook
+external-review-gate` (to change it later, from step 2). Read § Data egress
+first: this runbook's record holds the project's egress decision, which is the
+durable authorization that section relies on.
+
+**Ask first,** after step 1: where review payloads may go, naming the provider
+and model. A local model keeps everything on the machine (recommended
+for proprietary or sensitive code). A hosted provider receives the code, which
+may be retained or logged. Nowhere leaves the gate off. Ask too whether
+promotion judgments (§ Knowledge-Judgment Wrapper) go the same way; recommended
+only once the project runs promotion passes. **Done when:** every step passed,
+or was skipped by a decision.
+
+1. **Find what's there.** An executable `[sdlc-root]/external-review.sh` or
+   `[sdlc-root]/external-review-knowledge.sh` is the project's own: keep it, and
+   read where it sends payloads: its provider (§ Data egress says how to tell
+   for a Codex wrapper) and its model (its default, or `CODEX_MODEL`). An
+   authorization the project wrote down elsewhere (its `CLAUDE.md`) goes into
+   Decisions with its source, for CD to confirm in step 2. **Check:** State
+   lists each wrapper found, or none, with its provider and model.
+2. **[CD] Decide where payloads go** (asked first). A changed decision replaces
+   the old one, which is marked dropped. **Check:** Decisions hold the
+   destination in CD's words, with the date: the provider and model, or
+   nowhere; and the same for promotion judgments.
+3. **Write the wrapper.** Copy `[sdlc-root]/templates/external-review.sh.template`
+   to `[sdlc-root]/external-review.sh` (for a local model, swap the call as
+   § Standard template shows), set its defaults to the decision, and `chmod +x`
+   it; or bring the one step 1 found into line with the decision. For nowhere,
+   take the executable bit off every wrapper step 1 found (`chmod -x`), which
+   turns the gate off without deleting the project's files. A note elsewhere
+   saying where the gate sends (step 1's `CLAUDE.md` note, say) becomes a
+   pointer to this record, so the two can't disagree. **Check:** each wrapper
+   the decisions cover is executable and sends to the decided provider and
+   model, and for nowhere `test -x` fails for both wrappers; no note outside the
+   record names another destination.
+4. **A dry run.** Pipe a payload holding no project code through the wrapper:
+   a rubric header asking for findings in the default format, and a one-line
+   artifact with an obvious defect (`x = 1 / 0`). Skipped for nowhere.
+   **Check:** it exits 0, its stderr names the decided provider and model (the
+   disclosure § Data egress requires), and its stdout is in the rubric's format.
+5. **The knowledge-judgment wrapper,** if promotion judgments were given a
+   destination: the same as steps 3 and 4, with
+   `external-review-knowledge.sh.template` and
+   `[sdlc-root]/external-review-knowledge.sh`, and a dry run of one made-up
+   candidate entry. Skipped otherwise. **Check:** it is executable, and the dry
+   run exits 0 with one `N | PROMOTE|DEMOTE | justification` line.
 
 ### Wrapper contract
 

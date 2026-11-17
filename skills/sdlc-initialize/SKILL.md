@@ -22,7 +22,7 @@ Orchestrate the full initialization of z-sdlc in a project. This skill detects t
 **Argument:** `$ARGUMENTS` (optional — z-sdlc source path, or project description for greenfield)
 
 <!-- MIRROR-START: headless-mode.md#headless-stop-rule -->
-**Headless runs (no person present).** This run is headless if the caller's prompt or appended system prompt has a line starting `SDLC headless mode:`, or if no ask-the-user tool (`AskUserQuestion`, or the harness's equivalent such as OpenCode's `question`) can be used — none is available or loadable, or a call to it is denied without an answer. A dispatched subagent is never headless itself; in a headless run the orchestrator tells each subagent so, and the limits below bind it too. In a headless run, every point in this skill that asks CD something the next step depends on, waits for CD's approval, or escalates to CD **stops the run there**: save the work so far, return the questions, the document or action plan awaiting approval, or the open-findings table as the run's result (in the caller's output schema if it passed one), and end the turn normally — a stop is a result, not an error. A missing precondition the caller must fix ends the run with status `failed` and the reason. Never guess an answer, take a default for a decision CD owns, approve your own work, or skip the gate. List questions the next step does not depend on in the result instead of stopping. Take the no path on optional offers. Cause no side effect outside the working tree — no push, post, comment, label, publish, external send, or live-system change — unless the caller's prompt names it; list those actions in the result. Reads are fine. A question the prompt or thread already answers is not a gate. Full rule and result format: `[sdlc-root]/process/headless-mode.md`.
+**Headless runs (no person present).** This run is headless if the caller's prompt or appended system prompt has a line starting `SDLC headless mode:`, or if no ask-the-user tool (`AskUserQuestion`, or the harness's equivalent such as OpenCode's `question`) can be used — none is available or loadable, or a call to it is denied without an answer. A dispatched subagent is never headless itself; in a headless run the orchestrator tells each subagent so, and the limits below bind it too. In a headless run, every point in this skill that asks CD something the next step depends on, waits for CD's approval, or escalates to CD **stops the run there**: save the work so far, return the questions, the document or action plan awaiting approval, or the open-findings table as the run's result (in the caller's output schema if it passed one), and end the turn normally — a stop is a result, not an error. A missing precondition the caller must fix ends the run with status `failed` and the reason. Never guess an answer, take a default for a decision CD owns, approve your own work, or skip the gate. List questions the next step does not depend on in the result instead of stopping. Take the no path on optional offers. Cause no side effect outside the working tree — no push, post, comment, label, publish, external send, or live-system change — unless the caller's prompt names it; list those actions in the result. Two exceptions stand: writes to the project's knowledge backend count as local work, and the External Review Gate may send to a hosted provider the project has durably authorized (`[sdlc-root]/process/external-review-gate.md` § Data egress). Reads are fine. A question the prompt or thread already answers is not a gate. Full rule and result format: `[sdlc-root]/process/headless-mode.md`.
 <!-- MIRROR-END: headless-mode.md#headless-stop-rule -->
 
 ## Pre-Agent Reality
@@ -267,7 +267,7 @@ Record the accepted bundles. The effective install set adds every accepted bundl
 
 Record accepted bundles in `.sdlc-manifest.json` under an `installed_bundles: []` field, and every injected fragment under `bundle_fragments` (label → target path), so `sdlc-migrate` can tell them apart from legacy installs that pre-date the bundles manifest. **Ordering:** a bundle's entries are written to `installed_bundles`/`bundle_fragments` only after its files are copied and its fragments injected — a crashed install then under-claims rather than over-claims, and a re-run repairs it idempotently.
 
-If an accepted bundle's process doc carries an **Enablement** section (per-project configuration the bundle needs before it activates), tell CD it exists and offer to run it at the end of initialization. Installing without configuring is valid — the bundle stays inert until its Enablement completes.
+An accepted bundle whose process docs hold an `enable` runbook (a `**Runbook:**` marker line, `[sdlc-root]/process/runbooks.md`) is offered for enabling at the end of initialization (Phase 12). Installing without enabling is valid — the bundle stays inert until its runbook is done.
 
 **Create directories:**
 ```
@@ -721,41 +721,7 @@ content:
 
 Present the list of knowledge files to CD. This is informational, not a gate — CD can adjust later.
 
-**6d. Tag spec-relevant knowledge stores.**
-
-Walk through all installed knowledge YAML files and identify which should inform spec writing for this project. Present the list grouped by discipline:
-
-```
-SPEC-RELEVANCE TAGGING
-Which knowledge stores should inform spec writing for this project?
-(Stores marked with * are commonly spec-relevant)
-
-Architecture:
-  [ ] api-design-methodology — API design patterns
-  [ ] backend-capability-assessment — Backend assessment rubric
-  [*] security-review-taxonomy — Security posture is a spec-level concern
-  ...
-Data Modeling:
-  [*] people-and-organizations — Party/role data model patterns
-  [*] meta-framework — Universal data modeling framework
-  ...
-Design:
-  [*] ux-modeling-methodology — UX interaction modeling
-  [*] accessibility-testability-principles — Accessibility rules
-  ...
-Product Research:
-  [*] product-methodology — Product methodology shapes feature scoping
-  ...
-Testing:
-  [*] testing-paradigm — Test type selection (always loaded at spec time by sdlc-plan)
-  ...
-```
-
-CD selects which stores to mark as `spec_relevant: true`. Update the selected files' `spec_relevant` field from `false` to `true`.
-
-**Guidance:** Tag at least 2-3 files, or leave all as `false` for full loading. Tagging only one file may produce under-informed specs. See `knowledge/README.md` § "spec_relevant Field" for semantics.
-
-**If CD skips this step:** All files stay `false` and `sdlc-plan` spec-time filtering remains dormant — all mapped files load at spec time (backward-compatible behavior). CD can tag stores later by asking the orchestrator to "review spec-relevance tags."
+**6d. Tag spec-relevant knowledge stores.** Read `[sdlc-root]/knowledge/README.md` § "Tagging a project's stores" and walk CD through it: the installed stores grouped by discipline, the commonly spec-relevant ones marked, and CD's choice written to their `spec_relevant` fields. If CD skips it, every store stays `false` and `sdlc-plan`'s spec-time filtering stays off (every mapped file loads at spec time, as before); any later session can walk the same section.
 
 ### Phase 7: Seed Discipline Parking Lots
 
@@ -792,31 +758,7 @@ If `gotchas.yaml` already has upstream content, append project-specific entries 
 
 ### Phase 9: Verify Plugin Readiness
 
-Check whether required plugins are installed:
-
-**context7 (required):**
-```bash
-grep -r "context7" ~/.claude/settings.json ~/.claude/settings.local.json .claude/settings.json .claude/settings.local.json .mcp.json 2>/dev/null
-```
-
-If not found, tell CD:
-> context7 is required for library verification. Install via `/plugin install context7` or see `ops/sdlc/plugins/context7-setup.md`.
-
-**LSP (highly recommended):**
-Check for language-appropriate LSP plugin based on the spec's technology stack.
-
-If not found, tell CD:
-> LSP is recommended for type-aware code navigation. Install via `/plugin install <language>-lsp` (e.g., `/plugin install typescript-lsp`). See `ops/sdlc/plugins/lsp-setup.md` for the full language list.
-
-**Playwright MCP (recommended for projects with UI):**
-If the project has user-facing UI (frontend components, web pages, templates), check for Playwright MCP:
-```bash
-grep -r "playwright" ~/.claude/settings.json ~/.claude/settings.local.json .claude/settings.json .claude/settings.local.json .mcp.json 2>/dev/null
-```
-
-If not found and the project has UI, tell CD:
-> Playwright MCP is recommended for automated UI verification during execution. Install via `/plugin install playwright-mcp` or see `ops/sdlc/plugins/playwright-mcp-setup.md`.
-
+Run the readiness check in `[sdlc-root]/plugins/README.md` § Readiness check, for the languages and UI the spec's stack names, and tell CD about each plugin it finds missing, with its install command: context7 is required, LSP highly recommended, and Playwright MCP recommended for a project with UI.
 
 ### Phase 9a: Assess Initial Maturity Levels
 
@@ -834,28 +776,16 @@ Update the Process Maturity Tracker table in `ops/sdlc/disciplines/process-impro
 
 This is a quick assessment (2-3 minutes total), not a gate. Present the tracker to CD as informational.
 
-### Phase 9b: Verify Command Check
+### Phase 9b: Verify Command
 
-Check whether the project exposes a one-shot verification command per the convention in `ops/sdlc/process/verify-command.md` — a single root entry point (`npm run verify`, `make verify`, `./scripts/verify.sh`, or the stack's equivalent) that chains lint, typecheck, format check, and tests.
+Offer the verify command's runbook (`[sdlc-root]/process/verify-command.md` § Setting it up, the convention's one procedure), whose first step finds the project's root verify command and each package's gates, with three answers:
+- **Now:** run `sdlc-run-runbook verify-command`. It asks CD whether to scaffold or extend a command over what exists, checks it, and writes its record (`docs/runbooks/verify-command.md`). A retrofit install often finds partial coverage: the runbook scaffolds over what exists and records the gaps, which the codebase-health audit (`/sdlc-audit health`) tracks afterward.
+- **Later** (the natural answer for a project with no code yet): write nothing; `sdlc-status` lists it, and each migration offers it until it has a record.
+- **Not for this project:** write its record with **Status:** `declined` and the date (`[sdlc-root]/process/runbooks.md`, `setup`), so nothing offers it again.
 
-```bash
-# Examples — adapt to the stack detected in Phase 0
-grep -n '"verify"' package.json 2>/dev/null
-grep -n '^verify:' Makefile justfile 2>/dev/null
-ls scripts/verify.sh 2>/dev/null
-```
-
-**If present:** confirm it actually chains the gates CI runs (read the script/target), and ensure it is documented in the project's CLAUDE.md.
-
-**If absent:** tell CD:
-
-> No one-shot verify command found. Agents run verification before every review loop and commit — a single root command keeps that gate from being skipped. Want me to scaffold one? I'll chain the gates that already exist (found: {list}) and report the packages missing lint/typecheck/test scripts as gaps.
-
-If CD accepts, scaffold per `ops/sdlc/process/verify-command.md` § Scaffolding Guidance: chain only what exists, fail fast, document the command in CLAUDE.md. Report (don't silently fix) packages lacking gate scripts — those are findings for CD, not setup work.
+**Headless run:** offer nothing and write nothing; list the runbook's id in the result.
 
 **Companion skill:** if the project has an app a user runs and no `.claude/skills/verify/`, tell CD that `/sdlc-develop-verify-skill` can write one: how to launch, health-check, drive and clean up the app, proven end to end. Offer it; don't run it as part of setup.
-
-**Retrofit note:** for retrofit installations this check frequently finds partial coverage (some packages have scripts, some don't). Scaffold the root command over what exists and list the gaps — the codebase-health audit (`/sdlc-audit health`) tracks them afterward.
 
 ### Phase 10: Final Verification
 
@@ -874,7 +804,7 @@ Skeleton & Infrastructure:
 [ ] .gitignore: `.claude/agent-memory/` entry present
 [ ] CLAUDE.md: exists with all required sections
 [ ] Catalog: docs/_index.md has D1 registered
-[ ] Verify command: root one-shot verify present and documented, or gaps reported to CD (Phase 9b)
+[ ] Verify command: the `verify-command` runbook offered, and CD's answer taken (Phase 9b)
 
 Agents:
 [ ] All agents created via /sdlc-develop-agent — confirmed
@@ -948,6 +878,10 @@ rm -rf .claude/skills/sdlc-initialize/
 ```
 
 **On failure:** If initialization fails partway, still remove `/tmp/z-sdlc-bootstrap` but leave the bootstrap file, AGENT_SUGGESTIONS.md, and sdlc-initialize so the user can retry.
+
+**Then offer each accepted bundle's `enable` runbook.** For each marker line with `**When:** enable` in an accepted bundle's process docs, tell CD what it enables and that `sdlc-run-runbook <id>` runs it, now or in any later session (it resumes from its record). Starting it now runs it in this session; declining leaves the bundle inert, and `sdlc-status` lists the runbook as open. **Headless run:** offer nothing; list each runbook's id in the result.
+
+**And each `setup` runbook the project has no record of** (a marker with `**When:** setup` in `[sdlc-root]/process/*.md`), except one CD already answered in this install (Phase 9b's): tell CD what it sets up, and offer it with the same three answers as Phase 9b: now (`sdlc-run-runbook <id>`), later (nothing written; each migration offers it again), or not for this project (its record, at the marker's path, with **Status:** `declined` and the date). **Headless run:** offer nothing and write nothing; list each id in the result.
 
 ---
 

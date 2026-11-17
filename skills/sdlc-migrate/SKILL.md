@@ -17,7 +17,7 @@ Apply z-sdlc upstream updates to a project while preserving project-specific cus
 **Argument:** `$ARGUMENTS` (optional — local path to a z-sdlc clone. If omitted, resolve via `.sdlc-manifest.json` → `source_repo`, or ask user.)
 
 <!-- MIRROR-START: headless-mode.md#headless-stop-rule -->
-**Headless runs (no person present).** This run is headless if the caller's prompt or appended system prompt has a line starting `SDLC headless mode:`, or if no ask-the-user tool (`AskUserQuestion`, or the harness's equivalent such as OpenCode's `question`) can be used — none is available or loadable, or a call to it is denied without an answer. A dispatched subagent is never headless itself; in a headless run the orchestrator tells each subagent so, and the limits below bind it too. In a headless run, every point in this skill that asks CD something the next step depends on, waits for CD's approval, or escalates to CD **stops the run there**: save the work so far, return the questions, the document or action plan awaiting approval, or the open-findings table as the run's result (in the caller's output schema if it passed one), and end the turn normally — a stop is a result, not an error. A missing precondition the caller must fix ends the run with status `failed` and the reason. Never guess an answer, take a default for a decision CD owns, approve your own work, or skip the gate. List questions the next step does not depend on in the result instead of stopping. Take the no path on optional offers. Cause no side effect outside the working tree — no push, post, comment, label, publish, external send, or live-system change — unless the caller's prompt names it; list those actions in the result. Reads are fine. A question the prompt or thread already answers is not a gate. Full rule and result format: `[sdlc-root]/process/headless-mode.md`.
+**Headless runs (no person present).** This run is headless if the caller's prompt or appended system prompt has a line starting `SDLC headless mode:`, or if no ask-the-user tool (`AskUserQuestion`, or the harness's equivalent such as OpenCode's `question`) can be used — none is available or loadable, or a call to it is denied without an answer. A dispatched subagent is never headless itself; in a headless run the orchestrator tells each subagent so, and the limits below bind it too. In a headless run, every point in this skill that asks CD something the next step depends on, waits for CD's approval, or escalates to CD **stops the run there**: save the work so far, return the questions, the document or action plan awaiting approval, or the open-findings table as the run's result (in the caller's output schema if it passed one), and end the turn normally — a stop is a result, not an error. A missing precondition the caller must fix ends the run with status `failed` and the reason. Never guess an answer, take a default for a decision CD owns, approve your own work, or skip the gate. List questions the next step does not depend on in the result instead of stopping. Take the no path on optional offers. Cause no side effect outside the working tree — no push, post, comment, label, publish, external send, or live-system change — unless the caller's prompt names it; list those actions in the result. Two exceptions stand: writes to the project's knowledge backend count as local work, and the External Review Gate may send to a hosted provider the project has durably authorized (`[sdlc-root]/process/external-review-gate.md` § Data egress). Reads are fine. A question the prompt or thread already answers is not a gate. Full rule and result format: `[sdlc-root]/process/headless-mode.md`.
 <!-- MIRROR-END: headless-mode.md#headless-stop-rule -->
 
 ## Source Repo Access Rule
@@ -255,6 +255,7 @@ Group the changed z-sdlc files by migration strategy:
 | **Project agents** | Project `.claude/agents/*.md` | Targeted section updates (see Phase 3) |
 | **CLAUDE-SDLC.md** | `CLAUDE-SDLC.md` | Content-merge into project's `CLAUDE.md` (§2.1e). No separate file. |
 | **Templates** | `templates/*` (all manifest-listed files, incl. `.html` and `.sh.template`) | Direct copy (framework-level). Skip `templates/optional/` (source-only). Never copy a `*.sh.template` to the executable wrapper path — projects enable wrappers themselves. |
+| **Plugin guides** | `plugins/*.md` | Direct copy to `[sdlc-root]/plugins/` (framework-level; §4.4b's readiness check lives there) |
 
 ---
 
@@ -331,13 +332,14 @@ Before any file copying, compute the **effective install set** for this project 
 **Rules:**
 
 - **Never remove** installed bundle skills, even when a bundle is detected as only partially installed. The project chose its subset; migration preserves that choice.
-- Bundle skill paths are **exempt from §2.1a "Remove Deleted and Moved Files"** — they are not considered upstream-deleted even though they live outside `source_files.skills`. Bundle `process` paths get the same exemption.
 - **A skill or process doc an installed bundle gained since `source_version` is new, not declined:** install it like any new file and list it in the report. Tell the two apart by the bundle's manifest entry at `source_version`: a file it listed then that the project lacks now is the project's choice and stays absent; a file it didn't list then is new.
+- Bundle skill paths are **exempt from §2.1a "Remove Deleted and Moved Files"** — they are not considered upstream-deleted even though they live outside `source_files.skills`. Bundle `process` paths get the same exemption.
 - Bundle skills are **eligible for §2.1 direct-copy updates**: if the bundle is installed, its skill files propagate upstream changes the same way `source_files` skills do. Bundle `process` files likewise.
 - Bundle `fragments` are **refreshed, not preserved**: §2.1's marker step discards any existing `BUNDLE-SECTION` blocks in a target file and injects the current fragment content from the z-sdlc source (step 7 of the marker-preservation flow below). Hand-edits inside `BUNDLE-SECTION` markers are lost by design — see `[sdlc-root]/process/project-section-markers.md` § BUNDLE-SECTION Markers.
 - Bundle `tree` files (contract 0019) are **eligible for §2.1 direct-copy updates** like `source_files`: copy every file under `tree.from` at `[target_tag]` to the same path under `tree.to`, keeping executable bits, with the usual drift check against `installed_files`. When upstream deletes one, §2.1a removes it from the project. Files under `tree.to` that the bundle doesn't list (a project's own additions, such as a production tier) are never touched.
 - Bundle `seed` files are **never touched by migration**: written once at install, they are the project's. A seed file upstream adds later is written only where the project has nothing at that path.
 - **Render after the copy.** When §2.1 is done, run each installed bundle's `render` command from the project root (for the factory, `python3 .github/factory/render.py`), so its generated files follow the new templates. A render failure is a migration finding (usually a setting the project must add), not a reason to stop: report it with the command's output.
+- **After migrating.** After the render, for each installed bundle whose process docs (the copies §2.1 just wrote) have a section headed `## After migrating` (`[sdlc-root]/process/runbooks.md` § After migrating), follow it: it names what a release can make due, judged by comparing the bundle's files at `source_version` with `[target_tag]`. List each item that applies, with CD's step, under the report's **Bundles** (§4.6). Do none of CD's steps; a headless run lists them too.
 - Bundles not installed in the project are **not** copied during §2.1 — they are offered at the end of migration (§4.7).
 
 ### 2.1 Direct Copy Files
@@ -351,6 +353,7 @@ For files with no project customizations, copy directly from z-sdlc to the proje
 - `skills/*/references/*` (manifest-listed) → `.claude/skills/*/references/`, except a dual-audience skill's (§2.2 Step 0), which merge additively; `sdlc-audit`'s follow §2.4
 - `knowledge/**/*.yaml` (but NOT `agent-context-map.yaml`)
 - `knowledge/README.md` (to `[sdlc-root]/knowledge/`) — NOT `knowledge/provenance_log.md`; that's project-specific (see "Project-Specific Files")
+- `plugins/*.md` (to `[sdlc-root]/plugins/`): the plugin guides and their readiness check (§4.4b). Copy each one that differs from `[target_tag]`'s, whether or not this release changed it: no migration copied them before, so a project's are as old as its install
 - `README.md` (to `[sdlc-root]/`)
 - `templates/agent-template.md` → `[sdlc-root]/templates/` (agent template moved from agents/ to templates/)
 - `agents/sdlc-reviewer.md`, `agents/sdlc-compliance-auditor.md` → `.claude/agents/` (framework subagents must be in `.claude/agents/` for Claude Code to dispatch them, not just `[sdlc-root]/agents/`)
@@ -518,12 +521,7 @@ Knowledge YAML files contain domain patterns that projects naturally extend with
    ```
    This ensures projects are aware of upstream improvements without silently overwriting their customizations.
 
-**First migration introducing `spec_relevant`:** If no knowledge file in the project has `spec_relevant` at all (the field didn't exist before this migration), all files will receive `spec_relevant: false` from upstream. After Phase 4 completes, prompt CD to review which stores should be tagged `true` for this project — same walkthrough as `sdlc-initialize` Phase 6d:
-
-1. List all knowledge YAMLs grouped by discipline with their `name` and `description`
-2. Mark commonly spec-relevant stores with `*` (see `knowledge/README.md` § "spec_relevant Field" for examples)
-3. CD selects which to tag `true`; update the files
-4. If CD skips, all files stay `false` and `sdlc-plan` filtering remains dormant (backward compatible)
+**First migration introducing `spec_relevant`:** If no knowledge file in the project has `spec_relevant` at all (the field didn't exist before this migration), all files will receive `spec_relevant: false` from upstream. After Phase 4 completes, read `[sdlc-root]/knowledge/README.md` § "Tagging a project's stores" (the copy this migration wrote) and walk CD through it. If CD skips it, every store stays `false` and `sdlc-plan`'s filtering stays off, as before.
 
 **Why merge-only:** Knowledge YAMLs capture domain patterns — both framework patterns (upstream) and project-specific patterns (local additions like custom enum mappings, project conventions, incident learnings). Direct-copy destroys project knowledge; key-level merge preserves both sources.
 
@@ -916,35 +914,7 @@ When no adapter is declared, skip to §4.4b.
 
 ### 4.4b Verify Plugin Readiness
 
-Check whether recommended plugins are installed. This mirrors `sdlc-initialize` Phase 9 and ensures plugin gaps are surfaced on every migration, not just first-time setup.
-
-**context7 (required):**
-```bash
-grep -r "context7" ~/.claude/settings.json ~/.claude/settings.local.json .claude/settings.json .claude/settings.local.json .mcp.json 2>/dev/null
-```
-
-If not found, tell CD:
-> context7 is required for library verification. Install via `/plugin install context7` or see `[sdlc-root]/plugins/context7-setup.md`.
-
-**LSP (highly recommended):**
-Check for language-appropriate LSP plugin based on the project's technology stack:
-```bash
-grep -rE "typescript-language-server|pyright|gopls|rust-analyzer|clangd|omnisharp" ~/.claude/settings.json ~/.claude/settings.local.json .claude/settings.json .claude/settings.local.json .mcp.json 2>/dev/null
-```
-
-If not found, tell CD:
-> LSP is recommended for type-aware code navigation. Install via `/plugin install <language>-lsp` (e.g., `/plugin install typescript-lsp`). See `[sdlc-root]/plugins/lsp-setup.md` for the full language list.
-
-**Playwright MCP (recommended for projects with UI):**
-If the project has user-facing UI (frontend components, web pages, templates — check for `*.tsx`, `*.jsx`, `*.vue`, `*.svelte`, `*.cshtml` files in the codebase), check for Playwright MCP:
-```bash
-grep -r "playwright" ~/.claude/settings.json ~/.claude/settings.local.json .claude/settings.json .claude/settings.local.json .mcp.json 2>/dev/null
-```
-
-If not found and the project has UI, tell CD:
-> Playwright MCP is recommended for automated UI verification during execution. Install via `/plugin install playwright-mcp` or see `[sdlc-root]/plugins/playwright-mcp-setup.md`.
-
-Log the results for the migration report (§4.6).
+Run the readiness check in `[sdlc-root]/plugins/README.md` § Readiness check (the copy §2.1 just wrote), for the project's languages and UI, on every migration, so a gap that appeared after setup shows up too. Log the results for the migration report (§4.6).
 
 ### 4.5 Update Manifest
 
@@ -1088,6 +1058,10 @@ This is automatic (contract 0017): don't ask CD. Exit 2 means the files didn't p
 - §3.4 Downstream impact: user reviewed findings
 - §4.3a CLAUDE-SDLC.md compatibility: no stale references / [list fixes]
 
+### Bundles
+- After migrating (§2.0a): [each item a bundle's `## After migrating` section makes due, with CD's step] / nothing due
+- Open runbooks: [each installed bundle's `enable` runbook whose record isn't done, and each `setup` runbook whose record isn't done or declined: id, Status ("no record yet" when there's none), Next; continue with `sdlc-run-runbook <id>`] / none
+
 ### Plugins
 - context7: [installed / NOT INSTALLED — see [sdlc-root]/plugins/context7-setup.md]
 - LSP: [installed / not applicable / NOT INSTALLED — see [sdlc-root]/plugins/lsp-setup.md]
@@ -1101,9 +1075,12 @@ This is automatic (contract 0017): don't ask CD. Exit 2 means the files didn't p
 
 ### Next Steps
 1. Commit the migration with: `sdlc(migrate): upgrade z-sdlc from [source_version] to [target_tag]`
+2. Do the **Bundles** section's after-migrating steps (CD's), each before what it guards (the next production gate, a runner more than 30 days behind)
 ```
 
-### 4.7 Offer Newly Debuted Bundles
+### 4.7 Offer Newly Debuted Bundles and Setup Runbooks
+
+Two offers follow the migration report, each made whether or not the other has anything to offer: newly debuted bundles, then `setup` runbooks (the end of this section).
 
 After the migration report, surface any `bundle_debut` entry in **pending_changes** whose bundle isn't already installed. Only debut entries pending for this migration trigger the offer — bundles CD previously declined (debut entry is no longer pending because `last_applied_contract_id` has advanced past it) are not re-offered. This prevents nagging every migration about the same bundle.
 
@@ -1123,11 +1100,13 @@ For each such bundle:
 
 **Predecessor detection for bundles carrying a `tree`:** if the project already has files under `tree.to` (it incubated the bundle, or copied it), offer **adopt**: list every tree file whose content differs from the project's copy, with the diff, and on CD's yes replace them; leave the files at seed paths and any files the bundle doesn't list as they are; then render. **Skip** leaves everything alone and declines the bundle. A bundle whose `requires` the project doesn't meet (an `sdlc_root` other than the one required) is not offered; log why.
 
-If CD accepts: copy the bundle's skills and `process` files into the project (same direct-copy flow as §2.1), its `tree` files and any absent `seed` files (§2.0a), run its `render` command, inject its `fragments` into their target files per `[sdlc-root]/process/project-section-markers.md` § BUNDLE-SECTION Markers, **then** append the bundle name to `installed_bundles` and its fragments to `bundle_fragments` (§4.5 steps 4/4a), and log the install in the migration report. If the bundle's process doc carries an **Enablement** section, tell CD it exists and offer to run it now — installing without configuring is valid and leaves the bundle inert.
+If CD accepts: copy the bundle's skills and `process` files into the project (same direct-copy flow as §2.1), its `tree` files and any absent `seed` files (§2.0a), run its `render` command, inject its `fragments` into their target files per `[sdlc-root]/process/project-section-markers.md` § BUNDLE-SECTION Markers, **then** append the bundle name to `installed_bundles` and its fragments to `bundle_fragments` (§4.5 steps 4/4a), and log the install in the migration report. If the bundle's process docs hold an `enable` runbook (a `**Runbook:**` marker line, `[sdlc-root]/process/runbooks.md`), tell CD and offer to start it now with `sdlc-run-runbook <id>`, or in any later session — installing without enabling is valid and leaves the bundle inert. **Headless run:** offer nothing; list each runbook's id in the result.
 
 If CD declines: do nothing. The debut entry will be marked consumed when §4.5 advances `last_applied_contract_id`, so this bundle won't be offered again automatically. CD can still opt in later by editing `.sdlc-manifest.json` → `installed_bundles` manually, which §2.0a will honor on the next migration.
 
 Do **not** auto-install bundles. Do **not** remove installed bundles the project chose to adopt.
+
+**Then offer each `setup` runbook the project has no record of** (a marker with `**When:** setup` in `[sdlc-root]/process/*.md`, the copies §2.1 wrote; `[sdlc-root]/process/runbooks.md`). The test is the record, not the release that shipped the runbook, so a project that skipped releases, or migrated with a copy of this skill from before it, is still offered it. Tell CD what it sets up, and what the project already has that its first step will adopt (an executable `[sdlc-root]/external-review.sh`, a root verify command; declining changes neither). Offer three answers: now (`sdlc-run-runbook <id>`), later (nothing written; the next migration offers it again), or not for this project (its record, at the marker's path, with **Status:** `declined` and the date, so it isn't offered again). Then tell CD how the report's Open runbooks line changes with the answers. **Headless run:** offer nothing and write nothing; list each id in the result.
 
 ---
 

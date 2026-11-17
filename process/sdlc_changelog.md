@@ -37,6 +37,76 @@ Each entry contains:
 
 ---
 
+## 2026-11-16: The headless stop rule names its two standing exceptions
+
+**Origin:** the dry run of the external review gate's runbook (the runbooks entry below). CD (2026-11-16): fix the copied rule.
+
+**What happened:** The stop rule every skill copies said a headless run sends nothing outside the working tree "unless the caller's prompt names it". Its source doc's § Outward Actions allows two more: a write to the project's knowledge backend (local work), and the External Review Gate's send to a hosted provider the project has durably authorized. A skill reading its own copy would skip an authorized review, or refuse its own knowledge writes, while the full rule allowed both.
+
+**Changes made:**
+
+1. **`process/headless-mode.md` § Mirrored Stop Rule:** the block names both exceptions, with the gate's pointing at `external-review-gate.md` § Data egress for what durable authorization is. § Outward Actions points there too.
+2. **The 33 skills under `skills/` that carry the block:** re-copied from the source. Every copy had matched the old source exactly.
+
+**Upgrading:** nothing to do. The factory bundle's skills (`sdlc-triage`, `sdlc-implement`, `sdlc-revise`) carry the block too, so the incubator takes the new copies with the next `--to-incubator`.
+
+**Rationale:** A copy that's shorter than its source has to say the same thing, or a skill obeys the copy and contradicts the rule it was copied from.
+
+---
+
+## 2026-11-16: The spec-relevance walkthrough and the plugin check, each in one place
+
+**Origin:** the survey behind the runbooks entry below found two procedures written twice, with the copies drifting. CD (2026-11-16) had them fixed here rather than handed off.
+
+**What happened:** `sdlc-migrate` said to run "the same walkthrough as `sdlc-initialize` Phase 6d", and `sdlc-initialize` promised CD could re-tag stores later, but `sdlc-initialize` deletes itself after the install, so in a project neither pointer led anywhere. The plugin readiness check was written in both skills, and the copies disagreed: migrate grepped for language servers' names, which miss some installed plugins (`typescript-lsp`, `csharp-lsp`), and initialize gave no command for LSP at all.
+
+**Changes made:**
+
+1. **`knowledge/README.md` § spec_relevant Field:** "Tagging a project's stores", the one walkthrough. `sdlc-initialize` Phase 6d and `sdlc-migrate`'s first migration with the field point at it.
+2. **`plugins/README.md` § Readiness check (new):** the one check, whose LSP grep matches an installed plugin's `<language>-lsp` name as well as a server configured by hand. `sdlc-initialize` Phase 9 and `sdlc-migrate` § 4.4b run it.
+3. **`skills/sdlc-migrate/SKILL.md` § 2.1:** copies `plugins/*.md`, which no migration had refreshed, so a project kept its install's plugin guides. It copies each one that differs from the release's, not only those the release changed, so a project catches up on its first migration with the rule.
+
+**Upgrading:** a migration runs the project's installed `sdlc-migrate`, a release behind, so the plugin guides and § Readiness check arrive with the migration after this one; this one still runs its own copy of the check.
+
+**Rationale:** A procedure written twice drifts, and a pointer into a skill a project no longer has points nowhere.
+
+---
+
+## 2026-11-16: Runbooks: one skill drives every one-time procedure
+
+**Origin:** CD, on a draft `sdlc-enable-factory` skill: "i don't want skills for one time things, only for repeatable things. once you install the factory, you wont need to run the skill again." An Anthropic-docs and Day-0/1/2-operations search, and a Codex cross-check (gpt-5.6-luna, framework excerpts only), both chose a generic hook with the procedure in the bundle's own docs; Codex added a small generic runbook driver, which CD chose (2026-11-16): "i like the idea of a runbook skill; we can see what else in the initialize/migration might benefit from it, as well as using it for other bundles."
+
+**What happened:** Enabling the factory is a long, mostly one-time procedure (about 83 hours on the third project, across many sessions), and a skill of its own would load its description on every turn of every factory project for good, after one use (Claude Code's skills docs). The procedure was already a runbook (`process/factory-runbook.md`); what it lacked was a way to resume across sessions and to keep each step's check on record. One generic skill now does that for any runbook, the github-provenance bundle's Enablement included.
+
+**Changes made:**
+
+1. **`process/runbooks.md` (new):** the convention. The rule, stated once: skills are for repeatable work; a one-time or rare procedure is a runbook. A runbook is a process doc or section opening with a marker line (`**Runbook:** `<id>` · **When:** enable | on-demand · **Record:** ...`); its numbered steps (a section, or a section's item: `3.3 item 6`) are its IDs and never renumber; it says the order when that isn't its numbering; each step says who does it (**[CD]**) and has a **Check:**; a definition-of-done item a decision can make inapplicable says so; a decision the runbook itself records isn't asked again. Its record (in the project, or `docs/runbooks/<id>.md` when it has no natural home; never the configuration it fills, which can't say where the run stands) keeps Status, Next, Decisions (sessions' ground rules included), State (each step `passed`, `done`, `skipped` with the decision, or `failed`) and Deferred. A bundle's `## After migrating` section is not a runbook: `sdlc-migrate` follows it.
+2. **`skills/sdlc-run-runbook/SKILL.md` (new, core):** lists the runbooks and where each stands; runs one: loads its record (adding missing parts without rewriting what's there, and carrying in what an older record kept elsewhere), resumes at the first step with no passed check, confirms relayed decisions, asks up-front questions four at a time, takes each step (dispatching, or handing CD a **[CD]** step), writes each check to the record, and commits a handoff at each phase's end. Headless, it takes read-only steps only. `process/headless-mode.md` § Integration and `process/commands.md` list it.
+3. **`process/factory-runbook.md`, `bundles/factory/seed/README.md`, `process/factory.md`:** the runbook's marker (`factory-enablement`) and its order (§ 2's inventory before § 1's form); § 3.3 item 6, the rulesets, marked **[CD]**; § 3.8's production-tier items conditional on § 1 C3; the seed's record gains Status and Next; `factory.md` says to read the runbook's opening and § 0 first.
+4. **`process/github-checkpoints.md` § Enablement:** a runbook (`github-provenance-enablement`), recording in `docs/runbooks/github-provenance-enablement.md`, with its questions asked first (board, labels, and the config fields no step filled: stakeholders, terminology, sensitive data, human labels), a definition of done, a **Check:** on every step (the org's check moved after step 2 confirms the org), and **[CD]** on CD's two (the token's account, `enabled: true`).
+5. **`process/factory.md` § After migrating (new):** what a release can make due (re-run production setup when the digest's files change, smoke after new action pins, tier setup within 30 days of a runner version bump, the CI tier after its files change, seed changes to copy by hand, the runner audit after label changes), which migrate reports and CD does. The rest of the upkeep stays in the runbook's § 7.
+6. **`skills/sdlc-status/SKILL.md`:** lists open runbooks.
+7. **`.claude/skills/zsdlc-create-skill/SKILL.md`, `skills/sdlc-develop-skill/SKILL.md`:** step 1 asks first whether the skill is repeatable, and points a one-time procedure to `runbooks.md`.
+8. **Tried before release:** a fresh agent ran the skill, dry, on both runbooks with half-filled records (the factory's in its older shape, without Status or Next). It found a config-block record left nowhere to write a check or Next, steps without a check that could never read as passed, ambiguous IDs where a runbook item cites another doc's step number, the factory's survey-before-form order unstated, an unreachable done when the production tier is deferred, and github-provenance's unfilled config fields and checks out of order. Each is fixed above. A second dry run on the fixed docs listed both runbooks and resumed github-provenance correctly on a literal reading; its findings (every recorded decision re-confirmed each session, Next guessed while loading, "first session" undefined, ground rules read as a step, older State lines without an outcome, one check over eight items, questions without recommendations) are fixed too: a decision in the record stands unless reopened, and a reopened one fails the steps built on it; Status and Next are set only at a phase's end; each numbered item of a step records its own outcome.
+9. **`skills/sdlc-initialize/SKILL.md`, `skills/sdlc-migrate/SKILL.md`:** generic hooks in place of the factory's name. Initialize offers each accepted bundle's `enable` runbook at the end (Phase 12), which it had promised but no phase did. Migrate offers it with a newly debuted bundle (§ 4.7); after the render, follows each installed bundle's `## After migrating` section, comparing the bundle's files at `source_version` with the release's; and reports what's due and the open runbooks under a new **Bundles** heading, with CD's steps as next steps.
+10. **`tests/test_runbooks.py` (new):** every marker well formed and unique, its doc shipped, both bundles' enablement runbooks found, and `## After migrating` headings exact. A bare `**Runbook:**` label, a gate's checklist in `production-gates.md`, isn't a marker.
+11. **Removed before release:** the draft `sdlc-enable-factory` bundle skill, and its mentions. It was never committed or tagged, so no contract entry is needed: had it shipped, removing it would have taken one, since `sdlc-migrate` never removes an installed bundle's skill.
+
+12. **A third kind, `setup`** (`process/runbooks.md`, `sdlc-run-runbook`, `sdlc-status`, `sdlc-initialize` Phase 12, `sdlc-migrate` § 4.6 and § 4.7, `tests/test_runbooks.py`): a core feature every project gets but not every project uses. CD (2026-11-16) had these built here rather than handed off. Initialize offers each at the end of the install, and migrate each one the project has no record of: the test is the record, not the release that shipped it, so the one-release lag only delays the offer. Each offer has three answers: now; later, which writes nothing, so it's offered again; or not for this project, which writes the record as `declined`, and nothing offers it again. A test holds `enable` runbooks to a bundle's docs and `setup` ones to the core's.
+13. **`process/external-review-gate.md` § Enabling the gate:** a `setup` runbook (`external-review-gate`): find the wrappers already there, CD's destination for payloads (a local model, a hosted provider, or nowhere, and the same for promotion judgments), write or align the wrapper, and a dry run with no project code. § Data egress now says what "durable authorization" is: the destination (provider and model) CD decided at step 2, while the wrapper still sends there, with how to tell a Codex wrapper's provider. Until step 2 has passed, an authorization written down before still counts, and declining the runbook leaves a wrapper running. Nothing said where authorization was kept before, so a headless run couldn't tell.
+14. **`process/verify-command.md` § Setting it up:** a `setup` runbook (`verify-command`): the inventory, CD's decision, scaffolding or extending the command, a check that it fails naming a broken gate, its line in `CLAUDE.md`, and the gaps under Deferred. `sdlc-initialize` Phase 9b offers it (now, later, or not for this project) instead of scaffolding inline, so the gaps outlast the install skill, and a project that never had the command is offered it on a migration. § Scaffolding Guidance now says a gate CI runs is chained with CI's command, and its missing configuration is a gap.
+15. **`skills/sdlc-run-runbook/SKILL.md`:** a run sets its record's Status to `in progress` when it starts (step 2), moving a prior `done` or `declined` into Decisions, so a run that stops early isn't hidden. A run that finishes in its session needs no handoff (step 6, as `runbooks.md` § The record already said), and a run inside an install or a migration commits with it.
+16. **`skills/sdlc-initialize/references/retrofit-mode.md`:** a retrofit install runs Phases 9 and 9b and ends with Phase 12, as a fresh one does. It ran neither, so it never checked plugins, and its install never offered a runbook.
+17. **Tried before release:** a fresh agent dry-ran both runbooks on an installed project with a hosted wrapper and an old `CLAUDE.md` authorization: kept as it is, turned off, re-run after a decline, and a headless run's authorization read in three states. It found the gaps items 13 to 16 now close: an unconfirmed carried decision read as authorization, an "endpoint" a Codex wrapper never names, a Status left `declined` during a run, a "not now" at install that meant never, a `CLAUDE.md` note left contradicting the record, and a verify check that couldn't fail.
+
+**Upgrading:**
+- **The setup runbooks are offered from the migration after this one:** a migration runs the project's installed `sdlc-migrate`, a release behind. Meanwhile `sdlc-status` lists them as "no record yet", and `sdlc-run-runbook <id>` runs one any time.
+- **A project whose external review gate sends to a hosted provider:** the authorization now lives in the gate's runbook record. Until that runbook runs, one written down before (in the project's `CLAUDE.md`, say) still counts; with none, a session confirms before its first hosted run and a headless run skips hosted models, as before.
+
+**Rationale:** A skill earns its context cost by being used again and again; an install is used once. One driver for every runbook is repeatable work, and keeps each procedure in one place, its bundle's own doc.
+
+---
+
 ## 2026-11-16: What the third project's factory install found worth building upstream
 
 **Origin:** `docs/current_work/ideas/factory-enablement-upstream_handoff.md`, written with the runbook (2026-11-08) from the third project's install. CD (2026-11-16): "do all except 6", the production drill checklist.

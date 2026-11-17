@@ -187,6 +187,44 @@ Controls whether a knowledge file is injected into agent dispatch prompts during
 - `testing/tool-patterns.yaml` — test tooling is plan/execution detail
 - `architecture/deployment-patterns.yaml` — deployment is post-implementation
 
+#### Tagging a project's stores
+
+The one walkthrough for choosing a project's spec-relevant stores. `sdlc-initialize` runs it during the install
+(Phase 6d), `sdlc-migrate` runs it on the first migration that brings the field, and any session can run it when
+CD asks to review the tags.
+
+1. List every installed knowledge YAML, grouped by discipline, each with its `name` and `description`, and mark the
+   commonly spec-relevant ones with `*` (the examples above):
+
+   ```
+   SPEC-RELEVANCE TAGGING
+   Which knowledge stores should inform spec writing for this project?
+   (Stores marked with * are commonly spec-relevant)
+
+   Architecture:
+     [ ] api-design-methodology — API design patterns
+     [*] security-review-taxonomy — Security posture is a spec-level concern
+     ...
+   Data Modeling:
+     [*] people-and-organizations — Party/role data model patterns
+     ...
+   Design:
+     [*] ux-modeling-methodology — UX interaction modeling
+     [*] accessibility-testability-principles — Accessibility rules
+     ...
+   Product Research:
+     [*] product-methodology — Product methodology shapes feature scoping
+     ...
+   Testing:
+     [*] testing-paradigm — Test type selection (always loaded at spec time by sdlc-plan)
+     ...
+   ```
+
+2. CD selects the stores to tag; set each one's `spec_relevant` from `false` to `true`, and a store CD unselects
+   back to `false`. Tag at least 2-3, or none (above: one alone gives under-informed specs).
+3. If CD skips it, every store stays as it is. With none `true`, `sdlc-plan`'s spec-time filtering stays off and
+   every mapped file loads at spec time.
+
 ### `project_applicability` Field
 
 Controls whether a knowledge store is relevant to a given project and what to do during initialization if it isn't. Used by `sdlc-initialize` Phase 6a to present a relevance assessment to CD.

@@ -18,9 +18,14 @@ needs here. `sdlc-migrate` never overwrites it.
 
 ## Enablement record
 
-The install's decisions and state (`[sdlc-root]/process/factory-runbook.md` § 0 and § 1). Write each
+The install's decisions and state (`[sdlc-root]/process/factory-runbook.md` § 0 and § 1), kept by
+`sdlc-run-runbook factory-enablement` (`[sdlc-root]/process/runbooks.md` § The record). Write each
 decision when it's made, in CD's words, with the date and the session it was made in, and say later
 whether it was built or dropped.
+
+**Status:** not started
+
+**Next:** § 2, the inventory.
 
 | # | Question | Answer (CD's words) | Date | Session | Built, deferred or dropped |
 |---|---|---|---|---|---|
