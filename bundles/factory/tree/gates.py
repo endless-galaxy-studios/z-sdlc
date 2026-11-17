@@ -116,6 +116,10 @@ def load_catalog(text):
     # gate would pin, open its release PR and deploy on CD's merge, and only then find the broker refusing its run.
     if not isinstance(cat.get("release_gates", False), bool):
         raise Invalid("catalog: release_gates must be true or false")
+    # The broker's own word that it runs rollback steps (D4 rule 11). A checks-only broker says false: its gates'
+    # failures are CD's to undo, so a plan may give no rollback, and CD is never told one will run.
+    if not isinstance(cat.get("rollbacks", True), bool):
+        raise Invalid("catalog: rollbacks must be true or false")
     # The broker's own word on its time, for the plan's budget check (budget_errors): gate_overhead_s, the worst case
     # of what it does around a gate's steps (its lock wait, fetches, state captures, the checks before a release
     # gate); step_margin_s, what stopping a step past its timeout takes; release_wait, the read operation it runs
@@ -136,6 +140,11 @@ def takes_release_gates(catalog):
     return catalog.get("release_gates") is True
 
 
+def takes_rollbacks(catalog):
+    """Whether the project's broker runs rollback steps (its catalog's `rollbacks`, true unless it says false)."""
+    return catalog.get("rollbacks", True) is not False
+
+
 RELEASE_GATES_REFUSED = ("a release gate, but the production broker doesn't take release gates (production/ops.json's "
                          "release_gates isn't true): merging its release PR would deploy, then the broker would refuse "
                          "its gate run")
@@ -143,12 +152,21 @@ RELEASE_GATES_REFUSED = ("a release gate, but the production broker doesn't take
 
 def ops_digest(files):
     """sha256 over the operation package: {canonical name: bytes}. The names are the installed layout
-    (gates.py, ed25519.py, factory_op.py, ops.json, ops/<name>.sh), so main's copy and the host's
-    installed copy hash the same when they match."""
+    (gates.py, ed25519.py, factory_op.py, ops.json, ops/<name>.sh, and each of BROKER_MODULES present, with
+    config.json beside them), so main's copy and the host's installed copy hash the same when they match."""
     h = hashlib.sha256()
     for name in sorted(files):
         h.update(name.encode() + b"\0" + hashlib.sha256(files[name]).hexdigest().encode() + b"\n")
     return h.hexdigest()
+
+
+# A broker's own modules beside factory_op.py, hashed by exact name when present: the factory-broker bundle's host
+# module, which runs inside the broker's sandboxed steps. Named, never globbed, so a stray file can't enter the digest.
+# A broker with one (the bundle's) also reads its config.json from beside it, and that file sets what root checks (the
+# approvers, the App's id, the release branch and its start, the environment, the host block): it is in the digest too.
+# A broker without one (a project's own) hashes what it always has.
+BROKER_MODULES = ("factory_op_host.py",)
+BROKER_CONFIG = "config.json"
 
 
 def repo_ops_files(factory_dir):
@@ -157,6 +175,11 @@ def repo_ops_files(factory_dir):
     files = {"gates.py": (d / "gates.py").read_bytes(), "ed25519.py": (d / "ed25519.py").read_bytes(),
              "factory_op.py": (d / "production" / "factory_op.py").read_bytes(),
              "ops.json": (d / "production" / "ops.json").read_bytes()}
+    modules = [name for name in BROKER_MODULES if (d / "production" / name).is_file()]
+    for name in modules:
+        files[name] = (d / "production" / name).read_bytes()
+    if modules:
+        files[BROKER_CONFIG] = (d / "production" / BROKER_CONFIG).read_bytes()
     for script in sorted((d / "production" / "ops").glob("*.sh")):
         files[f"ops/{script.name}"] = script.read_bytes()
     return files
@@ -166,6 +189,11 @@ def installed_ops_files(lib_dir):
     """The operation package as setup installs it on the host (/usr/local/lib/factory-prod)."""
     d = pathlib.Path(lib_dir)
     files = {n: (d / n).read_bytes() for n in ("gates.py", "ed25519.py", "factory_op.py", "ops.json")}
+    modules = [name for name in BROKER_MODULES if (d / name).is_file()]
+    for name in modules:
+        files[name] = (d / name).read_bytes()
+    if modules:
+        files[BROKER_CONFIG] = (d / BROKER_CONFIG).read_bytes()
     for script in sorted((d / "ops").glob("*.sh")):
         files[f"ops/{script.name}"] = script.read_bytes()
     return files
@@ -296,6 +324,9 @@ def check_block(gate_id, block, catalog, outputs_of):
     if not isinstance(block, dict) or set(block) - {"steps", "rollback"} or not isinstance(block.get("steps"), list):
         return [f"{gate_id}: the block is {{\"steps\": [...], \"rollback\": [...]}}"]
     errors, step_ids, seen_ops = [], {}, []
+    if block.get("rollback") and not takes_rollbacks(catalog):
+        errors.append(f"{gate_id}.rollback: this project's broker runs no rollback steps (production/ops.json's "
+                      f"rollbacks is false), so a failed gate is CD's to undo: drop the rollback")
     for key in ("steps", "rollback"):
         items = block.get(key, [])
         if not isinstance(items, list) or (key == "steps" and not items) or len(items) > MAX_STEPS:

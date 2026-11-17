@@ -241,7 +241,7 @@ Verify the source by checking for `skeleton/manifest.json`.
 
 Read `skeleton/manifest.json` from the z-sdlc source. This manifest defines the canonical directory structure and file list.
 
-**Optional bundles.** Before copying, read `manifest.bundles`. For each bundle, ask CD whether to install it using `AskUserQuestion`:
+**Optional bundles.** Before copying, read `manifest.bundles`. Skip a bundle marked `"pilot": true`: it is still being proved in one project and is offered to none until its `bundle_debut`. For each other bundle, ask CD whether to install it using `AskUserQuestion`:
 
 > Optional bundle available: **`[bundle-name]`** — [bundle.description]
 >
@@ -260,7 +260,7 @@ Record the accepted bundles. The effective install set adds every accepted bundl
 
 **Bundles with files outside `.claude/` and `[sdlc-root]/`** (`tree`, `seed`, `render`, `requires`; contract 0019), after the fragment step:
 
-1. **Requires.** If the bundle declares `requires.sdlc_root` and this project's SDLC root differs, don't install it: tell CD why and record it as declined.
+1. **Requires.** If the bundle declares `requires.sdlc_root` and this project's SDLC root differs, or `requires.bundles` names a bundle CD didn't accept, don't install it: tell CD why and record it as declined. Install the bundles it requires first.
 2. **Tree.** Copy every file under the z-sdlc directory `tree.from` to the same relative path under the project's `tree.to`, keeping executable bits (`git ls-files -s` mode `100755`). These are framework files: hash them in `installed_files`.
 3. **Seed.** For every file under `seed.from`, write it to the same relative path under `seed.to` only if nothing is there. Seeded files are the project's from then on: never hash them, never overwrite them.
 4. **Render.** Run the bundle's `render` command from the project root (for the factory, `python3 .github/factory/render.py`, which writes `.github/workflows/factory-*.yml` from the templates and `factory.json`). If it fails, report the error and leave the bundle installed but unrendered: rendering again after fixing the settings is the bundle's Enablement, not a reinstall.

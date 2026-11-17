@@ -1,0 +1,28 @@
+#!/usr/bin/python3 -I
+"""factory-op-request: the production runner's client for the broker (design rule D4).
+
+Installed root-owned at /usr/local/bin by a production tier's setup (host/setup-production.sh), one copy per host.
+Sends one request line from stdin to /run/<calling user>/op.sock and prints the broker's one-line signed receipt.
+The socket is named for the calling user, so one client serves every production tier on the host (rule 16): the
+first tier's runner user is factory-prod, and each later tier's has its own name. No timeout: a gate can wait for
+the broker's locks and run its operations for hours; the job's own timeout bounds it, and the broker finishes and
+records the gate even if this side goes away.
+"""
+import os
+import pwd
+import socket
+import sys
+
+line = sys.stdin.buffer.readline(65536)
+user = pwd.getpwuid(os.getuid()).pw_name
+s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+s.connect(f"/run/{user}/op.sock")
+s.sendall(line)
+data = b""
+while True:
+    chunk = s.recv(65536)
+    if not chunk:
+        break
+    data += chunk
+sys.stdout.buffer.write(data)
+sys.exit(0 if data.strip() else 1)

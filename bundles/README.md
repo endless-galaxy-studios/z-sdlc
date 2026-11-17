@@ -7,6 +7,7 @@ The z-sdlc core is deliberately small. Bundles are opt-in capabilities layered o
 | [`design`](#design) | Design options before UI work | Nothing |
 | [`github-provenance`](#github-provenance) | GitHub issues and a board that mirror your deliverables | `gh` CLI, a GitHub repo |
 | [`factory`](#factory) | Unattended, issue-driven agent stages with human gates | A GitHub organization, self-hosted Linux runners |
+| [`factory-broker`](#factory-broker) (pilot) | A checks-only production broker for a factory project | The `factory` bundle, a host that deploys the release branch by itself, a Linux production machine with systemd 248+ |
 
 The authoritative list, with every file each bundle installs, is `bundles` in [`skeleton/manifest.json`](../skeleton/manifest.json).
 
@@ -53,6 +54,14 @@ A software factory built on the same skills, agents, review lenses and knowledge
 
 The factory is incubated in a separate private project and imported here, so improvements to the factory itself start there. Fixes found in a project that installed the bundle are made here and then handed back.
 
+## factory-broker
+
+A production broker for a factory project whose host deploys the release branch by itself, so the broker only checks: provenance on the release branch, the release's evidence, the recorded state, typed reads and the host's own operations (a backup, say). It deploys nothing and rolls nothing back. The project writes only a host module for its host and a `broker` block in its operations catalog; root runs none of the project's code, which loads only inside the broker's sandboxed steps. [`process/factory-broker.md`](../process/factory-broker.md) holds the design, the host contract and the enable runbook.
+
+**Status: pilot.** It is being proved in one project before any is offered it: `sdlc-initialize` doesn't offer it, and it debuts (a `bundle_debut` entry) once the pilot passes. It isn't for a broker that deploys.
+
+**What it installs:** the broker, its setup and its tests under `.github/factory/` (the bundle's), and a stub host module, an example catalog and settings (the project's). The project has no production tier until the enable runbook writes `production/ops.json`.
+
 ## How bundles work
 
 **Installing.** `sdlc-initialize` offers the bundles during setup. `sdlc-migrate` offers a newly debuted bundle once and never removes files a project already has. Accepted bundles are recorded in the project's `.sdlc-manifest.json`.
@@ -66,7 +75,8 @@ The factory is incubated in a separate private project and imported here, so imp
 | `tree` | A directory copied to the project (the factory's `.github/factory/`) | z-sdlc: refreshed on every migration |
 | `seed` | Files written only where absent (settings, policy, notes) | The project: never overwritten |
 | `render` | A command run after the files are in place | Run on install and on every migration |
-| `requires` | A precondition (for example the SDLC root's location) | Install refuses if it isn't met |
+| `requires` | A precondition (the SDLC root's location, or other bundles it needs) | Install refuses if it isn't met |
+| `pilot` | Being proved in one project: not offered until it debuts | — |
 
 **Bundles share a project.** A bundle that touches something a project's GitHub or configuration holds (labels, workflows, environments, settings) is checked against every other bundle's rules over the same thing, and each side's doc says how they meet. Before adding one, grep the other bundles' fragments and process docs.
 

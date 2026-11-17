@@ -288,7 +288,7 @@
     "optional_plugins": []
   },
   "bundles": {
-    "_comment": "Opt-in bundles. sdlc-initialize prompts CD during setup; a bundle's files are installed only if the bundle is accepted. sdlc-migrate preserves existing installs and offers newly debuted bundles once, without removing files the project already has. Each bundle lists 'skills' (installed to .claude/skills/) and may list 'process' (docs installed to [sdlc-root]/process/) and 'fragments' (map of fragment source file -> target framework file, injected inside upstream-owned BUNDLE-SECTION markers per process/project-section-markers.md and refreshed from source on every migration — never preserved verbatim). Installer ordering: copy files, inject fragments, record in .sdlc-manifest.json installed_bundles/bundle_fragments last. A bundle may also carry files outside .claude/ and [sdlc-root]/ (since contract 0019): 'tree' ({from, to}: every file under the z-sdlc directory 'from' is installed at the same relative path under the project directory 'to', executable bits kept, hashed in installed_files and refreshed from source on every migration, like source_files), 'seed' ({from, to}: each file is written only where the target is absent, then belongs to the project, never overwritten, hashed or removed), 'render' (a command run from the project root after the files are in place, on install and on every migration) and 'requires' ({sdlc_root}: refuse the install when .sdlc-manifest.json's sdlc_root differs). Installer ordering for these: check requires, copy tree, write absent seeds, run render, then record the bundle.",
+    "_comment": "Opt-in bundles. sdlc-initialize prompts CD during setup; a bundle's files are installed only if the bundle is accepted. sdlc-migrate preserves existing installs and offers newly debuted bundles once, without removing files the project already has. Each bundle lists 'skills' (installed to .claude/skills/) and may list 'process' (docs installed to [sdlc-root]/process/) and 'fragments' (map of fragment source file -> target framework file, injected inside upstream-owned BUNDLE-SECTION markers per process/project-section-markers.md and refreshed from source on every migration — never preserved verbatim). Installer ordering: copy files, inject fragments, record in .sdlc-manifest.json installed_bundles/bundle_fragments last. A bundle may also carry files outside .claude/ and [sdlc-root]/ (since contract 0019): 'tree' ({from, to}: every file under the z-sdlc directory 'from' is installed at the same relative path under the project directory 'to', executable bits kept, hashed in installed_files and refreshed from source on every migration, like source_files), 'seed' ({from, to}: each file is written only where the target is absent, then belongs to the project, never overwritten, hashed or removed), 'render' (a command run from the project root after the files are in place, on install and on every migration) and 'requires' ({sdlc_root, bundles}: refuse the install when .sdlc-manifest.json's sdlc_root differs, or a bundle it names isn't installed). A bundle marked 'pilot': true is being proved in one project: sdlc-initialize doesn't offer it and it has no bundle_debut entry yet, so sdlc-migrate doesn't either; the pilot project installs it by hand, as its process doc says. Installer ordering for these: check requires, copy tree, write absent seeds, run render, then record the bundle.",
     "design": {
       "description": "UI/UX design consultation.",
       "skills": [
@@ -336,6 +336,28 @@
       "render": "python3 .github/factory/render.py",
       "requires": {
         "sdlc_root": "ops/sdlc"
+      }
+    },
+    "factory-broker": {
+      "description": "A checks-only production broker for a factory project whose host deploys the release branch by itself: provenance, release evidence, recorded state, typed reads and the host's own operations, run as root from reviewed code that never runs the project's. The project writes a host module and the catalog's broker block. Not for a broker that deploys. Inert until its enable runbook (process/factory-broker.md) writes production/ops.json.",
+      "pilot": true,
+      "skills": [],
+      "process": [
+        "process/factory-broker.md"
+      ],
+      "tree": {
+        "from": "bundles/factory-broker/tree",
+        "to": ".github/factory"
+      },
+      "seed": {
+        "from": "bundles/factory-broker/seed",
+        "to": ".github/factory"
+      },
+      "requires": {
+        "sdlc_root": "ops/sdlc",
+        "bundles": [
+          "factory"
+        ]
       }
     }
   }

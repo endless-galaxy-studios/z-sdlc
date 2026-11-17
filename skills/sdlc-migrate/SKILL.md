@@ -340,7 +340,8 @@ Before any file copying, compute the **effective install set** for this project 
 - Bundle `seed` files are **never touched by migration**: written once at install, they are the project's. A seed file upstream adds later is written only where the project has nothing at that path.
 - **Render after the copy.** When §2.1 is done, run each installed bundle's `render` command from the project root (for the factory, `python3 .github/factory/render.py`), so its generated files follow the new templates. A render failure is a migration finding (usually a setting the project must add), not a reason to stop: report it with the command's output.
 - **After migrating.** After the render, for each installed bundle whose process docs (the copies §2.1 just wrote) have a section headed `## After migrating` (`[sdlc-root]/process/runbooks.md` § After migrating), follow it: it names what a release can make due, judged by comparing the bundle's files at `source_version` with `[target_tag]`. List each item that applies, with CD's step, under the report's **Bundles** (§4.6). Do none of CD's steps; a headless run lists them too.
-- Bundles not installed in the project are **not** copied during §2.1 — they are offered at the end of migration (§4.7).
+- **A bundle's `requires`** holds on every migration: one whose `requires.bundles` names a bundle the project doesn't have installed isn't copied; report it, with the bundle it needs.
+- Bundles not installed in the project are **not** copied during §2.1 — they are offered at the end of migration (§4.7). A bundle marked `"pilot": true` is never offered: it has no `bundle_debut` entry until its pilot passes, and the pilot project adds it to `installed_bundles` by hand (its process doc says how).
 
 ### 2.1 Direct Copy Files
 

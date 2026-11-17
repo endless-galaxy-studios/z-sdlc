@@ -1,0 +1,110 @@
+{
+  "_doc": "The production broker's operations catalog (z-sdlc process/factory-broker.md). Copy this file to ops.json when the enable runbook says (step 4): with ops.json in place the project has a production tier. Then replace the example service, host names and outputs with the host's, keep release_gates false until the runbook's last step, and let the bundle's catalog test (production/tests/test_broker_catalog.py) tell you what the broker still refuses.",
+  "version": 1,
+  "release_gates": false,
+  "rollbacks": false,
+  "release_wait": "release-wait",
+  "gate_overhead_s": 4380,
+  "step_margin_s": 90,
+  "operations": {
+    "health": {
+      "kind": "read",
+      "summary": "Every declared service serves a successful deployment, and each release service proves it runs that deployment. Reads the host; changes nothing. Fails when anything is unhealthy",
+      "params": {},
+      "outputs": {
+        "healthy": "^(yes|no)$",
+        "services": "^[0-9]{1,2}$",
+        "unhealthy": "^[a-z0-9_,]{0,200}$",
+        "web_deployment": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$"
+      },
+      "timeout_s": 600
+    },
+    "release-wait": {
+      "kind": "read",
+      "summary": "Wait for the release that contains the given commit to be live: the commit must be in the release branch's history, and each release service must reach a successful deployment of the branch's head and prove it serves it",
+      "params": {
+        "sha": "^[0-9a-f]{40}$"
+      },
+      "outputs": {
+        "head": "^[0-9a-f]{40}$",
+        "deployed": "^(web)?$",
+        "web_deployment": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$"
+      },
+      "timeout_s": 900
+    },
+    "capture-state": {
+      "kind": "read",
+      "summary": "Record what the host serves (each checked service's commit and whether its newest deployment has settled) and a keyed hash of each service's settings. Prints no setting's value",
+      "params": {},
+      "outputs": {
+        "web_commit": "^[0-9a-f]{40}$",
+        "web_settled": "^(yes|no)$",
+        "fp_web": "^[0-9a-f]{64}$"
+      },
+      "timeout_s": 300
+    }
+  },
+  "broker": {
+    "egress": [
+      "api.host.example"
+    ],
+    "secrets": {
+      "token": {
+        "file": "host.token",
+        "by": "cd",
+        "hex": false
+      },
+      "key": {
+        "file": "fingerprint.key",
+        "by": "setup",
+        "hex": true
+      }
+    },
+    "op_secrets": {
+      "health": [
+        "token"
+      ],
+      "release-wait": [
+        "token"
+      ],
+      "capture-state": [
+        "token",
+        "key"
+      ],
+      "drift-scan": [
+        "token"
+      ],
+      "host-check": [
+        "token"
+      ]
+    },
+    "host_ops": [],
+    "services": {
+      "web": {
+        "release": true,
+        "checked": true,
+        "evidence": "reports",
+        "patterns": [
+          "**"
+        ]
+      }
+    },
+    "release_wait_phases": {
+      "grace_s": 120,
+      "build_s": 600
+    },
+    "recorded": [
+      "fp_web"
+    ],
+    "invariants": {},
+    "internal_ops": {
+      "drift-scan": {
+        "timeout_s": 300
+      },
+      "host-check": {
+        "timeout_s": 60
+      }
+    },
+    "python": "3.8"
+  }
+}

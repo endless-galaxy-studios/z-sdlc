@@ -1,0 +1,18 @@
+{
+  "_doc": "The production broker's settings (z-sdlc process/factory-broker.md). Setup installs this file twice, from one blob: in the tier's library, where the broker reads it and the operations digest covers it (a change here means re-running setup, or every gate is refused), and as /etc/<tier>/config.json, where other tiers on the host find this one. The paths are the first tier's on a host (factory-prod); a later tier uses its own (factory-prod-<instance>), as the enable runbook says. release_branch is factory.json's release.branch; add environment only when factory.json's environments.production isn't factory-production (setup refuses either when it differs). host is the host module's own block: the broker never reads it.",
+  "repo": "owner/name",
+  "default_branch": "main",
+  "release_branch": "release/production",
+  "release_head_start": "0000000",
+  "app_bot_id": 1,
+  "approvers": [
+    1
+  ],
+  "instance": "",
+  "operator_user": "factory-prod-op",
+  "lib_dir": "/usr/local/lib/factory-prod",
+  "ledger": "/var/lib/factory-prod/ledger.jsonl",
+  "log_dir": "/var/log/factory-prod",
+  "clone_dir": "/var/lib/factory-prod-clone/repo.git",
+  "host": {}
+}
