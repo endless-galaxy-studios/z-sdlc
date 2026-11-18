@@ -10,7 +10,8 @@ The three prompts `sdlc-develop-verify-skill` sends: the helper script prompt (C
 **Owned files:** `.claude/skills/verify/scripts/{name}`. Nothing else.
 
 **Constraints:**
-- The verify skill's Safety Rules bind the script: read .claude/skills/sdlc-develop-verify-skill/references/safety-rules.md.
+- The verify skill's Safety Rules bind the script: read .claude/skills/sdlc-develop-verify-skill/references/safety-rules.md, and `.claude/skills/verify/SKILL.md` § Recorded Exceptions (none yet, if the skill is still being written), which allows only what each entry says.
+- Start it with `#!/usr/bin/env bash` (or the repo's own interpreter): the agent's shell may be zsh, which splits words and expands globs differently.
 - Read {the agent's mapped knowledge files} for this codebase's patterns.
 - {Headless run only: this run is headless. Ask nothing; put questions in your report. Cause no side effect outside the working tree: no push, post, comment or external send.}
 - Use the tools the repo already has. Say so in your report if the script needs anything new.
@@ -68,7 +69,9 @@ The three prompts `sdlc-develop-verify-skill` sends: the helper script prompt (C
 - Don't start or drive the app.
 
 **Acceptance criteria:** One row per finding, with `path:line`, severity (major / minor), what is wrong, and the fix. Check:
-- Every Safety Rule is copied word for word and nothing in the files breaks one: a target not overridden to a local copy, an integration not confirmed sandboxed, a stop by process name, a secret's value, cleanup that can reach `.evidence/` or an instance the run didn't start.
+- Every Safety Rule is copied word for word and nothing in the files breaks one beyond what a Recorded Exceptions entry allows: a target not overridden to a local copy, an integration not confirmed sandboxed, a stop by process name, a secret's value, cleanup that can reach `.evidence/` or an instance the run didn't start.
+- Each Recorded Exceptions entry names the rule, exactly what it allows, why, and who decided it and when; an entry missing any of them, one for stopping, secrets or evidence (which take no exception), or a command that goes beyond its entry is major. Don't judge whether CD's decision is right.
+- Every command runs alike under zsh and bash: no unquoted variable meant to split into several words, no glob that may match nothing; a helper that needs either starts `#!/usr/bin/env bash`.
 - The frontmatter has `name: verify` and a description naming the app, its surface and when to use it.
 - No placeholder, TODO or invented handle; every helper script's invocation is shown and the script exits non-zero with a message on failure.
 - An agent that has never seen the app could follow each step without guessing.

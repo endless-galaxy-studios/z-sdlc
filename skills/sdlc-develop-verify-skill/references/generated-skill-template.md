@@ -4,6 +4,8 @@ The `SKILL.md` that `sdlc-develop-verify-skill` writes at `.claude/skills/verify
 
 The reader is an agent that opens this file cold, mid-task, and has never seen the app. Give it exact commands and the signal that each one worked.
 
+Commands run in the agent's shell, which is zsh on macOS and usually bash elsewhere, so write each one to run alike in both. zsh doesn't split an unquoted variable into words (`set -- $x` or `cmd $files` passes one argument), and it stops on a glob that matches nothing (`no matches found`) where bash passes the pattern on. Quote every variable, pass several values as separate arguments or loop over lines, and put anything that needs word splitting or loose globs in a `scripts/` helper that starts `#!/usr/bin/env bash`.
+
 ## Template
 
 ````markdown
@@ -24,14 +26,20 @@ How to run {app} locally and drive it the way a user does. {One sentence on the 
 
 {The rules in sdlc-develop-verify-skill's `references/safety-rules.md` § The Rules, copied word for word.}
 
+## Recorded Exceptions
+
+{Each exception CD made to a Safety Rule for this app, one bullet each: the rule, exactly what it allows, why, and who decided it and when. For example: "**Point every target at this run's own copy:** the browser loads map tiles read-only from the public tile server at tiles.example.org, since no local server can stand in for it (CD, 2026-11-18)." Or "None."}
+
+An exception allows only what its entry says. Stop only what this run started, Secrets by name only and Evidence survives cleanup take none. This section is kept apart from Safety Rules, which `/sdlc-develop-verify-skill maintain` replaces word for word.
+
 ## Launch
 
 Do these in order. Nothing writes to a target before step 4 confirms it.
 
 1. **Run ID:** `{how a run picks its ID, such as a timestamp}`. It names the run's containers, sessions, data and evidence folder, and the run records every process ID it starts, and whether it started each container, under it.
 2. **Secrets:** {the variables that hold secrets}. Name them; never write their values.
-3. **Targets:** {each database, queue, cache, bucket and service URL the app reads, and the variable that points it at this run's own copy}. Never launch on a `.env` default that points at a shared service.
-4. **Confirm targets:** `{the command or log line that shows where each target resolved}`.
+3. **Targets:** {each database, queue, cache, bucket and service URL the app reads, and the variable that points it at this run's own copy}. Never launch on a `.env` default that points at a shared service. A target a Recorded Exceptions entry covers points exactly where the entry says.
+4. **Confirm targets:** `{the command or log line that shows where each target resolved}`. Each resolves to this run's own copy, or to exactly what its Recorded Exceptions entry allows.
 5. **Fresh data:** {how to create the disposable data folder or database this run uses, then migrations and seed data}.
 6. **Start:** `{exact command}` from `{directory}`.
 7. **Ready when:** {the signal that a user could start working: a log line, a page that renders signed in, a prompt}. A process that answers is not enough.
@@ -41,7 +49,7 @@ Do these in order. Nothing writes to a target before step 4 confirms it.
 
 ## Health Check
 
-`{one read-only command or short sequence}`: the process is up, it is the build you expect, the port belongs to this run, each target resolves to this run's own copy, sign-in works, and {each outbound integration} is sandboxed or stubbed, confirmed by {what is observed: a local mail catcher, a sandbox host in the logs}. Run it before the first drive and after anything surprising.
+`{one read-only command or short sequence}`: the process is up, it is the build you expect, the port belongs to this run, each target resolves to this run's own copy (or, under a recorded exception, exactly where its entry allows), sign-in works, and {each outbound integration} is sandboxed or stubbed, confirmed by {what is observed: a local mail catcher, a sandbox host in the logs}. Run it before the first drive and after anything surprising.
 
 ## Drive
 
@@ -104,7 +112,7 @@ test message reaches the local mail catcher.
 
 ## Cleanup
 
-`kill $(cat /tmp/tally-verify-$RUN_ID/dev.pid)`, then `npm run db:drop -- tally_verify_$RUN_ID`. If
+`kill "$(cat /tmp/tally-verify-$RUN_ID/dev.pid)"`, then `npm run db:drop -- tally_verify_$RUN_ID`. If
 `/tmp/tally-verify-$RUN_ID/db-container` says `started`, run `docker compose stop db`; otherwise leave
 the container, which another run may be using.
 ```

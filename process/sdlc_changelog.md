@@ -37,6 +37,42 @@ Each entry contains:
 
 ---
 
+## 2026-11-18: The verify skill keeps CD's exceptions to its Safety Rules, and migration checks its base first
+
+**Origin:** Two notes from a project's session, from adopting its hand-written verify skill through `sdlc-develop-verify-skill` and from its v2.7.0 migration.
+
+**What happened:**
+- **Verify skill:** CD made one exception to the Safety Rules for that project's app: the browser reads static assets read-only from a public CDN that no local copy can stand in for. The skill had nowhere to record it. Written inside the generated skill's Safety Rules section, it would have been deleted by the next maintain run, since MAINTAIN step 1 replaces that section whenever it differs from `references/safety-rules.md`. The project's step-6 reviewer caught it.
+- **zsh:** the same run found that recipes an agent runs on macOS run under zsh, which doesn't split an unquoted variable into words. Checked here: with `x="a b"`, `set -- $x` gives zsh one argument and bash two. zsh also stops on a glob that matches nothing.
+- **Stale base:** the migration ran on a branch cut from a local default branch nine merges behind its remote. That branch had already landed its own framework-file edits. Drift detection and the three-way merges compared against the old tree, part of the migration repeated work, and the PR conflicted in 25 files. GitHub runs no `pull_request` workflows on a PR with merge conflicts, so CI never ran, and only `mergeStateStatus: DIRTY` showed it.
+
+**Changes made:**
+1. **`sdlc-develop-verify-skill`**:
+   - § Safety Rules: exceptions are CD's alone. Each goes in the generated skill's new **Recorded Exceptions** section, naming the rule, exactly what it allows, why, and who decided it and when. Stopping, secrets and evidence take no exception.
+   - Adopt and CREATE step 3 write the section; the Troubleshooting row launches against an unlocalizable target only under a recorded exception.
+   - MAINTAIN step 1 keeps the section, or adds it saying none, and reports an incomplete entry to CD. Text found inside Safety Rules besides the rules is shown to CD before the replace: an exception CD confirms moves to the new section, and the rest goes. A stray edit never becomes an exception on its own.
+2. **`references/generated-skill-template.md`**:
+   - The Recorded Exceptions section, after Safety Rules.
+   - Launch steps 3–4 and the Health Check accept a target under an exception only where its entry says.
+   - Shell guidance: write commands to run alike under zsh and bash, and put anything that needs word splitting or loose globs in a bash helper script.
+3. **`references/dispatch-prompts.md`:**
+   - The review prompt checks each exception entry, and checks that nothing goes beyond its entry. It doesn't judge CD's decision.
+   - It also checks that commands run alike under both shells.
+   - The helper-script prompt reads Recorded Exceptions and asks for a bash shebang.
+4. **`references/safety-rules.md`:** its header says where exceptions live.
+5. **`sdlc-migrate`:**
+   - Pre-Flight step 0 fetches and counts how far the branch is behind `origin/<default>`. When it is behind, it asks CD to update first or go on (headless: `needs-input`). When it can't check, the assessment says so.
+   - The report's Next Steps say to check a migration PR's `mergeStateStatus`.
+6. **`process/headless-mode.md` § Integration:** the two new gate sites.
+
+**Policy for CD:** the Safety Rules had no exceptions before this. CD can now make one per app, recorded in that app's skill.
+
+**Rationale:** A rule that has to bend for one app needs a recorded place to bend, or the bend lives where the next refresh erases it. A migration measures drift against the tree it runs on, so that tree has to be current.
+
+Release type: minor (a new section in the generated verify skill, which projects write into their own files).
+
+---
+
 ## 2026-11-18: The factory imported from the incubator (8f83385..664b097): the review fixes handed back
 
 **Origin:** CD (2026-11-18): "commit and send to incubator", after the outside-review fixes below.

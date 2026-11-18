@@ -44,7 +44,7 @@ Check the precondition under Inputs and Output first. Then, where "present" mean
 | present, written by hand (no `features/README.md`) | any | Ask CD: adopt it, or replace it. **Headless run:** stop with `needs-input`. |
 
 - **Replace:** run CREATE. Once step 2 has shown the app starts, step 3 removes the old files with `git rm -r -q -- .claude/skills/verify/` before writing the new ones. They stay in git history, since the precondition requires them committed.
-- **Adopt:** keep the file and its commands and gotchas, but the Safety Rules win: rewrite a kept command that breaks one so it keeps its intent, or ask CD (**Headless run:** `needs-input`). Before anything runs, apply CREATE step 6's mechanical check to its files and CREATE step 1 to what it doesn't cover; then run step 2 against its Launch. Then add the Safety Rules section, the `.gitignore` and the template's missing sections, and run CREATE steps 4 to 7.
+- **Adopt:** keep the file and its commands and gotchas, but the Safety Rules win: rewrite a kept command that breaks one so it keeps its intent, or ask CD (**Headless run:** `needs-input`) and record an exception CD makes as § Safety Rules says. Before anything runs, apply CREATE step 6's mechanical check to its files and CREATE step 1 to what it doesn't cover; then run step 2 against its Launch. Then add the Safety Rules and Recorded Exceptions sections, the `.gitignore` and the template's missing sections, and run CREATE steps 4 to 7.
 
 ## Workflow
 
@@ -72,6 +72,8 @@ This skill never edits product code. An app that is broken is reported to CD, no
 
 Read `references/safety-rules.md` before step 1. Its seven rules (instances, targets, outside effects, stopping, secrets, evidence, the real user path) bind every drive in both modes, and the generated skill carries a word-for-word copy. Where a step below names a rule, the reference's wording is the rule.
 
+**Exceptions are CD's alone.** When the app can't keep a rule, such as a target that can't be made local (fonts or map tiles read from a public CDN), ask CD (**Headless run:** `needs-input`). An exception CD makes goes in the generated skill's Recorded Exceptions section, never inside Safety Rules, which MAINTAIN step 1 replaces word for word. Each entry names the rule, exactly what it allows and nothing wider, why, and who decided it and when. Three rules take no exception: stop only what this run started, secrets by name only, and evidence survives cleanup. Never write an entry CD didn't make.
+
 ## Inputs and Output
 
 - **Input:** a checkout whose app starts locally. If `.claude/skills/verify/` exists, it must be committed and clean, leaving out its evidence: `git ls-files -- .claude/skills/verify/` lists its files, and `git status --porcelain -- .claude/skills/verify/ ':!.claude/skills/verify/.evidence'` shows nothing. Otherwise ask CD to commit it or set it aside first, naming the files. For CREATE, the folder must not be git-ignored: `git check-ignore -q .claude/skills/verify/SKILL.md` must fail; if it succeeds, ask CD. **Headless run:** end with status `failed`, naming the files or the ignore rule.
@@ -95,7 +97,7 @@ Ask CD about the gaps in one question that lists what was found: a fact the code
 
 ### 2. Check It Starts
 
-Set every target to this run's own copy, then confirm each one resolved there by something observed, before the first write of any kind (create, migrate, seed or reset). Then run the launch on fresh data. If the app doesn't reach a usable state, stop and report the command and the exact failure. When the cause is the environment (a stopped container runtime, a missing tool, a port another process holds), say what to fix. Otherwise point CD at the bug route (`sdlc-lite-plan`, or `sdlc-debug-incident` for a production incident): a recipe written against an app that doesn't start teaches the wrong steps. **Headless run:** end with status `failed` and the failure.
+Set every target to this run's own copy, or exactly where its Recorded Exceptions entry says, then confirm each one resolved there by something observed, before the first write of any kind (create, migrate, seed or reset). Then run the launch on fresh data. If the app doesn't reach a usable state, stop and report the command and the exact failure. When the cause is the environment (a stopped container runtime, a missing tool, a port another process holds), say what to fix. Otherwise point CD at the bug route (`sdlc-lite-plan`, or `sdlc-debug-incident` for a production incident): a recipe written against an app that doesn't start teaches the wrong steps. **Headless run:** end with status `failed` and the failure.
 
 Either way, stop what this step started, by the IDs it recorded, before going on.
 
@@ -103,7 +105,7 @@ Either way, stop what this step started, by the IDs it recorded, before going on
 
 ### 3. Write the Skill
 
-For a replace, remove the old files first, as Mode Resolution says. Write `.claude/skills/verify/SKILL.md` from `references/generated-skill-template.md`, and `.claude/skills/verify/.gitignore` containing `.evidence/`. The frontmatter is required: Claude Code registers the skill, and its built-in `run` behavior finds it, only through `name` and `description`. Fill every section with what step 1 found, with real commands and handles from this repo and no placeholders, and copy the Safety Rules in word for word.
+For a replace, remove the old files first, as Mode Resolution says. Write `.claude/skills/verify/SKILL.md` from `references/generated-skill-template.md`, and `.claude/skills/verify/.gitignore` containing `.evidence/`. The frontmatter is required: Claude Code registers the skill, and its built-in `run` behavior finds it, only through `name` and `description`. Fill every section with what step 1 found, with real commands and handles from this repo and no placeholders, and copy the Safety Rules in word for word. Recorded Exceptions lists the exceptions CD made in step 1, or says none.
 
 Prefer the repo's own commands and harnesses. Add a helper script only when no existing command does the job, such as a health check that combines several probes. For each, dispatch the agent the Manager Rule names with `references/dispatch-prompts.md` § Helper Script Prompt.
 
@@ -142,7 +144,8 @@ Say that `/sdlc-develop-verify-skill maintain` keeps the skill true after the ap
 Read `.claude/skills/verify/SKILL.md` and `features/README.md`, and list the feature files. Then:
 
 - Fix index drift: entries with no file, files with no entry, duplicates, dead links, and entries with no `Source:`.
-- If the skill's Safety Rules section differs from `references/safety-rules.md`, replace it with the reference's text.
+- If the skill's Safety Rules section differs from `references/safety-rules.md`, replace it with the reference's text. If it holds anything besides the rules (an older skill may have recorded an exception there), show that text to CD first: an exception CD confirms moves to Recorded Exceptions, with who decided it and when, and the rest goes. **Headless run:** stop with `needs-input`, quoting it.
+- Keep Recorded Exceptions as it is, or add it saying none if the skill has no such section. Report to CD an entry that doesn't name its rule, what it allows, why, and who decided it and when, or one that covers stopping, secrets or evidence; never fill one in by guess. **Headless run:** list it in the result.
 - If `.gitignore` lacks `.evidence/`, restore it. If `git ls-files -- .claude/skills/verify/.evidence` lists anything, evidence was committed: stop and tell CD. **Headless run:** end with status `failed`.
 
 ### 2. Read the Source
@@ -192,7 +195,7 @@ Keep run notes (features covered, unreachable prerequisites, drift found, outcom
 | `.claude/skills/verify/` has uncommitted or untracked files | Stops before any edit and names them. Headless: `failed` |
 | The project's verify skill was written by hand | Asks CD whether to adopt or replace it. Headless: `needs-input` |
 | The app doesn't start | Stops with the command and the failure, and points at the bug route. Headless: `failed` |
-| A target can't be made local, or the app needs an unsandboxable integration to start | Asks CD; never launches against it. Headless: `needs-input` |
+| A target can't be made local, or the app needs an unsandboxable integration to start | Asks CD, and launches against it only under an exception CD makes, recorded in the skill's Recorded Exceptions. Headless: `needs-input` |
 | The proof keeps failing on one feature | Marks it `unproven` after three attempts and names it at handover |
 | Another instance holds the port | Refuses to drive it, and says what to free. In CREATE step 2, headless: `failed`. In MAINTAIN, the run is `blocked`; headless: `escalated` |
 | A reader leaves out a feature twice | That feature is `blocked`, and so is the run. Headless: `escalated` |
@@ -220,7 +223,7 @@ Keep run notes (features covered, unreachable prerequisites, drift found, outcom
 - **Uses:** `code-reviewer` (step 6), `[sdlc-root]/process/manager-rule.md`, `[sdlc-root]/process/headless-mode.md` (the skill's gate sites are listed in its § Integration), `[sdlc-root]/process/parallel-dispatch-monitoring.md`, `[sdlc-root]/knowledge/agent-context-map.yaml`, `[sdlc-root]/knowledge/architecture/agent-orchestration-patterns.yaml` (dispatch template), `[sdlc-root]/process/collaboration_model.md` (Tool Rule), `references/safety-rules.md`, `references/generated-skill-template.md`, `references/feature-map-format.md`, `references/dispatch-prompts.md`
 - **Complements:** the project's verify command (do the checks pass?) and `sdlc-tests-create` (tests that run in CI); this skill covers driving the running app
 - **Does NOT replace:** `sdlc-tests-run` (runs the test suite and fixes failures), `sdlc-develop-skill` (any other project skill)
-- **DRY notes:** the convention lives in `verify-command.md` § Companion; this skill builds to it. The Safety Rules live only in `references/safety-rules.md`; each generated skill carries a copy that MAINTAIN step 1 refreshes. The execute skills only follow the generated skill; they don't restate it.
+- **DRY notes:** the convention lives in `verify-command.md` § Companion; this skill builds to it. The Safety Rules live only in `references/safety-rules.md`; each generated skill carries a copy that MAINTAIN step 1 refreshes, and keeps CD's exceptions apart, in its Recorded Exceptions section. The execute skills only follow the generated skill; they don't restate it.
 
 ## Additional Resources
 

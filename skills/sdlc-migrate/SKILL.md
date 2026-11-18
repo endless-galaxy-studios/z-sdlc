@@ -53,6 +53,19 @@ Before starting, verify this is a migration (not initialization):
 
 If neither `ops/sdlc/` nor `.claude/sdlc/` exists → tell user to run `sdlc-initialize` instead and stop.
 
+**Step 0 — Check the project's branch is current with its remote.** Drift detection (§1.2a), the merges and deviation detection all read the project's own files. On a branch behind the remote default branch, they compare against an old tree: work the default branch already landed is done twice, and the result conflicts with it.
+
+```bash
+git fetch --quiet origin && {
+  DEFAULT=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || git remote show origin 2>/dev/null | sed -n 's/^ *HEAD branch: //p')
+  DEFAULT=${DEFAULT#origin/}
+  [ "$DEFAULT" = "(unknown)" ] && DEFAULT=
+  [ -n "$DEFAULT" ] && git rev-list --count "HEAD..origin/$DEFAULT"
+}
+```
+
+If the count is above 0, tell CD how many commits the branch is behind `origin/<default>` and ask: bring the branch up to date first (recommended), or migrate this tree anyway. **Headless run:** stop with `needs-input`. If it prints no count (no remote, a failed fetch, or a default branch it can't resolve), go on and report `Base: couldn't check` with the reason in the assessment; never skip the check silently.
+
 **Step 1 — Resolve z-sdlc source and target release:**
 
 **1a. Resolve source to a local path** (in priority order):
@@ -136,6 +149,7 @@ Has .claude/skills/: [yes/no]
 z-sdlc source: [local path or "cloned from [URL] to /tmp/z-sdlc-migrate"]
 z-sdlc target release: [target_tag] ([TARGET_SHA short])
 Project installed version: [source_version] (from .sdlc-manifest.json)
+Base: [up to date with origin/<default> | N commits behind, migrated anyway at CD's word | couldn't check (reason)]
 ```
 
 ---
@@ -1097,6 +1111,7 @@ This is automatic (contract 0017): don't ask CD. Exit 2 means the files didn't p
 ### Next Steps
 1. Commit the migration with: `sdlc(migrate): upgrade z-sdlc from [source_version] to [target_tag]`
 2. Do the **Bundles** section's after-migrating steps (CD's), each before what it guards (the next production gate, a runner more than 30 days behind)
+3. If the migration goes up as a pull request, check it merges cleanly (`gh pr view --json mergeStateStatus`; `DIRTY` means conflicts). GitHub runs no `pull_request` workflows on a PR with merge conflicts, so CI shows nothing instead of a failure.
 ```
 
 ### 4.7 Offer Newly Debuted Bundles and Setup Runbooks

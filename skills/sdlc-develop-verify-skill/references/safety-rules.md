@@ -1,6 +1,6 @@
 # Safety Rules
 
-The rules that bind every drive of the app, in `sdlc-develop-verify-skill`'s two modes and in every later run of the verify skill it writes. CREATE copies the list below word for word into the generated skill's Safety Rules section; MAINTAIN step 1 replaces that section when it differs; the step 6 reviewer checks the copy against this file.
+The rules that bind every drive of the app, in `sdlc-develop-verify-skill`'s two modes and in every later run of the verify skill it writes. CREATE copies the list below word for word into the generated skill's Safety Rules section; MAINTAIN step 1 replaces that section when it differs; the step 6 reviewer checks the copy against this file. An exception CD makes for one app goes in that skill's own Recorded Exceptions section, which MAINTAIN keeps; three rules take none (`SKILL.md` § Safety Rules).
 
 ## The Rules
 
