@@ -37,6 +37,21 @@ Each entry contains:
 
 ---
 
+## 2026-11-18: The factory imported from the incubator (32271b0..8f83385): z-sdlc's copies handed back
+
+**Origin:** CD (2026-11-18): "push and hand the factory changes to the incubator", after the agent-format port below.
+
+**What happened:** `zsdlc-import-factory --to-incubator` at the incubator's `0a53446` wrote what z-sdlc was ahead on into the incubator, which took it in #146: the shellcheck fixes in `host/setup.sh` and `host/setup-ci.sh` (kept `ahead` by the last import), `process/factory.md` with Context7's plain tool names for factory runs, and the stage skills `sdlc-triage`, `sdlc-implement` and `sdlc-revise` with the narrower headless exception and final-message-only review dispatches. The factory tests passed there (810, 46 skipped). The import then read every bundle file in sync, and the proof passed: the incubator at `8f83385` took the bundle unchanged, and an empty project rendered all 19 templates and passed the workflow policy and the tests.
+
+**Changes made:**
+
+1. `.claude/skills/zsdlc-import-factory/import.json`: `last_import` is the incubator's merge of #146, so z-sdlc's next change to these files no longer reads as changed on both sides.
+2. No bundle code or seed changed. The incubator's other factory commits in the range change only its production tier, which the bundle excludes. They also change its README's file table, which moves the production runner's request client to `host/`. The bundle's generic README seed doesn't list the production tier, so it needs no matching change, and the report's check item was accepted.
+
+**Rationale:** Until the incubator took z-sdlc's copies and the import recorded it, the next z-sdlc change to any of them would have read as a conflict, and the proof would have installed the incubator's copies without z-sdlc's changes.
+
+---
+
 ## 2026-11-17: Agents name their triggers in prose, send progress updates over a real channel, and are granted tools by exact name
 
 **Origin:** A project that installed z-sdlc audited its Claude Code agent configuration on 2026-11-17 and changed its copies of the framework files. CD made each decision there: drop the example dialogues, keep the scenarios in a When to invoke section (the format Anthropic's guide uses), have progress updates reach the orchestrator, and let agents store memories as well as read them. That project's session sent the changes here to be carried upstream. Five of its commits touch framework files; they are ported onto z-sdlc's current text, not copied.
