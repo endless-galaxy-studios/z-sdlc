@@ -223,6 +223,14 @@ if current_hash != installed_hash:
 | `DRIFTED-CONFLICT` | Project edited AND upstream changed | Hard prompt: show both diffs, require three-way decision |
 | `DRIFTED-ORPHAN` | Project edited, file removed upstream | Prompt: keep as project-owned / move to legacy / delete |
 
+**Size a drifted file by its hunks, not its conflict count.** Diff the project's file against the upstream version it was installed from (`source_version`) and classify each project hunk against upstream's change to the same file:
+
+- **Subsumed** — upstream now carries the same change or one that supersedes it (often upstream took this project's own fix): take upstream.
+- **Untouched** — upstream didn't change that region: re-apply the hunk to the new upstream text.
+- **Combined** — both sides changed the region: merge them, showing CD both.
+
+A `DRIFTED-CONFLICT` file with many conflicts can be all subsumed, and one with a single conflict can hide a combined hunk, so the gate shows the classes per hunk. An untouched or combined hunk that fixes framework text rather than adding project content is also an upstream candidate (§2.1c). The gate's "extract into PROJECT-SECTION markers" option doesn't apply to an edit markers can't hold (§2.1c): offer re-applying it instead.
+
 Surface drifted files in the §1.3 change manifest with a `⚠ DRIFT` marker so CD sees them before any mutation. Phase 2's direct-copy operations (§2.1) and content-merges (§2.2+) must consult drift status before acting — if a file is drifted, the Phase 2 default action is overridden by the drift gate decision.
 
 **Why this matters:** Without drift detection, migration silently overwrites manual edits to framework files. With it, every unexpected edit gets surfaced and consented before being touched.
@@ -561,6 +569,8 @@ Options:
 7. If option 2: direct copy as normal
 8. If option 3: skip this file, log in migration report
 
+**Some customizations can't be wrapped** (`[sdlc-root]/process/project-section-markers.md` § What Markers Can't Hold): an edit that replaces upstream text, anything in YAML frontmatter, and table rows. For those, drop option 1 and offer, in its place, re-applying the edit by hand to the new upstream copy, where it shows as drift at the next migration. When the edit fixes framework text rather than adding project content, list it under **Upstream Candidates** in the report (§4.6) whichever option CD picks: upstream is its only durable home.
+
 **Why this matters:** Without deviation detection, `sdlc-migrate` silently destroys intentional project-specific changes. Users invest time customizing business suite content, discipline captures, and agent wiring — a migration that discards that work without warning erodes trust in the framework.
 
 ### 2.1e CLAUDE-SDLC.md Merge
@@ -697,7 +707,7 @@ These sections originate from the framework and should be updated across all pro
 For each agent in `.claude/agents/`:
 1. Check if `## Knowledge Context` section exists — add if missing, after the opening scope paragraphs and after `## When to invoke` when the agent has one
 2. Verify Communication Protocol references `[sdlc-root]/knowledge/architecture/agent-communication-protocol.yaml`, and replace its progress-update sentence with the template's (§3.1). An agent whose restricted `tools:` line lacks `SendMessage` then has no channel for those updates: `tools:` is project-owned, so don't add it here; §3.4 lists the agent under Tool grants for the user to decide
-3. Verify memory section guidelines match the latest template
+3. Verify memory section guidelines match the latest template, sentence by sentence: a section that kept its heading but lost sentences (the Surfacing Learnings bullets' routing sentences, say) is out of date too
 4. Do NOT touch: scope ownership, core principles, workflow, anti-rationalization tables, self-verification checklists, domain-specific content
 
 ### 3.3 Update Agent-Context-Map (if needed)
@@ -1051,6 +1061,10 @@ This is automatic (contract 0017): don't ask CD. Exit 2 means the files didn't p
 - Project agent domain content (scope, principles, workflow, anti-rationalization)
 - Knowledge file project additions (project-specific keys preserved via key-level merge)
 - Knowledge file `spec_relevant` project overrides (true values preserved)
+
+### Upstream Candidates
+- [file]: [the project's fix to framework text that markers can't hold, §2.1c] / none
+- Send these to z-sdlc (CD decides how); until a release carries them, the project re-applies them after each migration.
 
 ### Downstream Impact Analysis (§3.4)
 - Skills scanned: N

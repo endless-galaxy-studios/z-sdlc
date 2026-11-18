@@ -7,12 +7,9 @@ description: >
   JSONL lookup when a session identifier is provided. Analyzes both what worked (the process to
   formalize) and what was missed (corrections, setup gotchas, environment gaps, service configuration
   that surfaced mid-execution). Produces playbooks following the project's existing playbook template
-  format. Triggers on "make a playbook from", "analyze session", "generate playbook",
-  "create playbook from session", "playbook from that session", "let's make a playbook for",
-  "formalize that into a playbook", "turn that session into a playbook",
-  "what did we learn from that session", "extract a playbook", "make a playbook from this",
-  "playbook from what we just did", "turn this into a playbook", "playbook from this session",
-  "make a playbook", "create a playbook".
+  format. Triggers on requests to turn the current or a past session into a playbook, such as
+  "make a playbook from this", "turn that session into a playbook",
+  "playbook from what we just did", "analyze session", "extract a playbook".
   Use when a completed session or set of commits should be formalized into a reusable playbook.
   Do NOT use for creating playbooks from scratch without session data — write those directly.
   Do NOT use for bulk knowledge import — use sdlc-ingest.

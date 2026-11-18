@@ -1,26 +1,20 @@
 ---
 name: sdlc-reflect
 description: >
-  Surface learnings from the current work session into SDLC discipline parking lots. Reviews
-  recent work (commits, changes, conversation context), identifies reusable insights and
-  cross-discipline patterns, categorizes them by discipline, and writes them as triage-ready
-  parking lot entries. Also attempts a session-scoped prune of agent memories — removing
-  entries this session's changes invalidated, splitting MEMORY.md files nearing the size
-  cap, and routing memory entries that carry generalizable insight into the parking lots
-  before they're pruned. This is the standalone version of the discipline capture protocol —
-  use it after any work session where formal SDLC skills without built-in discipline capture
-  were invoked, or after sessions where no formal SDLC skills ran at all.
-  Several skills suggest running sdlc-reflect at completion: sdlc-debug-incident (after closeout),
-  sdlc-review-code, sdlc-tests-run, sdlc-tests-create, sdlc-create-reference-doc, and
-  sdlc-playbook-generate.
+  Capture reusable, non-obvious learnings from the current work session as triage-ready entries
+  in the SDLC discipline parking lots, then prune agent memories the session invalidated (routing
+  any generalizable insight to a parking lot first). Use after substantive work where discipline
+  capture did not run on its own: direct-dispatch, bug-fix or ad-hoc sessions, and after
+  sdlc-debug-incident closeout, sdlc-review-code, sdlc-tests-run, sdlc-tests-create,
+  sdlc-create-reference-doc or sdlc-playbook-generate.
   Triggers on "/sdlc-reflect", "capture learnings", "what did I learn", "surface insights",
   "session retrospective", "reflect on this session", "feed back to SDLC".
   Do NOT use for bulk external knowledge import — use sdlc-ingest.
   Do NOT use for exploring ideas — use sdlc-idea.
   Do NOT use for formal post-mortems — use sdlc-debug-incident closeout.
   Do NOT use for a project-wide agent memory hygiene sweep — sdlc-audit Dimension 8 covers that.
-  Do NOT use during or after sdlc-execute, sdlc-lite-execute, sdlc-plan, sdlc-lite-plan,
-  sdlc-idea, or sdlc-design-consult — those skills run discipline capture automatically.
+  Do NOT use during or after sdlc-execute, sdlc-lite-execute, sdlc-plan, sdlc-lite-plan, sdlc-idea
+  or the design bundle's sdlc-design-consult — they run discipline capture themselves.
 ---
 
 # SDLC Reflect — Session Learning Capture
@@ -55,7 +49,7 @@ Use after any work session where you did substantive work but discipline capture
 These skills suggest running `/sdlc-reflect` at completion when non-obvious learnings surfaced.
 
 Signs this skill is NOT appropriate:
-- You just finished `sdlc-execute`, `sdlc-lite-execute`, `sdlc-plan`, `sdlc-lite-plan`, `sdlc-idea`, or `sdlc-design-consult` — those already ran discipline capture
+- You just finished `sdlc-execute`, `sdlc-lite-execute`, `sdlc-plan`, `sdlc-lite-plan`, `sdlc-idea`, or the design bundle's `sdlc-design-consult` — those already ran discipline capture
 - You want to import external articles/transcripts — use `sdlc-ingest`
 - You want to explore an idea — use `sdlc-idea`
 - Nothing non-obvious happened — skip it, don't fabricate entries

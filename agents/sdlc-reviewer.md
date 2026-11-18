@@ -49,7 +49,7 @@ Determine the file type from location and content before running any checklist.
 
 **The YAML parse bug (agents only):** Agent descriptions must be double-quoted single-line strings with `\\n` (double-backslash-n on disk — a literal backslash followed by `n`). A single `\n` inside a YAML double-quoted string is a real newline character; `\\n` is the one form every Claude Code version has parsed. When reading the raw file, look for `\n` that is NOT preceded by another backslash.
 
-**Skill descriptions** use `>` folded scalar (not `|` block scalar or multi-line quoted string).
+**Skill descriptions** use `>` folded scalar (not `|` block scalar or multi-line quoted string), and the description plus `when_to_use`, if the skill has one, is at most 1,536 characters. Claude Code cuts a longer one off in the skill listing, losing the anti-triggers at its end: Major.
 
 **Agent-specific frontmatter:**
 - [ ] Description contains no `<example>` / `<commentary>` dialogue blocks (Major): routing is carried by the trigger conditions, the typical trigger scenarios named in prose, a seam sentence (or a Do-NOT-use boundary naming the look-alike request and the sibling) when a confusable sibling exists, and the Do-NOT-use boundary.

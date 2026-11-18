@@ -65,5 +65,5 @@ Depends On may also name another deliverable (`Phase 5, D11a`): that phase waits
 
 ## Post-Execution Review
 All completed work must be reviewed by all relevant worker domain agents.
-All findings must be fixed by the most relevant domain agent.
+Critical and major findings are fixed by the most relevant domain agent, and no INVESTIGATE or DECIDE finding is left unresolved. Minors get one batched fix pass; any still open are listed for CD (`[sdlc-root]/process/review-fix-loop.md` § Exit Bar).
 Build must pass before work is considered done.

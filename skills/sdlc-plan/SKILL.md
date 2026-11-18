@@ -8,7 +8,7 @@ description: >
   Triggers on "let's build X", "new feature", "add support for Y", "start a new deliverable",
   "new D-number", "create deliverable", "/sdlc-plan", or a problem statement.
   Do NOT use for executing an already-approved plan — use sdlc-execute.
-  Do NOT use for lightweight work (1–3 files) — use sdlc-lite-plan.
+  Do NOT use for moderate-complexity work that needs a reviewed plan but no spec — use sdlc-lite-plan.
   Do NOT use for open-ended exploration without a concrete scope yet — use sdlc-idea.
 ---
 
@@ -590,7 +590,7 @@ The plan MUST include:
   - Exhaustive step-by-step sequences that turn the executing agent into a typist
 
   Constraint values must be concrete — "maximum 4 copies per card" not "a maximum copy count". If the value is a product decision the user hasn't made, mark it explicitly (e.g., `USER DECISION NEEDED: max table count — what should the limit be?`) so the reviewer routes it as a product decision for CD.
-- **A "Post-Execution Review" note at the end** — stating that all completed work must be reviewed by all relevant domain agents, and all findings must be fixed before the task is considered done
+- **A "Post-Execution Review" note at the end** — stating that all completed work must be reviewed by all relevant domain agents, and that the work is done only when the review loop's exit bar is met (`[sdlc-root]/process/review-fix-loop.md` § Exit Bar): no critical or major finding open, no INVESTIGATE or DECIDE finding unresolved, and any minors still open after their one batched fix pass listed for CD
 
 **Tests-first consideration:** When the spec defines precise expected behavior with clear acceptance criteria, consider writing tests as an early implementation phase (Phase 1 or 2) so subsequent phases implement code to pass them. This front-loads verification and catches spec ambiguity early. The planning template includes a Test Phase Ordering checkbox — select the appropriate strategy. Tests-first is especially valuable for bug fixes (write a failing test that reproduces the bug, then fix it) and for features with well-defined input/output contracts.
 

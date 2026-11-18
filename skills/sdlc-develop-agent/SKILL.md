@@ -272,7 +272,7 @@ Dispatch the `sdlc-reviewer` subagent on the created agent file. The reviewer ch
 | "I'll write the agent file directly" | Hand-written agents skip frontmatter validation and convention checks. Use this skill. |
 | "I'll wire it into the skills later" | An agent that isn't in the dispatching skills won't get selected. Wire it now or it's invisible. |
 | "This source is clearly relevant — extract everything" | Premature satisfaction. Check every dimension against the source. Most content won't apply when viewed through the agent's actual lens. |
-| "I'll skip the dismissal defense — all patterns look good" | The defense exists because you feel thorough when you're not. It's mandatory in ENRICH mode. |
+| "I'll skip the dismissal defense — all patterns look good" | Run it anyway: for each pattern you dismiss, write down why it doesn't apply, so a surface-level domain mismatch isn't mistaken for irrelevance. It's mandatory in ENRICH mode. |
 | "I'll apply enrichments directly without presenting a plan" | Always compile and present the integration plan first. The user decides what gets integrated. |
 | "This source has a great new example scenario — I'll add it to the description" | ENRICH mode enriches the agent BODY. Put scenarios in its `## When to invoke` section; change the description only if the scope, the typical triggers or the boundary changed. |
 

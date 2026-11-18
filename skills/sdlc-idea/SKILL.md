@@ -9,7 +9,7 @@ description: >
   "I'm thinking about", "explore this concept", "idea for", "could we", "what would it take to",
   "kick around an idea", "spitball", "before we plan anything", "I want to think through".
   Do NOT use for work that already has clear requirements — use sdlc-plan or sdlc-lite-plan.
-  Do NOT use for visual/UI exploration — use sdlc-design-consult.
+  Do NOT use for visual/UI exploration — use sdlc-design-consult (design bundle) or the project's design agent.
   Do NOT use for active bug investigation — use sdlc-review-code or direct dispatch.
 ---
 
@@ -38,7 +38,7 @@ Signs this skill is appropriate:
 
 Signs this skill is NOT appropriate:
 - Clear requirements already exist → `sdlc-plan` or `sdlc-lite-plan`
-- The question is purely visual/UI → `sdlc-design-consult`
+- The question is purely visual/UI → `sdlc-design-consult` if the design bundle is installed; otherwise a design agent from `[sdlc-root]/process/agent-selection.yaml`, if the project has one
 - The user says "build this" with specifics → planning skill, not exploration
 
 ## Core Principles
@@ -258,7 +258,7 @@ If the `docs/current_work/ideas/` directory doesn't exist, create it.
 **Recommend next step based on what emerged:**
 - Clear requirements, bounded scope → `sdlc-lite-plan`
 - Complex feature, needs spec → `sdlc-plan`
-- Visual/UI direction needed → `sdlc-design-consult`
+- Visual/UI direction needed → `sdlc-design-consult` if the design bundle is installed; otherwise a design agent from `[sdlc-root]/process/agent-selection.yaml`, if the project has one
 - Technical unknown needs prototyping → suggest a spike (direct dispatch)
 - Still too vague → keep exploring (this skill isn't done yet)
 
@@ -286,7 +286,7 @@ Do NOT start planning or implementing. The idea exploration ends with a directio
 
 ## Integration
 
-- **Feeds into:** `sdlc-plan` (full planning), `sdlc-lite-plan` (lightweight planning), `sdlc-design-consult` (visual design exploration)
+- **Feeds into:** `sdlc-plan` (full planning), `sdlc-lite-plan` (lightweight planning), `sdlc-design-consult` (design bundle: visual design exploration)
 - **Uses:** LSP, Grep, Context7, WebSearch, chronicle and knowledge layer; consults `[sdlc-root]/process/agent-selection.yaml` (`tier1`/`tier2` only — never `personal:`) to dispatch a project-installed specialist when an emerged unknown maps to its domain
-- **Complements:** `sdlc-design-consult` explores visual direction; `idea` explores conceptual direction. They can feed into each other.
+- **Complements:** `sdlc-design-consult` (design bundle), or the project's design agent, explores visual direction; `idea` explores conceptual direction. They can feed into each other.
 - **Does NOT replace:** DISCOVERY-GATE in `sdlc-plan` (that gate validates minimum discovery before spec writing; this skill is unbounded exploration before any commitment)

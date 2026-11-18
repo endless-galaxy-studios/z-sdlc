@@ -76,6 +76,16 @@ Labels must be descriptive and unique within the file. Use this pattern:
 
 6. **Skills that produce project-specific content are responsible for adding markers at creation time.** This is a producing-skill obligation, not a migration-time responsibility. If content is created without markers, it can only be protected retroactively via deviation detection (§2.1c in `sdlc-migrate`).
 
+### What Markers Can't Hold
+
+A marked block adds project content beside upstream's; it can't stand in for upstream text. Three kinds of project edit have no marker form:
+
+- **A replacement of upstream text.** Migration re-injects the block at its heading, next to the new upstream text, so both versions appear.
+- **YAML frontmatter.** A comment marker can't sit inside it, so a project's change to a skill's description has nowhere to go.
+- **Table rows.** A marker line between two rows breaks the table.
+
+When such an edit fixes the framework's own text (a contradiction, a wrong path, a stale rule), its durable home is upstream. `sdlc-migrate` lists it under Upstream Candidates in its report (§4.6; §2.1c decides what goes there) for CD to send to z-sdlc; until a release carries it, the project re-applies it after each migration, where it shows as drift.
+
 ---
 
 ## BUNDLE-SECTION Markers

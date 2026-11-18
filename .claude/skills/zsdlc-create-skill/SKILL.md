@@ -52,6 +52,10 @@ The description includes:
 - Explicit trigger phrases (`Triggers on "phrase1", "phrase2", ...`)
 - Anti-triggers (`Do NOT use for X — use Y.`)
 
+Keep it at most 1,536 characters: Claude Code cuts a longer description off in the skill listing, losing the anti-triggers at its end.
+
+A core skill that routes to a bundle's skill names the bundle ("the design bundle's `sdlc-design-consult`") and, where the route matters, says where to go in a project without it: most projects never install the bundle.
+
 Template:
 
 ```yaml

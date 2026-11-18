@@ -7,9 +7,8 @@ description: >
   lot entries, and playbook candidates. Follows the existing discipline lifecycle: extract →
   structure → place (validated rules to knowledge files, unvalidated insights to parking lots).
   Use when external knowledge sources need bulk import into SDLC disciplines and knowledge stores.
-  Triggers on "ingest these", "analyze these transcripts", "import knowledge from", "extract
-  patterns from", "bulk import", "learn from these", "what can we adopt from", "process these
-  for the SDLC", "add to our knowledge from", "distill these into knowledge".
+  Triggers on "ingest these", "analyze these transcripts", "bulk import", "extract patterns from",
+  "what can we adopt from", "process these for the SDLC".
   Do NOT use for single-file reads or ad-hoc research — use direct reads or WebSearch.
   Do NOT use for exploring ideas — use sdlc-idea.
   Do NOT use for creating specs or plans — use sdlc-plan or sdlc-lite-plan.

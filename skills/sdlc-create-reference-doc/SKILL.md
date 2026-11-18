@@ -108,20 +108,7 @@ Pick the **primary author** based on category. One author writes — consistent 
 
 **Use `[sdlc-root]/process/agent-selection.yaml` as the source of truth for which agent owns which domain.** Match the doc's category to the agents whose `dispatch_when` triggers cover that domain. The primary author is the most direct match; the review quorum is 2–3 adjacent-domain agents plus `code-reviewer`.
 
-Quick mapping guidance:
-
-| Doc category | Primary author candidates | Review quorum candidates |
-|--------------|---------------------------|--------------------------|
-| api | backend-developer | data-architect, security-engineer, code-reviewer |
-| frontend | frontend-developer | ui-ux-designer, accessibility-auditor, code-reviewer |
-| database | data-architect | backend-developer, performance-engineer, code-reviewer |
-| observability | devops-engineer | backend-developer, performance-engineer, code-reviewer |
-| security | security-engineer | security-auditor, backend-developer, code-reviewer |
-| deploy | devops-engineer | build-engineer, security-engineer, code-reviewer |
-| sdlc | (ask user — could be any) | sdlc-reviewer, code-reviewer |
-| cross-cutting | (ask user) | all relevant domain agents + code-reviewer |
-
-**Substitute project-specific agents** where the project has them — e.g. a project with a dedicated `search-engineer` should author search-related reference docs with that agent rather than `backend-developer`.
+Two categories have no single owning domain: for an `sdlc` doc, ask the user who authors it and add `sdlc-reviewer` to the quorum; for a `cross-cutting` doc, ask the user and put every relevant domain agent on the quorum.
 
 **`code-reviewer` is on every quorum.** Its job on reference docs is template compliance, `path:line` anchor accuracy, broken-link detection, and presence of all mandatory sections.
 

@@ -181,7 +181,7 @@ Failure Classification — Round {N}
 Consult `[sdlc-root]/process/agent-selection.yaml` to select the appropriate domain agent:
 
 1. **Check `infrastructure_domains`** — Match the failure pattern against each domain's `triggers`. If a trigger matches, dispatch that domain's `specialist`.
-2. **Fall back to `tiers.tier1`** — If no infrastructure domain matches, use the tier 1 agent whose `dispatch_when` or `covers` best fits the failure (e.g., API errors → backend-developer, UI state bugs → frontend-developer).
+2. **Fall back to `tiers.tier1`** — If no infrastructure domain matches, use the tier 1 agent whose `dispatch_when` or `covers` best fits the failure.
 3. **Ambiguous failures** — If the failure spans multiple packages or has unclear root cause, dispatch `debug-specialist` to diagnose first.
 
 ### 3. Dispatch Fixes
@@ -236,7 +236,7 @@ Group APP-CODE failures by assigned agent. Each agent receives:
 - Instruction: fix the application code so the described behavior works correctly. Do NOT modify test files.
 - **Library verification instructions** (when the fix involves external library APIs): verify API usage via Context7 (`mcp__context7__resolve-library-id` → `mcp__context7__query-docs`) before writing the fix. Do not rely on training data for API signatures or behaviors.
 
-**Cross-domain knowledge injection:** Domain agents fixing app bugs exposed by tests are working in a testing context they wouldn't normally encounter. Consult `[sdlc-root]/knowledge/agent-context-map.yaml` for the `sdet` entry and include the SDET's testing knowledge files (e.g., `testing/gotchas.yaml`, `testing/timing-defaults.yaml`) in the domain agent's dispatch prompt. This helps the agent understand test-specific constraints like timing, fixture patterns, and known gotchas that may affect the fix.
+**Cross-domain knowledge injection:** Domain agents fixing app bugs exposed by tests are working in a testing context they wouldn't normally encounter. Consult `[sdlc-root]/knowledge/agent-context-map.yaml` for the `sdet` entry and include the SDET's testing knowledge files (e.g., `testing/gotchas.yaml`, `testing/timing-paradigm.yaml`) in the domain agent's dispatch prompt. This helps the agent understand test-specific constraints like timing, fixture patterns, and known gotchas that may affect the fix.
 
 **Scope the dispatch prompt tightly.** Name the exact file(s) and function(s) to change. If the diagnosis identified the root cause, state the cause and the fix location explicitly. Do not use vague prompts like "fix the WebSocket bug" — the agent will interpret latitude as permission to refactor adjacent code.
 
@@ -340,7 +340,7 @@ Skip the suggestion if the loop was straightforward with no broader patterns.
 | "Fix the [X] bug" (as an agent dispatch prompt) | Too vague. Name the file, function, root cause, and expected fix. Agents interpret latitude as permission to refactor. |
 | "Tests pass with sequential execution, ship it" | Serial execution masks isolation bugs. Dispatch SDET to fix isolation. |
 | "Let me sleep before checking if the server restarted" | No prophylactic sleeps. Check immediately; retry once on failure. |
-| "I'll fix this test myself, it's one line" | Dispatch SDET. Size is not an exception. |
+| "I'll fix this test myself, it's one line" | Only if it passes the delegation-economics test (small, mechanical, no new context, cheaper than dispatch); then re-run the tests and have SDET review the fix. Anything that needs diagnosis goes to SDET. |
 | "I'll fix this app code myself, I can see the bug" | Dispatch the domain agent. You are the manager. |
 | "This failure is ambiguous, I'll just try fixing it" | Classify first. If ambiguous, dispatch debug-specialist to diagnose. |
 | "All failures are test-code, no need for domain agents" | Verify by checking if the feature actually works. A bad test can mask an app bug. |
@@ -355,6 +355,6 @@ Skip the suggestion if the loop was straightforward with no broader patterns.
 ## Integration
 
 - **SDET agent** — fixes test-code issues (selectors, fixtures, helpers, assertions)
-- **Domain agents** (frontend-developer, backend-developer, realtime-systems-engineer, debug-specialist, build-engineer, performance-engineer) — fix app-code issues
+- **Domain agents** (the tier 1 and infrastructure-domain specialists in `[sdlc-root]/process/agent-selection.yaml`, plus `debug-specialist` for ambiguous failures) — fix app-code issues
 - **Feeds into:** `sdlc-reflect` (suggests it when the fix loop surfaces discipline-level insights — testability issues, architecture gaps, testing paradigm problems)
 - **sdlc-review-code** — can be run after the auto-commit to verify code quality of the fixes

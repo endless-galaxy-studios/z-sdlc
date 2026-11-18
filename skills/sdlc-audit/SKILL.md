@@ -9,12 +9,10 @@ description: >
   expensive, never runs by default. Codebase Health mode audits the product substrate itself —
   test/CI activation, agentic ergonomics, observability blind spots — via parallel read-only
   sweeps. Compliance and improvement can run against the current session or be fed a previous
-  session or commit range. Triggers on "sdlc audit", "audit the sdlc", "run an sdlc audit",
-  "compliance audit", "audit this session", "audit for improvements",
-  "what can we improve about the process", "sdlc health check", "check sdlc compliance",
-  "audit these commits", "process improvement audit", "deep audit", "deep verify",
-  "verify the knowledge store", "full content sweep", "codebase health check",
-  "audit the codebase health", "health audit", "how healthy is the codebase".
+  session or commit range. Triggers on "sdlc audit", "compliance audit", "audit this session",
+  "audit these commits", "what can we improve about the process", "sdlc health check",
+  "deep verify", "verify the knowledge store", "codebase health check",
+  "how healthy is the codebase".
   Use when you need to verify SDLC compliance, identify process improvements, evaluate knowledge
   layer health, re-verify promoted knowledge content, or assess codebase health.
   Do NOT use for generating playbooks from sessions — use sdlc-playbook-generate.
@@ -139,6 +137,7 @@ After presenting the audit report, run an interactive triage session if there ar
 - **Guard freshness findings** (from Dimension 6n) — recorded guards that are missing, ineffective (pattern recurred despite guard), or increasingly suppressed; CD decides modify or retire
 - **Prune candidates** (from Dimension 6k) — orphaned knowledge files not wired to any agent
 - **Memory hygiene candidates** (from Dimension 8b) — oversized (>200 line/25KB), self-contradicting, code-contradicting, or orphaned agent-memory files
+- **Unverified findings** — info findings the auditor marked "unverified — check X". Run each named check first (put it to CD when it needs access this session lacks): a confirmed one is triaged at its real severity, a refuted one is dropped
 
 See `references/compliance-methodology.md` step 11 for the full workflow.
 
@@ -316,7 +315,7 @@ SCOPE → SWEEP (3 parallel, read-only) → SYNTHESIZE → ROUTE
 
 | Thought | Reality |
 |---------|---------|
-| "The process looks fine, no improvements needed" | Every session has friction. Look harder at correction signals and mid-stream discoveries. |
+| "The process looks fine, no improvements needed" | Check the correction signals and mid-stream discoveries before concluding; that is where friction shows up. If they show none, report that no improvement is needed: an empty result is a valid result. |
 | "A compliance audit found knowledge issues, I'll deep-verify too" | Deep Verify is opt-in by name. Report the finding; CD decides whether to run the sweep. |
 | "I'll fix everything without asking" | Present proposals first. The user decides what to change. |
 | "This is just a compliance audit with extra steps" | Compliance checks structure. Improvement analyzes behavior. Different inputs, different outputs. |

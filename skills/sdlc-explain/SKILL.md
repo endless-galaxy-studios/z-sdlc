@@ -6,11 +6,9 @@ description: >
   words: inline SVG from the design system, a hard word budget, real names and real values, every
   claim verified against the artifact or the code before it is drawn. Built for a reader who knows
   nothing about the subject to get the one load-bearing idea in one sitting. The eli5 command.
-  Triggers on "/sdlc-explain", "/sdlc-render", "render this as HTML", "render the spec", "render the plan",
-  "render the result", "make an HTML version", "/eli5 <topic>", "eli5", "explain like I'm 5",
-  "explain like I know nothing about this", "big pictures and few words", "picture explainer",
-  and explainer-shaped questions such as "how does this module work", "why did we make this
-  tradeoff", "what caused this incident".
+  Triggers on "/sdlc-explain", "/eli5 [topic]", "eli5", "/sdlc-render", "render this as HTML",
+  "explain like I know nothing about this", "picture explainer", and explainer-shaped questions
+  such as "how does this module work", "why did we make this tradeoff", "what caused this incident".
   Do NOT use for a paced, comprehensive, conversational read of an artifact before a gate — use sdlc-walkthru.
   Do NOT use for interactive tools, prototypes, or playgrounds — those are exploration artifacts, built directly.
   Do NOT use for editing markdown content — the MD file is the source of truth.

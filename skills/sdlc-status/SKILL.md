@@ -25,6 +25,7 @@ Scan the project's SDLC artifacts and present a status summary. This is read-onl
    - `specs/` — list all spec files
    - `planning/` — list all plan files
    - `results/` — list all result files
+   - `sdlc-lite/` — lite deliverables: `dNN_*_plan.md` and `dNN_*_result.md`, and in `sdlc-lite/completed/` the ones whose execution committed (`sdlc-lite-execute` moves the plan and result there)
    - `issues/` — list all issue/blocker files
 
 3. **Determine each deliverable's stage** by cross-referencing which artifacts exist:
@@ -34,6 +35,9 @@ Scan the project's SDLC artifacts and present a status summary. This is read-onl
    | yes | no | no | **Spec written** — needs CD approval, then planning |
    | yes | yes | no | **Plan ready** — awaiting execution |
    | yes | yes | yes | **Complete** — ready to archive |
+   | no (lite) | yes, in `sdlc-lite/` | no | **Plan ready** — awaiting `sdlc-lite-execute` |
+   | no (lite) | yes, in `sdlc-lite/` | yes, in `sdlc-lite/` | **Executing** — result started, not yet moved to `completed/` |
+   | no (lite) | yes, in `sdlc-lite/completed/` | yes, in `sdlc-lite/completed/` | **Complete** — ready to archive |
 
    If a matching issue file exists in `issues/`, mark it **Blocked** regardless of other artifacts.
 

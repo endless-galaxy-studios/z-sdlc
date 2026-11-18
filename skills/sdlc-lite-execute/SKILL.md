@@ -550,7 +550,7 @@ The Manager Rule remains in effect per `[sdlc-root]/process/manager-rule.md` —
 | "The gate failed, but the next phase can work around it" | A failed gate stops execution. CD decides: roll back, retry or stop. |
 | "There's no plan, I'll wing it" | Stop. Use `sdlc-lite-plan` first. |
 | "I'll implement this myself" | Only if it passes the delegation-economics test (small, mechanical, no new context, cheaper than dispatch) — and it still gets reviewed. Otherwise dispatch the domain agent. |
-| "This phase is small and well-defined, I'll do it directly" | Size is not an exception. Dispatch the agent. |
+| "This phase is small and well-defined, I'll do it directly" | Dispatch it. A whole phase rarely passes the delegation-economics test (small, mechanical, no new context, cheaper than dispatch); only a change that does may be applied directly, and it still gets reviewed. |
 | "I'll implement directly to avoid context gaps from dispatching" | Complexity increases the need for agents, not decreases it. Pass the context you have to the agent in the dispatch prompt. |
 | "I pre-read 8 files so now I have complete context and can implement" | Pre-reading is the first step toward self-implementation. Read the plan file; let agents read the implementation files they need. |
 | "I'll skip the review loop, everything looks clean" | The review loop catches what confidence misses. Run it. |

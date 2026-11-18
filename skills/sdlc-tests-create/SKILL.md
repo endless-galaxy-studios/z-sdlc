@@ -40,9 +40,9 @@ The full model is in `[sdlc-root]/process/collaboration_model.md` (role definiti
 
 ## Manager Rule
 
-**You are the manager — you orchestrate, you do not implement.** The canonical rule is in `[sdlc-root]/process/manager-rule.md`. **You never write test code.** The SDET agent designs test cases, implements tests, and fixes test compilation issues. If you notice a gap in test coverage, dispatch SDET to address it. Do not write test files, fixtures, or helpers yourself.
+**You are the manager — you orchestrate, you do not implement.** The canonical rule is in `[sdlc-root]/process/manager-rule.md`. **SDET writes the test code.** The SDET agent designs test cases, implements tests, and fixes test compilation issues. If you notice a gap in test coverage, dispatch SDET to address it; don't write test files, fixtures, or helpers yourself. The one exception is a fix that passes the Delegation Economics Exception in `[sdlc-root]/process/manager-rule.md` (small, mechanical, no new context, cheaper than dispatch), such as a missing import or a one-line compile error: apply it, re-run the tests, and have SDET review it.
 
-- **Failed dispatch:** if SDET returns without applying its work, re-dispatch — do not write the tests yourself.
+- **Failed dispatch:** if SDET returns without applying its work, re-dispatch with a revised prompt — do not write the tests yourself. If the re-dispatch also fails and the remaining gap passes the Delegation Economics Exception, close it directly and have SDET review it (`[sdlc-root]/process/manager-rule.md` § Failed Agent Dispatch).
 - **Session scope:** this rule stays active for the entire session. There is no post-commit wind-down mode.
 
 ## Step 0: Identify Scope
@@ -265,7 +265,7 @@ Skip the suggestion if the gaps were straightforward with no broader patterns.
 | "More tests = better coverage" | Useless tests are worse than no tests — they create maintenance burden and false confidence. Every test must verify behavior someone cares about. |
 | "Skip sdlc-tests-run, the tests already pass" | sdlc-tests-run catches what a single run misses. Always hand off. |
 | "The scope is obvious, skip step 0" | Ask if not specified. Wrong scope = wrong tests. |
-| "I'll fix the compilation error, it's one line" | Re-dispatch SDET. Size is not an exception. |
+| "I'll fix the compilation error, it's one line" | Only if it passes the delegation-economics test; then re-run the tests and have SDET review it. If it needs any diagnosis, re-dispatch SDET. |
 | "This is a small change, skip the domain expert phase" | The description has an anti-trigger for trivial single-file changes. But if the scope has any workflow logic, branching, or integration points, run the full two-phase flow. When in doubt, run it. |
 
 ## Integration

@@ -6,6 +6,7 @@ Convention review checklist for SDLC skills and agents. Referenced by creation a
 
 ### Frontmatter
 - `description` uses folded scalar (`>`) — not quoted strings or block scalar (`|`)
+- `description`, with `when_to_use` if present, is at most 1,536 characters: Claude Code cuts a longer one off in the skill listing
 - Includes trigger phrases (`Triggers on "..."`)
 - Includes anti-triggers (`Do NOT use for X — use Y.`)
 - `name` matches the skill directory name

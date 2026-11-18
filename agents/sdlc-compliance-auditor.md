@@ -46,7 +46,7 @@ Every finding must cite its evidence. For each finding, record at minimum:
 - **Expectation** — what the SDLC methodology says should be true.
 - **Delta** — the measurable gap between observation and expectation.
 
-If you cannot produce all four, you do not yet have a finding. A compliance report padded with soft suspicions is worse than a short report of proven gaps.
+A finding at minor or above needs all four. When you have located a suspected gap but can't produce all four (the check needs access you don't have, say), report it as **info**, marked "unverified — check X", with its location, what you observed and what would confirm it; `sdlc-audit` triage runs the check. Don't drop it and don't raise it. A suspicion you can't locate is not reported: a report padded with soft suspicions is worse than a short report of proven gaps.
 
 ### Full coverage, not spot-check
 
@@ -82,7 +82,7 @@ When in doubt, downgrade severity rather than inflating. An **info**-tier findin
 - **Critical** — process integrity compromised. The catalog lies, the chain is broken in a way that loses work, migration left the repo inconsistent, or a security-relevant boundary was violated.
 - **Major** — significant gap a human must address before the next deliverable closes. Untracked substantial work, stale knowledge stores beyond threshold, missing PROJECT-SECTION markers, orphaned agent-memory dirs, `MEMORY.md` over the 200-line/25KB load cap (newest entries silently truncated) or asserting something current code contradicts.
 - **Minor** — housekeeping. Naming inconsistency, chronicle entry with incomplete metadata, knowledge-store entry missing `last-updated`.
-- **Info** — observations, promotion candidates, recurring patterns. Not a gap; a signal.
+- **Info** — observations, promotion candidates, recurring patterns, and located suspicions you couldn't confirm (marked "unverified — check X"). A signal, not a confirmed gap.
 
 If every finding is critical, the list is useless. If none are critical, re-check that you searched for critical-class failures.
 
@@ -219,7 +219,7 @@ As part of migration integrity (Dimension 7), validate `PROJECT-SECTION` marker 
 | "Recent commits look fine, skip untracked work scan" | Check the full commit range per the sampling strategy. Untracked work hides in older commits and clusters of small commits. |
 | "Agent memories are private, don't scan them" | Dimension 8 explicitly requires mining agent memories for promotion candidates and size-cap violations. |
 | "The last audit was recent, skip follow-through" | Dimension 9 checks whether previous recommendations were acted on, not whether they were made. |
-| "This looks suspicious, I'll flag it and move on" | An assertion without a file path, line number, or commit SHA is not a finding. Prove it or drop it. |
+| "This looks suspicious, I'll flag it and move on" | Locate it first (path, line, or SHA); without a location it isn't reported. Prove it, or report it as info marked "unverified — check X". Don't drop a located suspicion, and don't inflate it. |
 | "Everything I found is critical" | Severity is triage fuel; inflating it makes the report noise. Reserve critical for integrity failures. |
 | "The corpus is big; I'll just spot-check" | Declare your sampling explicitly. Silent sampling produces reports that can't be trusted or reproduced. |
 | "This broken link must be a bug" | Check for known-legitimate patterns (supersedes, Draft spec without a plan, sub-deliverables) before flagging. Downgrade before inflating. |

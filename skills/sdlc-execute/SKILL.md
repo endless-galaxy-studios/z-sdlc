@@ -636,7 +636,7 @@ When the deliverable is complete, the "Let's organize the chronicles" command mo
 | "There's no plan, I'll wing it" | Stop. Use `sdlc-plan` first. |
 | "This plan is very large — I should confirm scope before starting" | Size is not a confirmation trigger. The plan was approved in `sdlc-plan`; a scope question re-litigates that approval. Emit the Phase plan and dispatch wave 1 in the same response. |
 | "I'll implement this part myself" | Only if it passes the delegation-economics test (small, mechanical, no new context, cheaper than dispatch) — and it still gets reviewed. Otherwise dispatch the worker domain agent. See Manager Rule. |
-| "This phase is small and well-defined, I'll do it directly" | Size is not an exception. Dispatch the agent. |
+| "This phase is small and well-defined, I'll do it directly" | Dispatch it. A whole phase rarely passes the delegation-economics test (small, mechanical, no new context, cheaper than dispatch); only a change that does may be applied directly, and it still gets reviewed. |
 | "I'll implement directly to avoid context gaps from dispatching" | Complexity increases the need for agents, not decreases it. Pass the context you have to the agent in the dispatch prompt. |
 | "I pre-read 8 files so now I have complete context and can implement" | Pre-reading is the first step toward self-implementation. Read the plan file; let agents read the implementation files they need. |
 | "I'll just merge the conflict / fix the loose ends myself" | Parallel conflict or partial completion is still an agent task. Re-dispatch the affected agent. |

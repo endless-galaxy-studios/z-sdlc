@@ -37,6 +37,73 @@ Each entry contains:
 
 ---
 
+## 2026-11-18: What a project's v2.7.0 migration carried back: fixes it had made to its copies of framework files
+
+**Origin:** A project that installed z-sdlc migrated from v2.1.5 to v2.7.0 on 2026-11-18. Its own copies of framework files carried 44 edits in places v2.7.0 never touched, so after the migration they still differed from upstream. The edits came from a configuration audit and from the agent-format work already ported in the 2026-11-17 entry below. CD had that project's session send them here; z-sdlc decided what to adopt, generalize or decline. Each one is ported onto z-sdlc's current text, not copied.
+
+**What happened:** Most of the edits were contradictions z-sdlc had left in its own text, and two of them were wrong when checked against the framework:
+- **Four rows still said "Size is not an exception."** They contradicted the Manager Rule's Delegation Economics Exception, and two more lines had the same problem. The 2026-11-14 audit fixed four other places and missed these.
+- **Two places still said "all findings must be fixed".** That contradicts the review loop's exit bar.
+- **`sdlc-archive` called step 4 "the ONLY AskUserQuestion".** Step 9c and step 12 ask too, and so does step 0 when it reconciles. The project's version missed step 0.
+- **The project's `sdlc-status` rows skipped `sdlc-lite/completed/`.** That is where `sdlc-lite-execute` moves a finished lite deliverable, so those rows would have hidden exactly the deliverables that are ready to archive.
+- **Two descriptions were already over Claude Code's 1,536-character cap.** `sdlc-reflect` was at 1,604 and `sdlc-audit` at 1,541, so the listing cut off their anti-triggers. Claude Code's skills docs ("Skill descriptions are cut short", read 2026-11-18) say the combined `description` and `when_to_use` are capped at 1,536 characters (`skillListingMaxDescChars`). When the listing outgrows its budget (1% of the context window), it drops whole descriptions, starting with the least-used skills.
+
+**Changes made:**
+
+1. **Manager Rule.** These now follow the Delegation Economics Exception and its failed-dispatch rule:
+   - `sdlc-execute` and `sdlc-lite-execute`: the "This phase is small" row.
+   - `sdlc-tests-create`: the manager paragraph, the failed-dispatch rule and the compile-error row.
+   - `sdlc-tests-run`: the one-line-fix row.
+
+   A fix that passes the test is applied, re-tested and reviewed by SDET. Anything that needs diagnosis still goes to SDET.
+2. **Exit bar.** `sdlc-plan`'s Post-Execution Review note and `templates/sdlc_lite_plan_template.md` now state `review-fix-loop.md` § Exit Bar: no critical or major finding open, no INVESTIGATE or DECIDE finding unresolved, and the minors still open after their batched pass listed for CD.
+3. **`sdlc-archive`.** Step 4 is renamed the Main Approval Gate and names the other points that ask: step 0, step 9c and step 12. Step 9d and the Red Flags row agree with it.
+4. **Trigger lists trimmed to one phrase per intent** in `sdlc-audit`, `sdlc-debug-incident`, `sdlc-develop-skill`, `sdlc-explain`, `sdlc-ingest` and `sdlc-playbook-generate`. This applies `sdlc-develop-skill`'s own rule. `sdlc-reflect`'s description is rewritten as a trigger, not a summary.
+   - `sdlc-debug-incident` loses its "Use when…" sentence, which repeated the first sentence ("Required workflow for any production incident…").
+   - `sdlc-develop-skill` loses its "Enforces…" summary.
+   - `sdlc-explain` writes `/eli5 [topic]`: the skills docs say angle brackets in a description show as `&lt;`/`&gt;`.
+5. **Agent names come from `agent-selection.yaml`, not a roster.** Projects name their own agents.
+   - `sdlc-create-reference-doc` loses its author and quorum table and keeps the two categories with no owning domain.
+   - `sdlc-debug-incident` loses its symptom-to-agent list, which its own Red Flags row ("I'll hardcode the agent matrix") already forbade. It adds the project's security-review agent if the project has one, and otherwise asks CD who assesses.
+   - `sdlc-tests-run` loses its fallback example and its list of domain agents.
+6. **Fixes and gaps:**
+   - **`sdlc-status`** lists lite deliverables in `sdlc-lite/` (plan ready, executing) and in `sdlc-lite/completed/` (complete).
+   - **`sdlc-develop-skill`:**
+     - It states the 1,536-character cap and why it matters.
+     - "Framework-owned" means listed under `installed_files` in `.sdlc-manifest.json`. Other skills are the project's, or come from other tools.
+     - Its Exploration example is just `sdlc-idea`.
+   - **Where descriptions are reviewed:** `sdlc-reviewer` checks the cap and reports a longer description as Major; `process/skill-agent-review.md` and `zsdlc-create-skill` add it to their checklists.
+   - **`sdlc-research`** suggests starting points instead of requiring `site:` queries, as `zsdlc-research` does. It keeps the known gaps from step 2.
+   - **`sdlc-develop-agent`:** the dismissal-defense row says what to do.
+   - **`sdlc-audit`:** an empty improvement result is valid once the correction signals have been checked.
+   - **`sdlc-tests-run`:** the example names `timing-paradigm.yaml`. `timing-defaults.yaml` is a template a project may never fill.
+7. **`sdlc-plan`'s boundary** sends moderate-complexity work that needs no spec to `sdlc-lite-plan`, matching `commands.md`: complexity is the trigger, not file count.
+8. **Policy: an unconfirmed suspicion is reported, not dropped.** `sdlc-compliance-auditor` reports a gap it has located but can't confirm as **info**, marked "unverified — check X", with what would confirm it. A suspicion it can't locate is still not reported, and minor or above still needs all four pieces of evidence. This matches the review loop's INVESTIGATE class: a finding nobody has diagnosed yet goes to diagnosis, not to the bin.
+   - `compliance-methodology.md`'s Info level says the same.
+   - `sdlc-audit`'s triage, and step 11 of the methodology, run each check first. A confirmed suspicion is triaged at its real severity, and a refuted one is dropped. Step 11 no longer skips while one is open.
+9. **Bundle skills named conditionally.**
+   - `sdlc-idea` routes visual/UI work to `sdlc-design-consult` if the design bundle is installed. Otherwise it routes to a design agent from `agent-selection.yaml`, if the project has one.
+   - `sdlc-reflect` calls it "the design bundle's `sdlc-design-consult`".
+   - `zsdlc-create-skill` says a core skill that routes to a bundle's skill names the bundle. Every other core reference to a bundle skill (the factory's and github-provenance's) already did.
+10. **Migration (`sdlc-migrate`, `process/project-section-markers.md`):**
+    - **§1.2a sizes a drifted file per hunk.** Each project hunk is subsumed (take upstream), untouched (re-apply) or combined (merge), rather than counted as conflicts. A file whose fix upstream already took reads as all conflicts but is all subsumed.
+    - **The markers doc gains § What Markers Can't Hold:** a replacement of upstream text, YAML frontmatter, and table rows.
+    - **§2.1c, and §1.2a's drift gate,** drop "wrap in markers" for those edits and offer to re-apply them instead.
+    - **§4.6** lists the project's fixes to framework text under Upstream Candidates, since upstream is their only durable home.
+    - **§3.2** compares an agent's memory and Surfacing Learnings sections with the template sentence by sentence. In the project, 6 of 15 agents had kept those headings but lost the template's routing sentences.
+
+**Declined:**
+- The whitespace-only hunks.
+- The project's own knowledge file in two Integration lines. z-sdlc has no such file.
+- The project's design agent in place of `sdlc-design-consult` (item 9 generalizes it instead).
+- Deleting `commands.md`'s Design section. It is already marked optional, as the factory's section is.
+
+**Open:** MIRROR-style markers for the agent template's memory and Surfacing Learnings sections, so a project's agents could be checked mechanically for drift. The MIRROR convention covers process-doc sections copied into skills, which migration overwrites. Agents belong to the project and are updated in place (§3.2), so extending it is a design question for CD. §3.2's sentence-by-sentence check covers the gap until then.
+
+**Rationale:** A rule that an older line contradicts gets followed half the time. A project that fixes framework text in its own copy has no marker that keeps the fix, so the fix belongs upstream; otherwise every project hits the same contradiction and repairs it separately.
+
+---
+
 ## 2026-11-18: The factory imported from the incubator (32271b0..8f83385): z-sdlc's copies handed back
 
 **Origin:** CD (2026-11-18): "push and hand the factory changes to the incubator", after the agent-format port below.

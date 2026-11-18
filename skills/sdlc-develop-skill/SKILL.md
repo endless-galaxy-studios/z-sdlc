@@ -10,12 +10,10 @@ description: >
   scans sibling skills for content overlap and proposes extraction (shared reference, knowledge
   store, or process doc with one-line pointers) instead of duplicating prose. When the user
   modifies multiple skills in one invocation, detects shared changes and centralizes them.
-  Enforces single-line YAML descriptions, verb-first naming, manager-rule references for
-  agent-dispatching skills, and mandatory sections. Dispatches sdlc-reviewer for quality gate.
+  Dispatches sdlc-reviewer for quality gate.
   Use when creating a new skill or modifying an existing one in the SDLC framework.
-  Triggers on "create a new skill", "new skill", "add a skill", "scaffold a skill",
-  "I need a skill for", "make a skill", "modify a skill", "update a skill", "customize a skill",
-  "/sdlc-develop-skill", "/sdlc-create-skill".
+  Triggers on "create a new skill", "I need a skill for", "scaffold a skill", "modify a skill",
+  "customize a skill", "/sdlc-develop-skill", "/sdlc-create-skill".
   Do NOT use for creating agents — use sdlc-develop-agent.
   Do NOT use for the project's verify skill (.claude/skills/verify/) — use sdlc-develop-verify-skill.
 ---
@@ -52,7 +50,7 @@ Clarify with the user:
 - **What skill type?**
   - **Orchestration** — dispatches domain agents, has agent selection criteria, review loops (e.g., sdlc-plan, sdlc-execute, sdlc-review-code)
   - **Utility** — step-by-step procedure, may or may not dispatch agents (e.g., sdlc-archive, sdlc-ingest)
-  - **Exploration** — open-ended flow, no hard gates, user-directed iteration (e.g., sdlc-idea, sdlc-design-consult)
+  - **Exploration** — open-ended flow, no hard gates, user-directed iteration (e.g., sdlc-idea)
   - **Domain-specific** — focused on a specific technical domain (e.g., sdlc-tests-create, sdlc-tests-run)
 - **What triggers this skill?** (natural language phrases users would say)
 - **What should NOT trigger this skill?** (anti-triggers — which existing skills handle adjacent concerns)
@@ -96,6 +94,8 @@ The description MUST include:
 - What the skill does (1-2 sentences)
 - Explicit trigger phrases (`Triggers on "phrase1", "phrase2", ...`): a few phrasings, each covering a different way users ask, not near-synonyms of one another. The description rides in every request, so when the skill misses a request, broaden the intent a phrase covers rather than adding one more synonym
 - Anti-triggers (`Do NOT use for X — use Y.`)
+
+Keep the whole description, with `when_to_use` if the skill has one, at most 1,536 characters. Claude Code cuts a longer one off in the skill listing, losing the anti-triggers at its end, and when the listing outgrows its budget it drops whole descriptions, least-used skills first, so a phrase that adds no new intent can cost another skill its description.
 
 **Activation framing rule:** The description is the primary signal agents use to decide whether to invoke the skill, so write it as a trigger, not a summary: say when the skill applies and name the situations ("Use when ...", "Required steps for X"). Advisory framing ("Best practices for X", "Guidance on X") reads as optional; in a controlled experiment it left a skill activating about 10% of the time, against 57-83% once the description named when the skill was required (Tessl, 30 trials per configuration — `[sdlc-root]/knowledge/coding/context-engineering-patterns.yaml`, activation_engineering section). Keep the wording plain: capitalized MUST/ALWAYS in a description is urgency current models apply as written, so the skill starts firing on adjacent work. If a skill still under-triggers, tune its trigger contexts with the test below rather than adding emphasis.
 
@@ -213,8 +213,8 @@ Safely modify an existing skill with migration-aware wrapping. This mode reads t
 
 1. Read the existing skill's `SKILL.md`
 2. If the user names multiple skills (or "all the planning skills", "both X and Y"), read them all in parallel before proposing edits
-3. Skills in `.claude/skills/` are framework-installed from z-sdlc, so direct edits to framework sections will be overwritten on next `sdlc-migrate`. The exception is the project's own skills, such as `.claude/skills/verify/`, which `sdlc-develop-verify-skill` maintains and migration never touches
-4. Warn the user accordingly before making changes
+3. Skills installed from z-sdlc (listed under `installed_files` in `.sdlc-manifest.json`) are framework-owned: direct edits to their framework sections can be overwritten on the next `sdlc-migrate`. Other skills in `.claude/skills/` are project-owned (such as `.claude/skills/verify/`, which `sdlc-develop-verify-skill` maintains) or come from other tools, and migration leaves them alone
+4. Before changing a framework-owned skill, warn the user accordingly
 
 ### M1.5. DRY Audit (cross-skill drift detection)
 

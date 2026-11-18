@@ -110,8 +110,7 @@ Every research-analyst dispatch prompt MUST include all of the following:
 
 - [ ] **Source URL** and any discovery entry points found in step 2
 - [ ] **Project's domain list** (from step 1) as the classification lens
-- [ ] **Web search queries** — at minimum: `site:{domain} {topic}` for each relevant project domain
-- [ ] **Discovery instructions** — which entry points to try (RSS, sitemap, tag pages, web search)
+- [ ] **Suggested starting points** — web search queries (for example `site:{domain} {topic}` for each relevant project domain) and entry points worth trying (RSS, sitemap, tag pages, web search), with step 2's known gaps (RSS shows only recent posts; Medium sitemaps are incomplete), as suggestions the agent may change
 - [ ] **Output format:**
   - For each article: title, URL, 1-2 sentence summary, key technologies
   - Classify into three tiers:

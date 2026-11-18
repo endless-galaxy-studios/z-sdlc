@@ -8,10 +8,8 @@ description: >
   dispatched domain agents in real time; CLOSEOUT restructures the messy doc into the
   project's postmortem template (timeline, root cause, action items) once remediation
   deliverables exist.
-  Use when a production incident occurs — service down, OOM, elevated error rate, data issue, or security event.
-  Triggers on "incident", "production incident", "OOM", "service is down", "we had an outage",
-  "production issue", "investigate the outage", "postmortem", "incident report",
-  "document the incident", "/sdlc-debug-incident".
+  Triggers on "incident", "OOM", "service is down", "we had an outage", "postmortem",
+  "/sdlc-debug-incident".
   Do NOT use for pure debugging without user-visible service impact — dispatch the
   debug-specialist agent directly.
   Do NOT use for writing the remediation plan itself — use sdlc-plan or sdlc-lite-plan once
@@ -138,11 +136,11 @@ Pick 3–5 agents per incident based on the symptom. Over-dispatch (10 agents fo
 
 **Selection process:**
 
-1. Identify the symptom domain(s) from `agent-selection.yaml`'s `dispatch_when` triggers (e.g., latency → performance-engineer; auth → security-engineer; DB → data-architect; deploy/container → devops-engineer; frontend render → frontend-developer; build/CI → build-engineer; data pipeline → data-engineer; ML/inference → ml-engineer; cross-service → systems-engineer).
+1. Identify the symptom domain(s) from the `dispatch_when` triggers and the `infrastructure_domains` table in `[sdlc-root]/process/agent-selection.yaml`, and take the agents they name.
 2. Always include `debug-specialist` for ambiguous cases.
 3. Always include `code-reviewer` if you suspect a recent change introduced the issue.
-4. Add `security-auditor` (not `security-engineer`) if the incident is a suspected breach, IDOR, or data exposure — the auditor assesses, the engineer fixes.
-5. For ML/retrieval quality regressions, pair `ml-engineer` with whichever evaluation specialist your project has (often `sdet`).
+4. If the incident is a suspected breach, IDOR or data exposure, add the project's security-review agent if it has one: it assesses, and an implementer fixes. If the project has none, record that in the doc and ask CD who assesses.
+5. For ML/retrieval quality regressions, pair the project's ML implementer with its evaluation specialist (often `sdet`).
 
 ---
 

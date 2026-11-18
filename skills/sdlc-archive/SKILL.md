@@ -108,9 +108,9 @@ For each artifact, classify using this priority order: **frontmatter status → 
 | **Delete** | Stale bug reports with no follow-up, duplicate artifacts, resolved handoffs that have been fully acted on | Remove entirely |
 | **Skip** | Active, recent, or in-progress work | Leave in place |
 
-### 4. Single Approval Gate
+### 4. Main Approval Gate
 
-**This is the ONLY AskUserQuestion in the entire flow.** Present one comprehensive table covering all artifact types and all proposed actions:
+**This is the flow's main AskUserQuestion.** Step 0's reconciliation, when it runs, asks its own questions before this gate. After it, only two points ask again: step 9c, when more than 3 entries need a judgment call, and step 12's commit confirmation. Present one comprehensive table covering all artifact types and all proposed actions:
 
 ```
 Archive & cleanup plan — {N} items to archive, {M} to delete, {K} skipped (active)
@@ -252,7 +252,7 @@ This archive operation just moved deliverable docs from `docs/current_work/...` 
 1. If `.claude/agent-memory/` doesn't exist (project doesn't use agent memory), skip this step silently.
 2. For each deliverable being archived, grep `.claude/agent-memory/*/` for the old `docs/current_work/...` paths this operation moved.
 3. Rewrite each hit to the new `docs/chronicle/...` location.
-4. If a note's entire subject deliverable is now archived and the note is a pure task-log with no forward-reusable insight, offer it for deletion **in the Step 9c triage table** (per the "ONE AskUserQuestion" rule — do not open a second gate). If Step 9c was skipped (no table produced), apply the default: keep the note unless it is unambiguously a pure task-log with nothing reusable, in which case delete it and report what was removed.
+4. If a note's entire subject deliverable is now archived and the note is a pure task-log with no forward-reusable insight, offer it for deletion **in the Step 9c triage table** (it rides on that table — do not open another gate for it). If Step 9c was skipped (no table produced), apply the default: keep the note unless it is unambiguously a pure task-log with nothing reusable, in which case delete it and report what was removed.
 
 ### 10. Clean Up Issues
 
@@ -283,7 +283,7 @@ Ask for confirmation before committing.
 | "This idea brief is old, just delete it" | Old briefs still contain exploration context. Archive them — don't discard. The thinking is valuable even if the idea was abandoned. |
 | "I should run full discipline capture during archival" | Archival is housekeeping, not creative work. Knowledge hygiene triages existing entries — it does not generate new ones. |
 | "No parking lot entries to triage, skip step 9" | Still check idea brief insights for missing coverage (step 9b). But if both 9a and 9b are clean, skip the triage table — don't fabricate work. |
-| "I'll ask the user at each step" | ONE AskUserQuestion in step 4. After approval, execute autonomously. Knowledge hygiene gets a second gate only if >3 ambiguous entries exist. |
+| "I'll ask the user at each step" | Ask once, in step 4. After approval, run autonomously: the only later questions are step 9c's (only if more than 3 entries need a judgment call) and step 12's commit confirmation. |
 | "Lite deliverables go through the same path as full" | Lite deliverables may only have a result file — don't fail on missing spec/plan. Archive what exists. |
 | "I'll move the old changelog entries by hand" | Run the script. It moves entries unedited and checks none is lost or doubled; a hand move can drop or alter one. |
 | "Bug reports should always be archived" | Stale, duplicate, or fully-resolved bug reports can be deleted. Only archive bugs with valuable diagnostic context. |

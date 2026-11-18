@@ -422,6 +422,8 @@ After presenting the audit report, run an interactive triage session for all pro
 - **Dimension 8 agent memory patterns** flagged as promotion-worthy (recurring across agents, reusable)
 - **§6m Deep Verify DEMOTE verdicts** (only when a Deep Verify sweep ran this invocation) — demotion candidates carrying the entry text, source location (`file.yaml::key`), each judge's verdict and reasoning, and tie-break reasoning if split
 
+It also checks the auditor's **unverified findings**: info findings marked "unverified — check X". Run each named check before the rest of triage (put it to CD when it needs access this session lacks). A confirmed one joins the findings at its real severity; a refuted one is dropped.
+
 ### Triage Workflow
 
 **11a. Collect candidates.** During steps 6 and 8, build a candidate list. Each candidate needs:
@@ -520,7 +522,7 @@ Pruned: N | Wired: N | Kept: N
 
 ### When to Skip Triage
 
-- **No candidates:** If steps 6 and 8 found no promotion candidates AND §6k found no prune candidates, skip step 11 entirely. Do not force a triage session.
+- **No candidates:** If steps 6 and 8 found no promotion candidates, §6k found no prune candidates AND the auditor reported no unverified findings, skip step 11 entirely. Do not force a triage session.
 - **User declines:** If CD says "skip triage" or "not now," respect that. Note "Triage deferred by CD" in the audit artifact.
 - **Prune-only:** If there are prune candidates but no promotion candidates, still run the prune triage portion of step 11.
 
@@ -624,7 +626,7 @@ Four levels, the scale `sdlc-compliance-auditor` reports in. Where a dimension a
 - **Critical**: Missing specs for completed features, deliverable ID conflicts, catalog entries pointing to nonexistent files
 - **Major**: Incomplete artifact chains, stale docs, unarchived completed work, disconnected knowledge stores, dormant disciplines
 - **Minor**: Naming inconsistencies, optional improvements, unmarked parking lot entries
-- **Info**: Observations. Promotion candidates are not findings: step 11 (triage) handles them
+- **Info**: Observations, and located suspicions the auditor couldn't confirm, marked "unverified — check X" (triage runs the check). Promotion candidates are not findings: step 11 (triage) handles them
 
 ## Guiding Principles
 
