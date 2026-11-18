@@ -31,15 +31,20 @@ A project's own verify skill (`.claude/skills/verify/`, written by `sdlc-develop
 
 ## Agent Conventions
 
+The When to invoke, typical-triggers, seam and tools checks below are graded in `sdlc-reviewer` (Agent-specific frontmatter, Agents — required sections), whose stated severities override the general levels at the end of this doc.
+
 ### Frontmatter
 - `description` is double-quoted single-line with `\\n` escapes (single `\n` in YAML double-quoted strings is a real newline — breaks the parser)
-- Includes 1-2 `<example>` blocks as trigger mechanism, tiered by confusability: 1 if no confusable sibling agent exists, 2 (typical-use + seam) if one does. Never 3-4: a third or fourth example adds to the per-session description cost without adding routing signal.
-- NO `<commentary>` blocks inside examples — they restate the scope sentence or Do-NOT-use boundary already present in the same description; pure redundancy, not routing signal
-- Includes a mandatory "Do NOT use for: X — use Y instead" boundary sentence — with examples capped at 2, this is the primary mechanism resolving overlap with adjacent agents, not optional prose
+- Names concrete trigger conditions (files, domains, kinds of request) and 2–4 typical trigger scenarios in prose (`Typical triggers include ...`), ends the paragraph before the Do-NOT-use boundary with `See When to invoke in the agent body.`, and adds one seam sentence when a confusable sibling agent exists (a Do-NOT-use boundary naming the look-alike request and the sibling counts)
+- NO `<example>` dialogue blocks and NO `<commentary>` — the description is read on every dispatch decision; worked scenarios go in the body's `## When to invoke` section
+- Includes a mandatory "Do NOT use for: X — use Y instead" boundary sentence — the primary mechanism resolving overlap with adjacent agents, not optional prose
 - `model`, `tools`, `color` fields present
+- `tools` grants every tool the body or the project's CLAUDE.md tells the agent to use, including Claude Code's `SendMessage` for an agent that sends progress updates, with an MCP server's tools named one by one rather than by server prefix (graded in `sdlc-reviewer`)
 - `name` field present
 
 ### Required Sections
+- `## When to invoke` before every other section: 2–4 scenario bullets plus seam bullets, 5 at most, with seam bullets covering the siblings the Do-NOT-use boundary names (one bullet may cover several), each a bold scenario name (a seam bullet's starts with `Seam:`), then the situation in third person and what the agent does; no quoted utterances or `user:` / `assistant:` turn markers
+- Every non-seam scenario in When to invoke is named in the description's typical triggers in the same order, and nothing is named there without a scenario
 - Scope statement (what the agent owns AND does not touch)
 - Knowledge Context section referencing `[sdlc-root]/knowledge/agent-context-map.yaml`
 - Communication Protocol (inter-agent handoff format)
@@ -55,6 +60,6 @@ A project's own verify skill (`.claude/skills/verify/`, written by `sdlc-develop
 
 ## Review Severity Levels
 
-- **Critical** — will break dispatching or violates a hard convention (missing frontmatter fields, wrong description format)
+- **Critical** — will break dispatching or violates a hard convention (missing frontmatter fields, a description that isn't a double-quoted single line)
 - **Major** — convention gap that degrades quality (missing anti-triggers, no Red Flags table, no Integration section)
 - **Minor** — style or completeness improvement (generic principles, thin anti-rationalization table)

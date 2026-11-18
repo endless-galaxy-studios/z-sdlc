@@ -21,7 +21,7 @@ Create new domain agents or enrich existing ones with patterns from external sou
 **Argument:** `$ARGUMENTS` (domain for CREATE, or `enrich <agent> <sources>` for ENRICH)
 
 <!-- MIRROR-START: headless-mode.md#headless-stop-rule -->
-**Headless runs (no person present).** This run is headless if the caller's prompt or appended system prompt has a line starting `SDLC headless mode:`, or if no ask-the-user tool (`AskUserQuestion`, or the harness's equivalent such as OpenCode's `question`) can be used — none is available or loadable, or a call to it is denied without an answer. A dispatched subagent is never headless itself; in a headless run the orchestrator tells each subagent so, and the limits below bind it too. In a headless run, every point in this skill that asks CD something the next step depends on, waits for CD's approval, or escalates to CD **stops the run there**: save the work so far, return the questions, the document or action plan awaiting approval, or the open-findings table as the run's result (in the caller's output schema if it passed one), and end the turn normally — a stop is a result, not an error. A missing precondition the caller must fix ends the run with status `failed` and the reason. Never guess an answer, take a default for a decision CD owns, approve your own work, or skip the gate. List questions the next step does not depend on in the result instead of stopping. Take the no path on optional offers. Cause no side effect outside the working tree — no push, post, comment, label, publish, external send, or live-system change — unless the caller's prompt names it; list those actions in the result. Two exceptions stand: writes to the project's knowledge backend count as local work, and the External Review Gate may send to a hosted provider the project has durably authorized (`[sdlc-root]/process/external-review-gate.md` § Data egress). Reads are fine. A question the prompt or thread already answers is not a gate. Full rule and result format: `[sdlc-root]/process/headless-mode.md`.
+**Headless runs (no person present).** This run is headless if the caller's prompt or appended system prompt has a line starting `SDLC headless mode:`, or if no ask-the-user tool (`AskUserQuestion`, or the harness's equivalent such as OpenCode's `question`) can be used — none is available or loadable, or a call to it is denied without an answer. A dispatched subagent is never headless itself; in a headless run the orchestrator tells each subagent so, and the limits below bind it too. In a headless run, every point in this skill that asks CD something the next step depends on, waits for CD's approval, or escalates to CD **stops the run there**: save the work so far, return the questions, the document or action plan awaiting approval, or the open-findings table as the run's result (in the caller's output schema if it passed one), and end the turn normally — a stop is a result, not an error. A missing precondition the caller must fix ends the run with status `failed` and the reason. Never guess an answer, take a default for a decision CD owns, approve your own work, or skip the gate. List questions the next step does not depend on in the result instead of stopping. Take the no path on optional offers. Cause no side effect outside the working tree — no push, post, comment, label, publish, external send, or live-system change — unless the caller's prompt names it; list those actions in the result. Two exceptions stand: the skill's own knowledge-layer updates count as local work, even when an adapter writes them to its memory store (a subagent's own memory-store writes don't), and the External Review Gate may send to a hosted provider the project has durably authorized (`[sdlc-root]/process/external-review-gate.md` § Data egress). Reads are fine. A question the prompt or thread already answers is not a gate. Full rule and result format: `[sdlc-root]/process/headless-mode.md`.
 <!-- MIRROR-END: headless-mode.md#headless-stop-rule -->
 
 ## Mode Resolution
@@ -70,23 +70,20 @@ Read the `.claude/agents/` directory to identify existing agents and their domai
 **CRITICAL:** The `description` field MUST be a double-quoted single-line string using `\\n` (double-backslash n) for newlines. In YAML double-quoted strings, a single `\n` is a real newline character. Always use `\\n`, the one form every Claude Code version has parsed, so the parsed string contains a literal `\n`. Block scalars (`|`, `>`) and multi-line quoted strings also break the parser.
 
 The description MUST include:
-- Triggering conditions ("Use this agent when...")
-- `<example>` blocks tiered by confusability, NO `<commentary>` (see below)
+- Triggering conditions ("Use this agent when..."), naming the files, domains and kinds of request that should route here
+- "Typical triggers include ..." naming each non-seam scenario of the body's When to invoke section as a short noun phrase, in the same order (routing reads only the description, so a scenario it should act on must be named here); keep the topic list of files and domains in the "Use this agent when" clause
+- When a confusable sibling agent exists, one seam sentence naming the look-alike request and the agent it belongs to; a Do-NOT-use boundary that names both counts
+- The pointer `See When to invoke in the agent body.`, without quote marks (a double quote inside the string would need escaping)
+- No `<example>` dialogue blocks and no `<commentary>`: the description is read on every dispatch decision; worked scenarios go in the body's `## When to invoke` section (step 3a)
 - A mandatory "Do NOT use for: X — use Y instead" anti-trigger sentence
 
 Generate each field:
 
 **name:** `lowercase-with-hyphens`, 3-50 characters, starts and ends with alphanumeric. Check for conflicts with existing agents.
 
-**description:** Follow the exact format from agent-template.md line 3. Include realistic scenarios in example blocks.
+**description:** Follow the exact format from agent-template.md line 3; be concrete about files, domains and request types.
 
-**Example-count tiering (mandatory — this is the primary lever on description size):**
-1. Check whether a confusable sibling exists — an existing agent whose domain a user request could plausibly route to instead of this one (you already scanned `.claude/agents/` for domain overlap in Step 1; reuse that scan). If unsure, ask the user.
-2. **No confusable sibling:** 1 `<example>` block (typical-use).
-3. **Confusable sibling exists:** 2 `<example>` blocks — one typical-use, one "seam" example showing a request that looks similar but correctly routes to the OTHER agent (or this one, if the seam runs the other way). Cross-check: if this agent has a confusable sibling, its description should get the reciprocal seam example the next time it's touched.
-4. **Never 3-4.** A 3rd or 4th example restates the 1st with a different noun — it was the previous default and is exactly what inflated descriptions cost the most.
-5. **Drop `<commentary>` entirely.** It restates the scope sentence or the Do-NOT-use boundary already in the same description — pure redundancy, not routing signal.
-6. **The Do-NOT-use boundary sentence is mandatory, not optional prose.** With examples capped at 2, it is the primary mechanism for resolving overlap with adjacent agents.
+**Seam sentence (only when a confusable sibling exists):** reuse the Step 1 overlap scan; if unsure, ask the user. Give the sibling the reciprocal seam sentence the next time it's touched. The Do-NOT-use boundary sentence is mandatory: it is the primary mechanism for resolving overlap with adjacent agents.
 
 **model:**
 - `sonnet` (default) — most agents
@@ -103,8 +100,14 @@ Generate each field:
 **tools:** List ONLY what the agent actually needs. Common sets:
 - Read-only analysis: `Read, Glob, Grep`
 - Code generation: `Read, Write, Edit, Glob, Grep`
-- Full engineering: `Read, Write, Edit, Bash, Glob, Grep`
+- Full engineering: `Read, Write, Edit, Bash, Glob, Grep, LSP`
 - Research: `Read, Glob, Grep, WebFetch, WebSearch`
+
+On macOS, Linux and WSL, Claude Code leaves `Glob` and `Grep` out of the default tool set and searches through `Bash` (embedded `bfs` and `ugrep`, which hooks and permission rules see as `Bash` calls). A subagent gets them back only when it lists them and leaves out `Bash`. A read-only agent therefore lists `Glob` and `Grep` without `Bash`, so it can still search. Keep them in a `Bash` agent's line as well, because Windows keeps both tools.
+
+In Claude Code, add `SendMessage` to any set when the agent's Communication Protocol section tells it to send progress updates (the template's does): without it the agent has no channel for its progress updates, which reach the orchestrator from background and team dispatches. Every tool the body tells the agent to use, such as an MCP server's tools by exact name, must be in the list; a tool the list leaves out is unavailable to the agent. Name an MCP server's tools one by one rather than by server prefix (`mcp__server`): a prefix grants every tool the server has, and every definition loads into the agent's context on each dispatch.
+
+Then read the project's CLAUDE.md for the tools its rules require of agents: its Agent Conventions grant list, the Context7 tools in its Verification Policy for an agent that writes or reviews code against external libraries, `LSP` where the project's LSP plugin serves the agent's language, and the project's memory store's tools when it has one. Grant each one that applies to this agent by exact name, as the project's session lists it. In a project that runs the software factory (`.github/factory/factory.json` exists), grant Context7's plain names too (`mcp__context7__resolve-library-id`, `mcp__context7__query-docs`), the ones its jobs use; an entry the session lacks is skipped while another entry resolves. An agent the project's rules tell to use a tool it can't call can't follow them.
 
 **color:** Choose the color that matches the agent's semantic category. Multiple agents CAN share a color if they belong to the same group — color indicates category, not uniqueness. Semantic groups:
 - green: core product
@@ -124,11 +127,16 @@ Present the complete frontmatter for review before proceeding.
 
 Generate each section following agent-template.md structure:
 
-#### 3a. Scope Statement
+#### 3a. Scope Statement and When to invoke
 ```
 You own [scope]. You do not touch [boundaries]. [Cross-domain handoff pattern.]
 Your domain expertise covers [technologies, frameworks, patterns].
+
+## When to invoke
+
+- **[Short scenario name].** [The situation in third person, and what this agent should do.]
 ```
+Write 2-4 scenario bullets for the scenarios the description names (an explicit request, a proactive trigger where one applies), plus seam bullets, whose bold names start with `Seam:`, covering the confusable siblings (the agents the Do-NOT-use boundary names; one bullet may cover several), 5 bullets at most, merging scenarios first. No quoted utterances and no `user:` / `assistant:` turn markers; collapse phrasings of one intent into one bullet.
 
 #### 3b. Knowledge Context
 ```
@@ -161,7 +169,7 @@ Generate 4-6 domain-specific quality checks. Must include:
 
 #### 3h. Persistent Agent Memory (if memory: project)
 Include the standard memory section from agent-template.md:
-- MEMORY.md guidelines (200-line limit)
+- MEMORY.md guidelines (200-line limit, and never saving a secret)
 - What to save / what NOT to save (domain-specific examples)
 - Surfacing Learnings to the SDLC section
 
@@ -254,7 +262,7 @@ Dispatch the `sdlc-reviewer` subagent on the created agent file. The reviewer ch
 |---------|---------|
 | "The description can use block scalars (> or \|)" | Agent descriptions MUST be double-quoted single-line with `\\n` escapes (double-backslash). A single `\n` in YAML double-quoted strings becomes a real newline; `\\n` is the one form every Claude Code version parses. |
 | "I'll give the agent all tools to be safe" | Fewer tools = less latitude to diverge. Only list what the agent actually needs. |
-| "The example blocks are optional" | Examples are the primary trigger mechanism. Without them, Claude Code won't suggest this agent. 1 minimum (2 if a confusable sibling exists) — but never more than 2, and never with `<commentary>`. |
+| "The description needs example dialogues to trigger" | Concrete trigger conditions, named trigger scenarios, a seam sentence and the Do-NOT-use boundary carry the routing. Worked scenarios go in the body's `## When to invoke` section, which costs nothing until the agent runs; dialogue examples in the description add tokens to every dispatch decision. |
 | "I don't need anti-rationalization entries" | Every agent rationalizes shortcuts. The table is mandatory. |
 | "This agent doesn't need a knowledge context section" | Every agent should consult agent-context-map. Even if no files are mapped yet, the section establishes the pattern. |
 | "I'll skip the self-verification checklist" | The checklist is the agent's last chance to catch mistakes before handoff. Mandatory. |
@@ -266,7 +274,7 @@ Dispatch the `sdlc-reviewer` subagent on the created agent file. The reviewer ch
 | "This source is clearly relevant — extract everything" | Premature satisfaction. Check every dimension against the source. Most content won't apply when viewed through the agent's actual lens. |
 | "I'll skip the dismissal defense — all patterns look good" | The defense exists because you feel thorough when you're not. It's mandatory in ENRICH mode. |
 | "I'll apply enrichments directly without presenting a plan" | Always compile and present the integration plan first. The user decides what gets integrated. |
-| "This source has a great new example scenario — I'll add it to the description" | ENRICH mode enriches the agent BODY, not the description's example count. Re-inflating the description back toward 3-4 examples or reintroducing `<commentary>` undoes the example-economy convention. Leave the description alone unless the enrichment source reveals the scope/boundary itself changed. |
+| "This source has a great new example scenario — I'll add it to the description" | ENRICH mode enriches the agent BODY. Put scenarios in its `## When to invoke` section; change the description only if the scope, the typical triggers or the boundary changed. |
 
 ---
 

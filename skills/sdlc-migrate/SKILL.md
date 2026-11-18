@@ -17,7 +17,7 @@ Apply z-sdlc upstream updates to a project while preserving project-specific cus
 **Argument:** `$ARGUMENTS` (optional — local path to a z-sdlc clone. If omitted, resolve via `.sdlc-manifest.json` → `source_repo`, or ask user.)
 
 <!-- MIRROR-START: headless-mode.md#headless-stop-rule -->
-**Headless runs (no person present).** This run is headless if the caller's prompt or appended system prompt has a line starting `SDLC headless mode:`, or if no ask-the-user tool (`AskUserQuestion`, or the harness's equivalent such as OpenCode's `question`) can be used — none is available or loadable, or a call to it is denied without an answer. A dispatched subagent is never headless itself; in a headless run the orchestrator tells each subagent so, and the limits below bind it too. In a headless run, every point in this skill that asks CD something the next step depends on, waits for CD's approval, or escalates to CD **stops the run there**: save the work so far, return the questions, the document or action plan awaiting approval, or the open-findings table as the run's result (in the caller's output schema if it passed one), and end the turn normally — a stop is a result, not an error. A missing precondition the caller must fix ends the run with status `failed` and the reason. Never guess an answer, take a default for a decision CD owns, approve your own work, or skip the gate. List questions the next step does not depend on in the result instead of stopping. Take the no path on optional offers. Cause no side effect outside the working tree — no push, post, comment, label, publish, external send, or live-system change — unless the caller's prompt names it; list those actions in the result. Two exceptions stand: writes to the project's knowledge backend count as local work, and the External Review Gate may send to a hosted provider the project has durably authorized (`[sdlc-root]/process/external-review-gate.md` § Data egress). Reads are fine. A question the prompt or thread already answers is not a gate. Full rule and result format: `[sdlc-root]/process/headless-mode.md`.
+**Headless runs (no person present).** This run is headless if the caller's prompt or appended system prompt has a line starting `SDLC headless mode:`, or if no ask-the-user tool (`AskUserQuestion`, or the harness's equivalent such as OpenCode's `question`) can be used — none is available or loadable, or a call to it is denied without an answer. A dispatched subagent is never headless itself; in a headless run the orchestrator tells each subagent so, and the limits below bind it too. In a headless run, every point in this skill that asks CD something the next step depends on, waits for CD's approval, or escalates to CD **stops the run there**: save the work so far, return the questions, the document or action plan awaiting approval, or the open-findings table as the run's result (in the caller's output schema if it passed one), and end the turn normally — a stop is a result, not an error. A missing precondition the caller must fix ends the run with status `failed` and the reason. Never guess an answer, take a default for a decision CD owns, approve your own work, or skip the gate. List questions the next step does not depend on in the result instead of stopping. Take the no path on optional offers. Cause no side effect outside the working tree — no push, post, comment, label, publish, external send, or live-system change — unless the caller's prompt names it; list those actions in the result. Two exceptions stand: the skill's own knowledge-layer updates count as local work, even when an adapter writes them to its memory store (a subagent's own memory-store writes don't), and the External Review Gate may send to a hosted provider the project has durably authorized (`[sdlc-root]/process/external-review-gate.md` § Data egress). Reads are fine. A question the prompt or thread already answers is not a gate. Full rule and result format: `[sdlc-root]/process/headless-mode.md`.
 <!-- MIRROR-END: headless-mode.md#headless-stop-rule -->
 
 ## Source Repo Access Rule
@@ -687,16 +687,16 @@ These sections originate from the framework and should be updated across all pro
 | Section | Source | Update Rule |
 |---------|--------|-------------|
 | `## Knowledge Context` | agent-template | Must exist in every agent. If missing, add it. If present, update to match template wording. |
-| `## Communication Protocol` | agent-template | Update the canonical protocol reference. Preserve domain-specific handoff fields. |
+| `## Communication Protocol` | agent-template | Update the canonical protocol reference and the progress-update sentence after it to the template's wording (an old "Emit structured JSON progress updates" sentence becomes the template's "Send short plain-text progress updates to the orchestrator…" one). Preserve domain-specific handoff fields. |
 | Memory section header/guidelines | agent-template | Update generic guidelines and "Surfacing Learnings to the SDLC" section. Preserve domain-specific "what to save" content. |
 
-**NOT template-derived:** the frontmatter `description` field is author/project-owned and is never auto-updated here, even when `agent-template.md`'s description convention changes (e.g., example-count tiering). Overwriting a project's hand-tuned trigger examples with framework defaults would be a regression, not an update. §3.4 offers an advisory-only trim suggestion instead — the project team decides.
+**NOT template-derived:** the frontmatter `description` field and the body's `## When to invoke` section are author/project-owned and are never added or auto-updated here, even when `agent-template.md`'s convention for them changes (e.g., the no-dialogue-examples rule). Overwriting a project's hand-tuned triggers and scenarios with framework defaults would be a regression, not an update. §3.4 offers an advisory-only fix suggestion instead — the project team decides.
 
 ### 3.2 Apply Template Updates
 
 For each agent in `.claude/agents/`:
-1. Check if `## Knowledge Context` section exists — add if missing
-2. Verify Communication Protocol references `[sdlc-root]/knowledge/architecture/agent-communication-protocol.yaml`
+1. Check if `## Knowledge Context` section exists — add if missing, after the opening scope paragraphs and after `## When to invoke` when the agent has one
+2. Verify Communication Protocol references `[sdlc-root]/knowledge/architecture/agent-communication-protocol.yaml`, and replace its progress-update sentence with the template's (§3.1). An agent whose restricted `tools:` line lacks `SendMessage` then has no channel for those updates: `tools:` is project-owned, so don't add it here; §3.4 lists the agent under Tool grants for the user to decide
 3. Verify memory section guidelines match the latest template
 4. Do NOT touch: scope ownership, core principles, workflow, anti-rationalization tables, self-verification checklists, domain-specific content
 
@@ -742,7 +742,8 @@ New or updated knowledge files and process docs may conflict with or improve the
 | Skill bodies | `.claude/skills/*/SKILL.md` content | AVOID example safety — flag unguarded anti-pattern examples missing the correct-pattern pairing |
 | Skill bodies | `.claude/skills/*/SKILL.md` content | Deterministic-first — flag procedural instructions (file scanning, API calls, pattern matching) that could be scripts |
 | Agent definitions | `.claude/agents/*.md` | New knowledge wiring — do any agents work in domains covered by newly added knowledge files but aren't wired to them? |
-| Agent descriptions | `.claude/agents/*.md` frontmatter | Description-economy convention — flag `<commentary>` blocks, 3+ `<example>` blocks, or a missing "Do NOT use for" boundary sentence; suggest a trim (advisory only, see §3.1) |
+| Agent descriptions | `.claude/agents/*.md` frontmatter | Description-economy convention — flag `<example>` or `<commentary>` blocks, a missing "Do NOT use for" boundary sentence, a missing `## When to invoke` body section, or a description without its `Typical triggers include ...` sentence and pointer; suggest a fix (advisory only, see §3.1) |
+| Agent tools | `.claude/agents/*.md` frontmatter | Tool-grant convention — flag a restricted `tools:` line that leaves out `SendMessage` on an agent whose Communication Protocol section says to send progress updates (its updates have no channel), that leaves out a tool the project's CLAUDE.md requires of agents doing that agent's work (its Agent Conventions grant list, Context7 for code against external libraries), or that grants an MCP server by prefix (`mcp__server`) instead of naming its tools; suggest the grant (advisory only: `tools:` is project-owned) |
 | Discipline parking lots | `[sdlc-root]/disciplines/*.md` | Stale entries — do any `[NEEDS VALIDATION]` entries now have evidence from newly landed knowledge? |
 | Project knowledge | `[sdlc-root]/knowledge/**/*.yaml` | Contradictions — do any project-specific knowledge rules conflict with newly landed upstream rules? |
 
@@ -761,7 +762,8 @@ New or updated knowledge files and process docs may conflict with or improve the
    - Glob `.claude/agents/*.md` (excluding framework agents: `sdlc-reviewer.md`, `sdlc-compliance-auditor.md`)
    - For each agent, read its domain expertise description
    - Cross-reference against newly added knowledge files — if a new knowledge file covers a domain the agent works in but isn't in the agent's `## Knowledge Context` section, flag it
-   - For each agent, check the frontmatter `description` field for `<commentary>` blocks, 3+ `<example>` blocks, or a missing "Do NOT use for" boundary sentence — flag against the description-economy convention
+   - For each agent, check the frontmatter `description` field for `<example>` or `<commentary>` blocks or a missing "Do NOT use for" boundary sentence, and the body for a missing `## When to invoke` section or a description without its `Typical triggers include ...` sentence and `See When to invoke in the agent body.` pointer — flag against the description-economy convention
+   - For each agent with a `tools:` line, check for `SendMessage` when its Communication Protocol section says to send progress updates, for each tool the project's CLAUDE.md requires of agents doing its work, and for an MCP server granted by prefix rather than by exact tool names — flag against the tool-grant convention. An agent with no `tools:` line inherits every tool and needs no grant.
    - **Do not modify agents.** Collect findings.
 
 4. **Scan discipline parking lots:**
@@ -799,8 +801,11 @@ AGENT FINDINGS ([count] agents scanned)
     [agent-name] — works in [domain] but not wired to new [knowledge-file]
       → Suggest: add to agent-context-map.yaml
   Description economy:
-    [agent-name] — description has [N] examples with `<commentary>` blocks / missing Do-NOT-use boundary
-      → Suggest: trim to 1-2 examples (tiered by confusability), drop `<commentary>`, add boundary sentence
+    [agent-name] — description has `<example>` / `<commentary>` blocks / missing Do-NOT-use boundary / no When to invoke section / no typical-triggers sentence or pointer
+      → Suggest: move `<example>` scenarios into a `## When to invoke` body section as prose bullets and name them in the description's typical triggers, end its prose with `See When to invoke in the agent body.`, drop `<commentary>`, add boundary sentence
+  Tool grants:
+    [agent-name] — sends progress updates but `tools:` has no SendMessage / lacks [tool] the project's CLAUDE.md requires / grants [mcp__server] by prefix
+      → Suggest: add `SendMessage` or [tool] to `tools:` by exact name; name the server's tools the agent uses one by one
 
 PARKING LOT FINDINGS
   Evidence available:
@@ -820,7 +825,8 @@ Apply any of these? (list numbers, "all", or "skip")
 - Skill description reframing → edit the skill's frontmatter
 - AVOID example fixes → edit the skill body
 - Agent knowledge wiring → edit `agent-context-map.yaml`
-- Agent description trim → edit the agent's frontmatter `description` field
+- Agent description fix → edit the agent's frontmatter `description` field, and add or edit its `## When to invoke` section
+- Agent tool grant → edit the agent's frontmatter `tools:` line
 - Parking lot triage updates → edit the discipline file
 - Knowledge conflict resolution → edit the project knowledge file
 

@@ -94,8 +94,12 @@ Read `/tmp/z-sdlc-lite-bootstrap/templates/agent-template.md` as the structural 
 
 **Frontmatter rules (same as full):**
 - `description` MUST be a double-quoted single-line string using `\\n` for newlines — single `\n` breaks the parser
-- Include 1 `<example>` block (Context/user/assistant, no `<commentary>`), or 2 when another lite agent's domain could be confused with this one
-- Include the boundary sentence ("Do NOT use for: X — use Y instead")
+- Name the trigger conditions, then `Typical triggers include ...` naming each non-Seam scenario of the body's `## When to invoke` section as a short noun phrase in body order, then the pointer `See When to invoke in the agent body.` No `<example>` dialogue blocks and no `<commentary>`
+- Include the boundary sentence ("Do NOT use for: X — use Y instead"), naming the lite sibling that owns the look-alike request
+
+**When to invoke (body, right after the scope statement, before every other section):** 2–4 scenario bullets, each a bold short scenario name, then the situation in third person and what the agent does, plus a `**Seam: ...**` bullet sending the closest look-alike request to the lite sibling that owns it (for example, line-level review to `code-reviewer`, component boundaries to `software-architect`). No quoted utterances and no `user:` / `assistant:` turn markers, and 5 bullets at most.
+
+**Communication Protocol:** the lite install has no communication protocol file, so lite agents send no progress updates and their `tools` stay as listed below, without `SendMessage`. Leave the template's progress-update sentence out and end every task with a structured handoff.
 
 #### 3a. `software-architect`
 
@@ -297,7 +301,7 @@ mappings:
     - "ops/sdlc-lite/knowledge/architecture/domain-boundary-gotchas.yaml"
 ```
 
-Add a `## Knowledge Context` section to each of the 3 agent files (written in Step 3) pointing them at this map:
+Add a `## Knowledge Context` section to each of the 3 agent files (written in Step 3), right after its `## When to invoke` section, pointing them at this map:
 
 ```markdown
 ## Knowledge Context

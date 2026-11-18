@@ -2,7 +2,7 @@
 
 Domain agent roles that have proven useful across projects. Each entry includes the universal expertise description you can paste into your agent's system prompt, plus suggested frontmatter. Customize the project-specific sections (file paths, package names, tech stack) for your codebase.
 
-**Creating agents:** Always invoke `/sdlc-develop-agent` to create agents. Do NOT write agent files directly — the skill validates frontmatter, formats description `<example>` blocks, and scaffolds the system prompt. See `[sdlc-root]/templates/agent-template.md` for the structural pattern the skill produces.
+**Creating agents:** Always invoke `/sdlc-develop-agent` to create agents. Do NOT write agent files directly — the skill validates frontmatter, writes the description's typical triggers and the body's `## When to invoke` scenarios, and scaffolds the system prompt. See `[sdlc-root]/templates/agent-template.md` for the structural pattern the skill produces.
 
 **Model & effort defaults (per `[sdlc-root]/knowledge/architecture/model-tier-strategy.yaml`):** domain writer agents default to `sonnet`; cross-cutting review-only agents (code-reviewer, software-architect, security-auditor) default to `opus` so reviewer tier ≥ implementer tier (MTS4/MTS7); recon/mechanical agents (search, retrieval, checklist verification) carry `effort: low` in frontmatter. `effort:` is the one tier lever that is stable at frontmatter level in interactive dispatch today. An entry without a `Suggested model` line takes the `sonnet` default.
 
@@ -709,4 +709,4 @@ Not every project needs all of these. Start with agents that match your pain poi
 | **Game development** | game-developer, performance-engineer, realtime-systems-engineer, build-engineer |
 | **LLM-powered product** | prompt-engineer, ml-architect, security-engineer, sdet |
 
-All agents follow the structure in `[sdlc-root]/templates/agent-template.md`. To create a new agent, use `/sdlc-develop-agent` — it handles frontmatter validation, description formatting with `<example>` blocks, and system prompt scaffolding. Then add your project-specific context (file paths, tech stack, conventions).
+All agents follow the structure in `[sdlc-root]/templates/agent-template.md`. To create a new agent, use `/sdlc-develop-agent` — it handles frontmatter validation, the description's typical triggers and the body's `## When to invoke` section, and system prompt scaffolding. Then add your project-specific context (file paths, tech stack, conventions).

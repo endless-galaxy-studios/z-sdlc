@@ -111,7 +111,7 @@ Do not add files that belong to another domain without considering the signal-to
 
 ## Shared Knowledge
 
-`[sdlc-root]/knowledge/architecture/agent-communication-protocol.yaml` appears in most domain agents' mappings. The communication protocol defines how agents structure their output, emit progress updates, and format handoffs. Agents that emit structured handoffs should include this file; utility agents with simpler output patterns may omit it.
+`[sdlc-root]/knowledge/architecture/agent-communication-protocol.yaml` appears in most domain agents' mappings. The communication protocol defines how agents structure their output, send progress updates, and format handoffs. Agents that emit structured handoffs should include this file; utility agents with simpler output patterns may omit it.
 
 This reflects a general principle: cross-cutting knowledge goes in each relevant agent's list explicitly. There is no "include all" directive, no wildcard, and no inheritance. Explicit lists are load-bearing — they make the knowledge contract for each agent visible and auditable at a glance.
 

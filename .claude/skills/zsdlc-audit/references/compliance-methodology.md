@@ -243,12 +243,13 @@ Audit every agent in `agents/` for convention adherence.
 **Frontmatter format:**
 - Uses YAML frontmatter with `---` delimiters
 - `name:` field present
-- `description:` includes when-to-use guidance with examples
+- `description:` is a double-quoted single line naming its trigger conditions and `Typical triggers include ...`, ending the paragraph before its Do-NOT-use boundary with `See When to invoke in the agent body.`, with no `<example>` or `<commentary>` blocks
 - `model:` field present (e.g., `sonnet`, `opus`)
-- `tools:` field lists required tools
+- `tools:` field lists required tools, each by exact name, including every tool the body tells the agent to use (`SendMessage` when its Communication Protocol section says to send progress updates)
 - `color:` field present
 
 **Content quality:**
+- Agent has a `## When to invoke` section before every other section, whose non-Seam scenarios the description's typical triggers name in the same order, plus a `Seam:` bullet for the sibling its Do-NOT-use boundary names
 - Agent has clear role description
 - Methodology or approach section present
 - Agent references correct file paths for the source repo

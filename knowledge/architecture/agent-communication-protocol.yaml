@@ -1,19 +1,19 @@
 # Agent Communication Protocol
 # Extracted from multiple agent definitions across implementation and investigation roles.
-# Defines the canonical structured progress update and handoff pattern used across all
+# Defines the canonical progress update and structured handoff pattern used across all
 # implementation and investigation agents in the SDLC.
-# Last updated: 2026-03-13
+# Last updated: 2026-11-17
 
 id: agent-communication-protocol
 name: "Agent Communication Protocol"
-description: "Canonical protocol for structured progress updates, task handoffs, and knowledge feedback across all SDLC agents"
+description: "Canonical protocol for progress updates, structured task handoffs, and knowledge feedback across all SDLC agents"
 pattern: methodology
 category: architecture
 spec_relevant: false
 project_applicability:
   relevant_when: "Always relevant — governs the z-sdlc agent system itself"
   action_if_irrelevant: keep
-last_updated: 2026-03-13
+last_updated: 2026-11-17
 
 # ─────────────────────────────────────────────
 # Progress Update Protocol
@@ -21,11 +21,49 @@ last_updated: 2026-03-13
 
 progress_updates:
   purpose: >
-    Emitted during longer tasks so the orchestrator can track status, detect stalls,
+    Sent to the orchestrator during longer tasks so it can track status, detect stalls,
     and make routing decisions without waiting for task completion.
 
-  when_to_emit:
-    - After completing a logical chunk of work (e.g., each file, each phase, each step)
+  # For agent authors: in Claude Code, an agent that sends updates lists SendMessage in its
+  # tools: line; without it the agent has no channel.
+  delivery:
+    channel: >
+      Text you write while working stays in your own transcript: the harness hands the
+      orchestrator only your final message. When the harness gives you a way to reach the
+      agent that dispatched you, send each update there, and only there. In Claude Code
+      that is SendMessage to "main" when you run as a background subagent, or to the lead
+      by name (e.g. "team-lead") when you are a team teammate; team skills use the STATUS
+      envelope in [sdlc-root]/process/team-communication-protocol.md with the update as its
+      body. The same tool can reach other agents and sessions, which are not yours to
+      message. Write the update as short plain text, not JSON, in the shape of
+      minimal_example (see rendering).
+    no_channel: >
+      A foreground dispatch has no mid-task channel: the orchestrator is waiting on your
+      final message, and in Claude Code "main" accepts messages only from background
+      subagents. A harness without a messaging tool has none either. In those cases, and
+      whenever a send fails, don't retry and don't try another recipient: stop sending and
+      carry the progress in your final handoff. If you can't tell how you were dispatched,
+      one send decides it: a failure means there is no channel.
+    handoff_wins: >
+      An update carries status only. Every finding, changed file and decision must also be
+      in your final handoff, because the orchestrator acts on the final message.
+    dispatch_prompt_wins: >
+      If the dispatch prompt asks for the final message only, it overrides every
+      progress-update instruction in this protocol, send-during-long-tasks included.
+      Orchestrators should ask for that in parallel review fan-outs, where each reviewer's
+      updates cost context and carry little routing value.
+    cost: >
+      Every update lands in the orchestrator's context. Send one per completed logical
+      chunk, block or confirmed root cause, never one per tool call.
+
+  rendering: >
+    The first line states the status in one sentence and folds in what was completed; it
+    is the preview the orchestrator sees. Then one "name: value" line per other canonical
+    or extension field you have, list items joined with semicolons and counts as numbers
+    (e.g. "findings: critical 1, high 2").
+
+  when_to_send:
+    - After completing a logical chunk of work (a phase, or a group of related files; not every file or step)
     - When blocked or switching hypothesis
     - When root cause is confirmed (for investigation agents)
 
@@ -55,13 +93,10 @@ progress_updates:
       description: "Planned remaining steps"
 
   minimal_example: |
-    {
-      "agent": "backend-developer",
-      "status": "implementing",
-      "completed": ["Route handler", "Database batch write"],
-      "current": "Error handling and input validation",
-      "next": ["Changelog entry", "Self-verification checklist"]
-    }
+    Implementing: route handler and database batch write are done.
+    agent: backend-developer
+    current: error handling and input validation
+    next: changelog entry; self-verification checklist
 
   agent_extensions:
     # Each agent may add domain-specific fields alongside the canonical ones.
@@ -72,7 +107,7 @@ progress_updates:
         critical_issues: "integer"
         warnings: "integer"
         suggestions: "integer"
-        remaining: "string[] — files not yet reviewed"
+        remaining: "integer — count of files not yet reviewed"
     debug-specialist:
       extra_fields:
         hypotheses_tested: "integer"
@@ -84,7 +119,7 @@ progress_updates:
       extra_fields:
         domains_reviewed: "string[] — e.g., Authentication, Input Validation, Secrets"
         findings: "object — { critical, high, medium, low } integer counts"
-        remaining: "string[] — audit domains not yet covered"
+        remaining_domains: "string[] — audit domains not yet covered"
     # Add your project's domain agents here with their extra fields:
     # domain-agent:
     #   extra_fields:
@@ -108,6 +143,7 @@ handoff_format:
     - "Modified files: every file created or changed"
     - "Follow-up: downstream steps, environment changes, or cross-agent dependencies"
     - "Blockers or open questions: anything unresolved that requires CD decision"
+    - "Memories stored: title and id of each, when any (see project_memory)"
 
   domain_specific_additions:
     # Customize these for your project's agents:
@@ -165,14 +201,35 @@ knowledge_feedback:
       Usage Audit) to identify consistently useful, irrelevant, or missing knowledge.
 
 # ─────────────────────────────────────────────
+# Project Memory
+# ─────────────────────────────────────────────
+
+project_memory:
+  purpose: >
+    When your tools include the project's memory store, you may store a confirmed decision,
+    gotcha or root cause that a future session would otherwise have to work out again. It is
+    separate from knowledge_feedback, which reports on the [sdlc-root]/knowledge files;
+    reusable rules still reach those files through discipline capture. If something is also a
+    gap in those files, report it in knowledge_feedback.missing as well. These rules cover an
+    MCP memory store granted in your tools: line, not your own .claude/agent-memory/ directory
+    (the agent template's Persistent Agent Memory section governs that).
+  rules:
+    - "Never store a secret, credential, token, or environment-variable value."
+    - "Store only what you confirmed: read in the code, reproduced, or decided by CD. Search first, and store it once."
+    - "A review dispatch stores nothing unless its dispatch prompt says to: reviewers usually run side by side, and the orchestrator stores what survives triage and removes duplicates."
+    - "In a headless run, store nothing unless the caller's prompt names the memory store: no one reviews what a headless run stores, and later sessions read it. Put what you would have stored in your handoff instead. The framework's own knowledge-layer updates, which [sdlc-root]/process/headless-mode.md counts as local work, are the dispatching skill's, not yours."
+    - "Name each memory you stored in your handoff, with its title and id."
+
+# ─────────────────────────────────────────────
 # Protocol Rules
 # ─────────────────────────────────────────────
 
 rules:
-  - id: emit-during-long-tasks
+  - id: send-during-long-tasks
     rule: >
-      Emit at least one progress update for any task spanning more than 3 logical steps.
-      Do not wait until completion to report status.
+      When you have a channel (see delivery), send at least one progress update to the
+      orchestrator for any task spanning more than 3 logical steps. Do not wait until
+      completion to report status.
 
   - id: handoff-always-structured
     rule: >
@@ -181,11 +238,12 @@ rules:
 
   - id: blocked-state-must-surface
     rule: >
-      If blocked (missing data, unresolved dependency, CD decision needed), emit a
-      progress update with status reflecting the block and list it in next[] with a
-      "BLOCKED:" prefix. Do not silently stall.
+      If blocked (missing data, unresolved dependency, CD decision needed), send a
+      progress update whose first line starts with "BLOCKED:" if you have a channel. Then, in
+      every case, end your turn and return the BLOCKED state as your handoff; a reply
+      resumes you. Do not silently stall.
 
   - id: agent-name-matches-definition
     rule: >
-      The "agent" field in progress JSON must exactly match the agent's definition file
+      The "agent" field of a progress update must exactly match the agent's definition file
       name (e.g., "backend-developer", not "backend developer" or "be-dev").

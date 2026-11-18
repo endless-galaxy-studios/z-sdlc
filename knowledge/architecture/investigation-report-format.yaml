@@ -99,7 +99,7 @@ agent_instantiations:
       **Action Items**: [Concrete follow-ups with owner and deadline]
     notes: >
       For ambiguous issues, present top hypotheses with confidence levels BEFORE
-      diving into the most likely one. Update progress JSON when root_cause_found
+      diving into the most likely one. Send a progress update when root_cause_found
       transitions to true.
 
   code-reviewer:
@@ -130,8 +130,10 @@ agent_instantiations:
       - "No hallucinated functions, phantom imports, or parameter mismatches (LLM verification)"
     notes: >
       The checklist is the merge gate signal. Must always be the final section.
-      Multi-file reviews should emit progress JSON (see agent-communication-protocol.yaml)
-      with files_reviewed, critical_issues, warnings, suggestions, and remaining counts.
+      Multi-file reviews should send progress updates to the orchestrator with files_reviewed,
+      critical_issues, warnings, suggestions, and remaining counts, unless the dispatch prompt asks
+      for the final message only, as review-loop dispatches do.
+      Read [sdlc-root]/knowledge/architecture/agent-communication-protocol.yaml for how updates are delivered.
 
   security-engineer:
     section_order:
