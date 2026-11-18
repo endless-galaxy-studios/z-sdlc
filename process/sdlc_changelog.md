@@ -37,6 +37,34 @@ Each entry contains:
 
 ---
 
+## 2026-11-18: An outside review of a project's v2.7.0 migration: four text fixes and four factory workflow fixes
+
+**Origin:** The same project's v2.7.0 migration PR had a review by another vendor's model. The project's session sent the 13 findings that concern upstream text here to judge; it had checked four of them against the files.
+
+**What happened:** Each finding was checked against z-sdlc's files. The four in core text hold. Of the nine in the factory bundle's workflows, five hold and are fixed here, three hold but need a decision CD owns, and one is a false alarm.
+
+**Changes made:**
+1. **Bug-Fix Rule** (`CLAUDE-SDLC.md`; `knowledge/architecture/debugging-methodology.yaml` § fix_discipline): the quoted failing run has secrets and personal data redacted. A failure message can carry a token, a connection string or a request's data, and a commit is permanent.
+2. **`knowledge/architecture/security-review-taxonomy.yaml` § case_aliasing:** the one mitigation becomes two. Fold names to decide what to refuse, so an alias of a protected path is refused. Match as GitHub does (case-sensitive, last match wins) to decide what gets code-owner review: GitHub leaves an alias of an owned path unowned, so a folded match would call it reviewed. The factory's guard already did both (`protected` and `owner_on_github`, 2026-11-05 below); the knowledge text now says so.
+3. **UI smoke skip** (`sdlc-execute`, `sdlc-lite-execute`, `knowledge/testing/advanced-test-patterns.yaml`): an occupied port is a skip only when it is the port the app used before the phase. A phase that moved the app to a port already in use caused the failure itself.
+4. **`sdlc-status`:** a lite result left in `sdlc-lite/` is Complete when the catalog says Complete, which `sdlc-lite-execute` sets at its final commit and `sdlc-archive` step 2 cross-checks. Otherwise it is Executing, shown as Executing? when commits already name the ID. `sdlc-archive` takes a never-moved result, but status showed it as Executing forever. The project's suggested row repeated the Executing row's condition, so the row keys on the catalog instead.
+5. **The factory bundle's workflows** (`bundles/factory/tree/templates/`), fixes found in a project that installed it:
+   - **`factory-release-pr.yml`:** the open release PR is looked up with this repository's default branch as its head (`head=owner:branch`). `gh pr list --head` also matched a fork's branch of the same name, so a fork's PR into the release branch could be announced as the release PR. The release-marker check is `jq -e … contains`, not `jq | grep -q`: under `pipefail`, grep's early exit could kill jq on a long PR body and read as "doesn't release".
+   - **`factory-gate-request.yml`:** a retry that finds the release PR already open runs the cleanup of stale release PRs and waiting gate runs too. Before, it returned first, so when the run that opened the PR failed during cleanup, stale release PRs stayed open, and merging one would deploy code the gate isn't at. Both listings of gate runs now paginate. New test `test_a_retry_that_finds_the_release_pr_open_still_cleans_up` fails on the old template.
+   - **`factory-smoke.yml`:** the `mcp-services` job fails on a `services.json` that is missing or isn't `{"services": [...]}`, instead of reporting that it lists no MCP service. The `planning-sandbox` job already failed on such a file.
+   - `import_factory.py --prove` passes in the incubator and in an empty project: every template renders, the workflow policy passes, and so does the whole factory suite. The incubator takes the changes with `--to-incubator`.
+
+**Declined:** The finding that `factory-revise` and continued implementation run `services.py` from the PR's tree. `factory_branch.sh switch` lays main's `services.py` and `services.json` over the branch before that step (`test_factory_branch.py` covers it), and `check` refuses a branch that changes either.
+
+**Open, for CD:**
+- **Bypass actors on the pinned branches' ruleset.** The gate request checks rule types from `rules/branches`, which doesn't return bypass actors, so a ruleset with bypass actors passes there. `bootstrap.py` checks that the ruleset has none. Checking them in the workflow needs a token that can read the ruleset's bypass actors; whether the job's tokens can is unverified.
+- **The smoke's left-out-tool probe** passes when the agent never tries the tool and the harness still lists it. Closing that means requiring either an attempt or the tool's absence from the init message's tool list. A real run must first show whether MCP tools always appear there.
+- **`factory-release-pr`'s concurrency group** keeps one pending run, so a third merge in quick succession cancels the second's run. That PR then gets no link to the release PR, though its commits still ship in it. Per-PR groups would bring back two runs creating the same PR.
+
+**Rationale:** An outside review sees what the authors stopped seeing, and calls some things wrong that aren't. Checking each finding against the files kept the four real core gaps and the five real workflow gaps, and left out the false alarm. Release type: patch.
+
+---
+
 ## 2026-11-18: What a project's v2.7.0 migration carried back: fixes it had made to its copies of framework files
 
 **Origin:** A project that installed z-sdlc migrated from v2.1.5 to v2.7.0 on 2026-11-18. Its own copies of framework files carried 44 edits in places v2.7.0 never touched, so after the migration they still differed from upstream. The edits came from a configuration audit and from the agent-format work already ported in the 2026-11-17 entry below. CD had that project's session send them here; z-sdlc decided what to adopt, generalize or decline. Each one is ported onto z-sdlc's current text, not copied.

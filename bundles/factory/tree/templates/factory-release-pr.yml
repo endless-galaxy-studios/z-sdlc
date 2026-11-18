@@ -57,7 +57,7 @@ jobs:
           [ "$(jq -r .merged <<< "$info")" = true ] || { echo "::error::PR #$PR isn't merged"; exit 1; }
           [ "$(jq -r .base.ref <<< "$info")" = "$DEFAULT_BRANCH" ] || { echo "::error::PR #$PR didn't merge into $DEFAULT_BRANCH"; exit 1; }
           [ "$(jq -r .user.login <<< "$info")" = "$APP_LOGIN" ] || { echo "::error::PR #$PR isn't the factory's"; exit 1; }
-          jq -r '.body // ""' <<< "$info" | grep -qF '<!-- factory-release v1 -->' || { echo "PR #$PR's plan doesn't release."; exit 0; }
+          jq -e '(.body // "") | contains("<!-- factory-release v1 -->")' <<< "$info" > /dev/null || { echo "PR #$PR's plan doesn't release."; exit 0; }
           gh api "repos/$GH_REPO/branches/$RELEASE" > /dev/null || { echo "::error::no branch $RELEASE"; exit 1; }
           title=$(jq -r .title <<< "$info")
           sub="<sub>factory release · [run]($RUN_URL)</sub>"
@@ -66,7 +66,8 @@ jobs:
             GH_TOKEN=$APP_TOKEN gh pr comment "$PR" --body "Nothing to release: \`$RELEASE\` already has everything on \`$DEFAULT_BRANCH\`. $sub"
             exit 0
           fi
-          open=$(gh pr list --base "$RELEASE" --head "$DEFAULT_BRANCH" --state open --json number --jq '.[0].number // empty')
+          # This repository's own branch: gh pr list --head matches a fork's branch of the same name too.
+          open=$(gh api "repos/$GH_REPO/pulls?state=open&base=$RELEASE&head=${GH_REPO%%/*}:$DEFAULT_BRANCH" --jq '.[0].number // empty')
           if [ -n "$open" ]; then
             GH_TOKEN=$APP_TOKEN gh pr comment "$open" --body "Also releases #$PR ($title), merged into \`$DEFAULT_BRANCH\`. $sub"
             GH_TOKEN=$APP_TOKEN gh pr comment "$PR" --body "Release PR: #$open. Merging it deploys. $sub"

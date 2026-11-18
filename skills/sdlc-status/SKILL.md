@@ -36,8 +36,11 @@ Scan the project's SDLC artifacts and present a status summary. This is read-onl
    | yes | yes | no | **Plan ready** — awaiting execution |
    | yes | yes | yes | **Complete** — ready to archive |
    | no (lite) | yes, in `sdlc-lite/` | no | **Plan ready** — awaiting `sdlc-lite-execute` |
-   | no (lite) | yes, in `sdlc-lite/` | yes, in `sdlc-lite/` | **Executing** — result started, not yet moved to `completed/` |
+   | no (lite) | yes, in `sdlc-lite/` | yes, in `sdlc-lite/`, and the catalog doesn't say Complete | **Executing** — result written, not yet committed and moved to `completed/` |
+   | no (lite) | yes, in `sdlc-lite/` | yes, in `sdlc-lite/`, and the catalog says Complete | **Complete** — ready to archive; never moved to `completed/`, which `sdlc-archive` accepts |
    | no (lite) | yes, in `sdlc-lite/completed/` | yes, in `sdlc-lite/completed/` | **Complete** — ready to archive |
+
+   A lite result left in `sdlc-lite/` is either still executing or finished and never moved (a project from before the move, or a commit that skipped it), and only the catalog's status tells them apart. When the catalog says In Progress but commits name the ID (`git log --oneline -i --grep=dNN`), show **Executing?** and say the catalog may be stale: `sdlc-archive` step 2 checks it.
 
    If a matching issue file exists in `issues/`, mark it **Blocked** regardless of other artifacts.
 

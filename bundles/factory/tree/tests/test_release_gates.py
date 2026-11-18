@@ -631,6 +631,27 @@ class ReleaseGateRequest(FakeGhCase):
         self.assertEqual(code, 1)  # the cancel failed
         self.assertIn("G3 deploys when you merge** https://github.com/o/r/pull/77", self.said(calls))
 
+    def test_a_retry_that_finds_the_release_pr_open_still_cleans_up(self):
+        # The run that opened #41 failed during the cleanup: its retry finds #41 open and finishes it.
+        self.data[f"repos/{REPO}/git/ref/heads/{self.PIN}"] = {"object": {"sha": HEAD}}
+        self.data[self.LIST] = [{"number": 41, "state": "open", "merged_at": None, "user": {"id": APP},
+                                 "head": {"sha": HEAD, "repo": {"full_name": REPO}}}]
+        self.data[f"repos/{REPO}/pulls?state=open&base=release/production&per_page=100"] = [
+            {"number": 40, "user": {"id": APP}, "head": {"ref": f"factory/release/{PR}-G3-{'f' * 12}",
+                                                        "repo": {"full_name": REPO}}},
+            {"number": 41, "user": {"id": APP}, "head": {"ref": self.PIN, "repo": {"full_name": REPO}}}]
+        self.data[f"repos/{REPO}/actions/workflows/factory-gate.yml/runs?status=waiting&per_page=100"] = {
+            "workflow_runs": [{"id": 900, "display_title": f"factory-gate #{PR} G3 a1 release {'0' * 64}"}]}
+        code, calls, err = self.run_step()
+        self.assertEqual(code, 0, err)
+        self.assertIn("release PR #41", self.said(calls))
+        self.assertFalse([c for c in calls if c.get("call", [""])[:2] == ["pr", "create"]])
+        closes = [c["call"] for c in calls if c.get("call", [""])[:2] == ["pr", "close"]]
+        self.assertEqual([c[2] for c in closes], ["40"])  # never the release PR itself
+        self.assertTrue(closes[0][closes[0].index("--comment") + 1].startswith("Replaced by #41:"))
+        cancels = [c["path"] for c in calls if c.get("path", "").endswith("/cancel")]
+        self.assertEqual(cancels, [f"repos/{REPO}/actions/runs/900/cancel"])
+
 @unittest.skipUnless(shutil.which("jq"), "needs jq")
 class ReleaseMergeAndGateRun(FakeGhCase):
     """factory-advance's release-gate job, and factory-gate.yml's check of a release request, run the same way."""

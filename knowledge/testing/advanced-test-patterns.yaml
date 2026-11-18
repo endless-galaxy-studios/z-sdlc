@@ -1197,8 +1197,9 @@ playwright_mcp_verification:
         a broken render — downstream phases will build on a broken foundation.
         With a verify skill, a launch or health-check failure is a smoke failure too,
         re-dispatched with the command and its output, unless the cause is one the phase
-        can't have made (another instance holds the port, the driving tool is missing):
-        then the check is skipped, with the reason.
+        can't have made (another instance holds the port the app used before the phase,
+        the driving tool is missing): then the check is skipped, with the reason. A phase
+        that moved the app to a port already in use caused the failure itself.
       output_format: |
         UI smoke: ✓ renders clean | ✗ [describe failure] | skipped — [reason]
         Console: ✓ no errors | ✗ [error count and summary] | skipped

@@ -122,7 +122,9 @@ fix_discipline:
     isn't practical (a large new harness, production-only state, mocks that would test
     nothing), use the closest check that runs instead (a script, a command, a drive of
     the app) and record why: prefer that check to a bad test. Quote the failing run (the
-    test or check and its failure message) in the report and the commit message. This
+    test or check and its failure message) in the report and the commit message, with
+    any secret or personal data in it (a token, a connection string, a request's data)
+    redacted: a commit is permanent. This
     is the one exception to testing-paradigm.yaml § regression_first.
   symptom_guards: >
     A check in code at the symptom (a guard, retry, swallowed error or clamped value;

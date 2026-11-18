@@ -1210,7 +1210,11 @@ jobs:
         env:
           MCP_PROBE: ${{ inputs.mcp_probe }}
         run: |
-          if jq -e '[.services[]? | select(.attach == "mcp")] | length > 0' .github/factory/services.json > /dev/null 2>&1 \
+          # The planning-sandbox job fails on a bad file too; this says why here instead of calling it empty.
+          if ! jq -e '.services | type == "array"' .github/factory/services.json > /dev/null 2>&1; then
+            echo "::error::.github/factory/services.json is missing or isn't {\"services\": [...]}"; exit 1
+          fi
+          if jq -e '[.services[] | select(.attach == "mcp")] | length > 0' .github/factory/services.json > /dev/null \
              || [ "$MCP_PROBE" = true ]; then
             echo "run=yes" >> "$GITHUB_OUTPUT"
           else

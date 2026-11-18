@@ -381,7 +381,8 @@ supply_chain_security:
       protected one (.claude/settings.local.json), and its hooks or settings take effect on the
       developer's machine.
     mitigations:
-      - "Match protected names and owned patterns case-insensitively (casefold and NFD-normalize both sides); keep owner-less (unowning) patterns exact, since unowning too much is the dangerous direction"
+      - "To decide what to refuse, match protected names and owned patterns case-insensitively (casefold and NFD-normalize both sides), so an alias of a protected path is refused; keep owner-less (unowning) patterns exact, since unowning too much is the dangerous direction"
+      - "To decide whether a path gets code-owner review, match as GitHub does: case-sensitive, last match wins. GitHub leaves an alias of an owned path unowned, so a folded match would call it reviewed when nothing asks for review; list each casing a tool loads in CODEOWNERS, and test ownership through the exact matcher"
       - "Refuse a change that adds a path folding to the same name as another path or directory in the tree"
       - "Git's own core.protectHFS and core.protectNTFS cover .git, not the rest"
 
