@@ -37,6 +37,21 @@ Each entry contains:
 
 ---
 
+## 2026-11-18: The factory imported from the incubator (8f83385..664b097): the review fixes handed back
+
+**Origin:** CD (2026-11-18): "commit and send to incubator", after the outside-review fixes below.
+
+**What happened:** `zsdlc-import-factory --to-incubator` at the incubator's `8f83385` wrote z-sdlc's fixes to `factory-gate-request.yml`, `factory-release-pr.yml`, `factory-smoke.yml` and `tests/test_release_gates.py` into the incubator, which re-rendered its three workflows and took them in #147. Its render, workflow policy and factory tests passed there (811, 46 skipped). The import then read every bundle file in sync, and the proof passed: the incubator at `664b097` took the bundle unchanged, and an empty project rendered all 19 templates and passed the workflow policy and the tests.
+
+**Changes made:**
+
+1. `.claude/skills/zsdlc-import-factory/import.json`: `last_import` is the incubator's merge of #147, so z-sdlc's next change to these files no longer reads as changed on both sides.
+2. No bundle code or seed changed: the range's only factory commit is the hand-back itself.
+
+**Rationale:** Until the incubator took z-sdlc's copies and the import recorded it, the next z-sdlc change to any of them would have read as a conflict, and the proof would have installed the incubator's copies without z-sdlc's changes.
+
+---
+
 ## 2026-11-18: An outside review of a project's v2.7.0 migration: four text fixes and four factory workflow fixes
 
 **Origin:** The same project's v2.7.0 migration PR had a review by another vendor's model. The project's session sent the 13 findings that concern upstream text here to judge; it had checked four of them against the files.
