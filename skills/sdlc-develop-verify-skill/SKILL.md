@@ -92,6 +92,7 @@ Answer these from the code, and ask CD only what the code can't tell you:
 - **Drive:** an existing harness first (Playwright specs, Playwright MCP, CLI scripts, HTTP endpoints), otherwise a browser for web, a terminal session for a CLI, plain HTTP for a service. Check the tool is available in this session.
 - **Evidence:** what can be captured: screenshots, accessibility snapshots, terminal output and exit codes, response bodies, logs, stored state.
 - **Isolation:** whether two instances can run side by side (ports, data folders, profiles).
+- **Out of reach:** what only production shows and no local run can: the production build and its headers, sign-in that only production settings enable, a proxy the local run bypasses, a development-only hook that production lacks.
 
 Ask CD about the gaps in one question that lists what was found: a fact the code doesn't show (which test account), a target that can't be made local, a target that can't be seen resolving before the app's first write (an app that migrates as it boots), an integration the app can't start without and can't sandbox, or a missing driving tool. An integration only some features need is not a gap: those features are `unreachable`. **Headless run:** stop with `needs-input`, listing the gaps.
 
@@ -105,7 +106,7 @@ Either way, stop what this step started, by the IDs it recorded, before going on
 
 ### 3. Write the Skill
 
-For a replace, remove the old files first, as Mode Resolution says. Write `.claude/skills/verify/SKILL.md` from `references/generated-skill-template.md`, and `.claude/skills/verify/.gitignore` containing `.evidence/`. The frontmatter is required: Claude Code registers the skill, and its built-in `run` behavior finds it, only through `name` and `description`. Fill every section with what step 1 found, with real commands and handles from this repo and no placeholders, and copy the Safety Rules in word for word. Recorded Exceptions lists the exceptions CD made in step 1, or says none.
+For a replace, remove the old files first, as Mode Resolution says. Write `.claude/skills/verify/SKILL.md` from `references/generated-skill-template.md`, and `.claude/skills/verify/.gitignore` containing `.evidence/`. The frontmatter is required: Claude Code registers the skill, and its built-in `run` behavior finds it, only through `name` and `description`. Fill every section but Smoke Trigger Paths with what step 1 found, with real commands and handles from this repo and no placeholders, and copy the Safety Rules in word for word. Recorded Exceptions lists the exceptions CD made in step 1, or says none. Out of Reach lists what step 1 found no local run can show. Write Smoke Trigger Paths only when CD names paths, such as UI files the smoke check's default patterns miss (`[sdlc-root]/process/verify-command.md` § Companion).
 
 Prefer the repo's own commands and harnesses. Add a helper script only when no existing command does the job, such as a health check that combines several probes. For each, dispatch the agent the Manager Rule names with `references/dispatch-prompts.md` § Helper Script Prompt.
 
@@ -145,6 +146,7 @@ Read `.claude/skills/verify/SKILL.md` and `features/README.md`, and list the fea
 
 - Fix index drift: entries with no file, files with no entry, duplicates, dead links, and entries with no `Source:`.
 - If the skill's Safety Rules section differs from `references/safety-rules.md`, replace it with the reference's text. If it holds anything besides the rules (an older skill may have recorded an exception there), show that text to CD first: an exception CD confirms moves to Recorded Exceptions, with who decided it and when, and the rest goes. **Headless run:** stop with `needs-input`, quoting it.
+- Never change Smoke Trigger Paths on your own: report to CD a UI path a reader returned under `ui_paths_uncovered`. **Headless run:** list it in the result.
 - Keep Recorded Exceptions as it is, or add it saying none if the skill has no such section. Report to CD an entry that doesn't name its rule, what it allows, why, and who decided it and when, or one that covers stopping, secrets or evidence; never fill one in by guess. **Headless run:** list it in the result.
 - If `.gitignore` lacks `.evidence/`, restore it. If `git ls-files -- .claude/skills/verify/.evidence` lists anything, evidence was committed: stop and tell CD. **Headless run:** end with status `failed`.
 

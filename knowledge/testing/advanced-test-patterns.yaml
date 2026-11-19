@@ -1170,8 +1170,9 @@ playwright_mcp_verification:
       - "*.css, *.scss, *.less, *.module.css"
       - "*/components/*, */pages/*, */views/*, */layouts/*"
       - "*/templates/* (server-rendered template directories)"
+      - "Any path in the verify skill's Smoke Trigger Paths section (process/verify-command.md, Companion), which adds to these and takes precedence over the backend-only skip"
     skip_when:
-      - "Phase modifies only backend files (controllers, models, migrations, services)"
+      - "Phase modifies only backend files (controllers, models, migrations, services), and no Smoke Trigger Path"
       - "Phase modifies only test files (no production UI change)"
       - "Phase modifies only build config (webpack, esbuild, vite config)"
       - "No dev server command is in the project's verify skill or documented in its CLAUDE.md"
@@ -1198,8 +1199,11 @@ playwright_mcp_verification:
         With a verify skill, a launch or health-check failure is a smoke failure too,
         re-dispatched with the command and its output, unless the cause is one the phase
         can't have made (another instance holds the port the app used before the phase,
-        the driving tool is missing): then the check is skipped, with the reason. A phase
-        that moved the app to a port already in use caused the failure itself.
+        the driving tool is missing, or the launch prints UNAVAILABLE for a prerequisite the
+        app needed before the phase): then the check is skipped, with the reason. A phase
+        that moved the app to a port already in use, or added the missing prerequisite,
+        caused the failure itself. A failure that survives a third attempt goes to CD; it
+        is never turned into a skip.
       output_format: |
         UI smoke: ✓ renders clean | ✗ [describe failure] | skipped — [reason]
         Console: ✓ no errors | ✗ [error count and summary] | skipped

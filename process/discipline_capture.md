@@ -166,6 +166,8 @@ When an entry is promoted to a knowledge store, it must be **moved** from the `#
 
 The promoted section is a ledger — it records what was promoted and where, so triage passes don't re-discover the same insight. Keep the entry text short; the full content now lives in the knowledge store.
 
+An entry can also be promoted to a **fitness function**, a committed test or check that enforces it: ``- **Entry title.** Promoted → `path/to/test` (fitness function)``. CD still approves it. The Promotion Verification Gate's panel judges knowledge entries; a fitness function is checked by running it, so it must fail without the behavior it enforces and pass in CI.
+
 ## Rules
 
 - **Skip if nothing surfaced.** Do not fabricate entries. Empty is fine — discipline capture is pulled, not pushed.

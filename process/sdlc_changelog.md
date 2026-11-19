@@ -37,6 +37,56 @@ Each entry contains:
 
 ---
 
+## 2026-11-18: The smoke check stops looping and reads its triggers from the verify skill; review dispatch and the round cap
+
+**Origin:** Eight notes from a project's session, from the follow-ups after its v2.7.0 migration, sent at CD's request for z-sdlc to triage.
+
+**What happened:** Each note was checked against z-sdlc's files:
+- **Already in z-sdlc:** the Recorded Exceptions section and the zsh guidance, which went in with the previous entry, and the rules against putting markers inside a Markdown table and against reusing a marker's label, already in `project-section-markers.md` (§ What Markers Can't Hold; rule 2).
+- **Ported here:** these problems.
+  - The UI smoke check re-dispatched a launch failure with no limit, including one the phase couldn't fix, such as a stopped container runtime.
+  - Its file patterns missed UI outside them, such as a plain-TypeScript client.
+  - The verify template didn't say what a local run can't prove.
+  - Its port and cleanup advice let a port the browser refuses pass a curl health check, and let a reused process ID be stopped.
+  - A reviewer without a shell couldn't read the diff it was given.
+  - The round cap offered CD nothing between stopping and proceeding.
+  - A parking-lot entry promoted to a test had no ledger format.
+
+**Changes made:**
+1. **`process/verify-command.md` § Companion** states the contract the UI smoke check reads from a project's verify skill:
+   - The launch prints `UNAVAILABLE: <what>` for a missing prerequisite outside the repo. The smoke check skips on it only when the app needed that prerequisite before the phase.
+   - An optional `## Smoke Trigger Paths` section adds paths to the default patterns and takes precedence over the backend-only skip. CD sets it, maintain never changes it on its own, and it isn't derived from the feature map's `Source:` lines, which also name backend files.
+2. **`sdlc-execute`, `sdlc-lite-execute`, `knowledge/testing/advanced-test-patterns.yaml`:**
+   - The smoke check reads both.
+   - A smoke failure that survives a third attempt goes to CD with each attempt's output (the 3-strike rule). It is never turned into a skip, since the step exists to stop work building on a broken render (headless: `escalated`).
+3. **`sdlc-develop-verify-skill`:**
+   - The template's launch prints `UNAVAILABLE:` and picks a port browsers allow, and for a browser-driven surface the health check loads a page through the browser.
+   - Each process ID is recorded with its start time (`ps -o lstart=`), and cleanup stops a process only while that time still matches. The Tally example does this.
+   - New template sections: **Out of Reach** (what no local run can show, as distinct from Unproven and `unreachable`) and the optional **Smoke Trigger Paths**.
+   - CREATE step 1 asks what only production shows, and step 3 fills both sections. MAINTAIN's source readers return UI paths neither the defaults nor the list match (`ui_paths_uncovered`), and MAINTAIN reports them without changing the list.
+   - The review and helper prompts check `UNAVAILABLE:` and the start-time match.
+   - The Safety Rule on stopping says "only while it is still the same process", so the next maintain run updates every project's copy, and its review checks the Cleanup against it.
+4. **`process/review-fix-loop.md`:**
+   - **Reviewers without a shell (Step A):** a reviewer whose tools don't include Bash gets its diff in a file outside the working tree, since a file inside the tree would be staged with the work. `headless-mode.md` counts such a scratch file as local work.
+   - **§ Round Cap:** CD can now pick one targeted check after the open findings are fixed. A fresh reviewer reads only the diff from round 3's state to now, and its findings go to CD. It is not a fourth round, and a headless run never takes it.
+   - **`process/skill-agent-review.md`:** says the same about `sdlc-reviewer`, which has no shell.
+5. **`process/discipline_capture.md`:** an entry can be promoted to a fitness function, a committed test that enforces it, written ``Promoted → `path/to/test` (fitness function)``. CD still approves it. Instead of the verification panel, it must fail without the behavior it enforces and pass in CI.
+6. **`process/headless-mode.md` § Integration:** the smoke check's new stop, in both execute skills.
+
+**Policy for CD:**
+- A persistent smoke failure now stops for CD rather than looping or skipping.
+- A verify skill can widen the smoke check's triggers.
+- The round cap gains an option CD can pick.
+
+**Rationale:**
+- **Smoke loop:** a check that can't tell "the phase broke it" from "the machine can't run it" either loops on the second case or learns to skip the first.
+- **Trigger paths:** the project says where its UI is, but its feature map isn't that list.
+- **Targeted check:** at the cap, the cheapest useful next step is to read exactly what changed after the last round.
+
+Release type: minor (a new optional section and output line in the verify skill that the execute skills read).
+
+---
+
 ## 2026-11-18: The verify skill keeps CD's exceptions to its Safety Rules, and migration checks its base first
 
 **Origin:** Two notes from a project's session, from adopting its hand-written verify skill through `sdlc-develop-verify-skill` and from its v2.7.0 migration.

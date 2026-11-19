@@ -1,6 +1,6 @@
 # Skill & Agent Review Methodology
 
-Convention review checklist for SDLC skills and agents. Referenced by creation and enrichment skills during their quality gate steps. The `sdlc-reviewer` subagent performs the actual review — this doc defines what it checks.
+Convention review checklist for SDLC skills and agents. Referenced by creation and enrichment skills during their quality gate steps. The `sdlc-reviewer` subagent performs the actual review — this doc defines what it checks. It has no shell: to review a change to a file rather than the whole file, write the diff to a file outside the working tree and pass the path.
 
 ## Skill Conventions
 
