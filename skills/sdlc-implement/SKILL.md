@@ -76,6 +76,7 @@ You are the orchestrator. **Never edit code yourself, including small fixes**: t
 - the issue's requirements and CD's comments, the files involved, and the constraints from step 2;
 - library versions from the project's dependency manifests, with the instruction to verify APIs through Context7;
 - the off-limits paths, and that new or changed behavior needs tests;
+- **for a bug** (the issue reports something broken, not something to add): that it is a bug fix, with `CLAUDE.md` § Bug-Fix Rule. The agent reproduces the bug and writes the smallest test that fails on the unfixed code for the reason the bug gives, runs it and sees it fail, then fixes it and sees the same test pass. Its report quotes the failing run, the test's name and its failure message, with any token, connection string or personal data redacted. When a test isn't practical (a large new harness, state that exists only in production, mocks that test nothing), it runs the closest check it can and says why. A reproduction against production is out of scope here: it needs a gate;
 - "This run is headless: no person is present. Don't ask questions; report anything you can't decide."
 
 Agents edit files; they don't commit. Dispatch fixes the same way.
@@ -87,6 +88,8 @@ Agents edit files; they don't commit. Dispatch fixes the same way.
 Run every check the change touches with `/opt/factory/verify`, the stack profile's checks (the direct equivalents of the project's full verification, which may need tools this job doesn't have, such as docker compose):
 - `/opt/factory/verify` runs them all; `/opt/factory/verify <area>` runs one of the profile's areas. `--print` lists the areas and their commands, so you or an agent can run a narrower one first, such as a single test file.
 - Anything that touches the database (tests, migrations) runs through `/opt/factory/with-test-services`, as verify's commands do: it makes the test services reachable from the sandbox. Tell agents that run tests the same. A test you can't make pass without an off-limits change is a `rescope` (Edge Cases), never a skip or an `xfail`.
+
+**A bug fix is proven before it is verified.** Before this step's checks, confirm the fixer's report quotes the new test or check failing before the fix and passing after. If it doesn't, dispatch it to produce the failing run (it may revert its fix in the working tree to see it, then restore it); never write the evidence yourself. If no test or check could fail first, say so plainly in the brief's `verification` with the reason, and never imply the bug was reproduced. A new test that passes on `base` proves nothing about the bug.
 
 Fix failures by dispatch, then re-run. A failure that survives two fix attempts is a stop: commit the work (step 6) and return `escalated` with the failure as a `major` finding (the headless rule's twice-failed FIX). Record what ran and the result for the brief's `verification`.
 
@@ -123,7 +126,7 @@ Return **only** a JSON object matching `.github/factory/implement.schema.json`, 
 | `status` | `done` (committed, loop exited clean or with only minors), `escalated` (committed; cap hit with critical/major open, a decision for CD, or a test that wouldn't pass), `needs-input` (a question about this issue), `rescope` (more than direct tier: back to triage), or `failed` |
 | `reason` | Why, for every status but `done` |
 | `title` | The PR title: conventional-commit style, at most 72 characters. Empty for `needs-input`, `rescope` and `failed` |
-| `brief` | The PR description CD reads, one field per section of `[sdlc-root]/templates/pr_description_template.md` (code variant, about 500 words in all; the publish job renders the headings). Plain sentences, no markdown except backticks around a path or code name, no images or HTML. Write it from the diff and step 4's output, never from memory: `verification` gives the commands and their results, and any check that couldn't run; `scope_integrity` says no tests or CI checks were weakened and only the issue's files were touched, or each exception; `files` lists the changed files in reading order; `deviations` stays empty (a direct fix has no plan). Before returning, dispatch one fresh reader in the foreground with only the brief and the diff, and fix what it finds (the template's check before opening). On a `needs-input`, `rescope` or `failed` stop, leave every field empty and the tier `""` |
+| `brief` | The PR description CD reads, one field per section of `[sdlc-root]/templates/pr_description_template.md` (code variant, about 500 words in all; the publish job renders the headings). Plain sentences, no markdown except backticks around a path or code name, no images or HTML. Write it from the diff and step 4's output, never from memory: `verification` gives the commands and their results, and any check that couldn't run, and for a bug fix the new test or check failing before the fix and passing after (one entry quotes the failure message), or why none could fail first; `scope_integrity` says no tests or CI checks were weakened and only the issue's files were touched, or each exception; `files` lists the changed files in reading order; `deviations` stays empty (a direct fix has no plan). Before returning, dispatch one fresh reader in the foreground with only the brief and the diff, and fix what it finds (the template's check before opening). On a `needs-input`, `rescope` or `failed` stop, leave every field empty and the tier `""` |
 | `questions` | 1–3 entries for `needs-input`, empty otherwise |
 | `findings` | Open findings as `{severity, location, summary}`: critical and major for `escalated`, the Open Minor Findings otherwise |
 | `add_ons` | Each small fix beyond the issue: `what`, `why`, `paths` (files this PR changes) and how it was `verified`. Empty if none |
@@ -146,6 +149,7 @@ Return **only** a JSON object matching `.github/factory/implement.schema.json`, 
 
 | Thought | Reality |
 |---|---|
+| "The new test passes, so the bug is fixed" | Only if it failed before the fix. A bug-fix test that never failed on the unfixed code proves nothing: have the fixer show the failing run first, or say in `verification` that none was possible. |
 | "The test failing on `base` is one line, I'll fix it with the change" | A red `base` is `failed`. Every later failure must be yours to fix. |
 | "The same bug is two files over, I'll fix it too" | If it's a two-line fix in the area you touched, it's an add-on: do it and declare it. A different module or a real change is a follow-up: list it in `follow_ups`. |
 | "I'll dispatch it in the background and carry on" | The run ends with your turn, and the work is lost. Dispatch in the foreground and wait. |

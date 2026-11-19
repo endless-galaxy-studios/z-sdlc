@@ -61,7 +61,7 @@ An inline comment on a line is a request about that line. A general "looks good"
 
 ### 3. Dispatch the changes
 
-You are the orchestrator. **Never edit code yourself, including small fixes**: the manager rule (`[sdlc-root]/process/manager-rule.md`) applies without its economics exception. Pick agents with `[sdlc-root]/process/agent-selection.yaml`. Give each the request, the file and line, the relevant part of the diff, the off-limits paths, and "This run is headless: no person is present. Don't ask questions; report anything you can't decide." **Dispatch in the foreground and wait** (never `run_in_background`). New or changed behavior needs tests.
+You are the orchestrator. **Never edit code yourself, including small fixes**: the manager rule (`[sdlc-root]/process/manager-rule.md`) applies without its economics exception. Pick agents with `[sdlc-root]/process/agent-selection.yaml`. Give each the request, the file and line, the relevant part of the diff, the off-limits paths, and "This run is headless: no person is present. Don't ask questions; report anything you can't decide." **Dispatch in the foreground and wait** (never `run_in_background`). New or changed behavior needs tests. **If a request reports a bug** (a regression or a wrong result CD found, not a change CD wants), dispatch it as a bug fix with `CLAUDE.md` § Bug-Fix Rule: the agent writes the smallest test that fails on the code as it is, runs it and sees it fail, then fixes it and sees the same test pass, and its report quotes the failing run with any token or personal data redacted. When a test isn't practical it runs the closest check and says why.
 
 SDLC hygiene is part of the work: if the revision makes a knowledge YAML, parking-lot entry, result doc or ADR wrong, correct it in the same revision. Append a `## Revision N` section to the result doc (when the PR has one) listing what changed and why.
 
@@ -69,6 +69,8 @@ SDLC hygiene is part of the work: if the revision makes a knowledge YAML, parkin
 
 - Run `/opt/factory/verify`, the stack profile's checks: all of them, or one of its areas (`/opt/factory/verify <area>`); `--print` lists the areas and their commands, for a narrower run first.
 - Tests that touch the database run through `/opt/factory/with-test-services`, as verify's do; tell agents the same.
+
+For a bug fix, confirm the report quotes the test or check failing before the fix and passing after; if it doesn't, dispatch the agent to produce the failing run (never write it yourself), and if none could fail first, say so in `verification` rather than imply the bug was reproduced.
 
 Fix failures by dispatch. A failure that survives two fix attempts: commit what works and return `escalated` with the failure as a `major` finding. Record what ran and the result for `verification`.
 
@@ -142,6 +144,7 @@ The factory then asks CD for the gate, as it does when execution stops there. Th
 | "This small fix is quicker if I make it myself" | The manager rule holds with no economics exception: dispatch it. `self_edits` must be 0. |
 | "I'll run the reviewer in the background and carry on" | Dispatch in the foreground and wait. A background agent's work is lost when the run ends. |
 | "The tests fail on `base`; I'll fix those too" | A red baseline is `failed`: the branch was already broken, and fixing it isn't what CD asked. |
+| "The new test passes, so the regression is fixed" | Only if it failed first. Have the agent show the failing run, or say in `verification` that none was possible. |
 | "The PR could also use X" | Out of scope for this revision: a `follow_ups` entry for CD. |
 | "CD answered the decision, so the gate can go ahead even with my question open" | A `needs-your-call` response means CD still decides something: `done`, with `gate` empty. The publish job refuses a gate stop with one open. |
 | "The phase before the gate is half built; I'll finish it so the gate can run" | Change what the review asks for. A revision doesn't continue execution: `done` or `escalated`, saying what's left. |

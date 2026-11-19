@@ -37,6 +37,19 @@ Each entry contains:
 
 ---
 
+## 2026-11-19: The factory's code stages prove a bug before fixing it
+
+**Origin:** CD compared the factory with another team's agent workflow, which makes a regression test that fails on the old code a rule for every fix. z-sdlc already had that rule (`CLAUDE-SDLC.md` § Bug-Fix Rule, `sdlc-lite-plan`'s bug-fix phase), but the factory's `sdlc-implement` and `sdlc-revise` never carried it: neither dispatch told the fixer it was a bug fix, and neither asked for the failing run, so a PR could show a passing test that had never failed.
+
+**Changes made:**
+1. **`skills/sdlc-implement/SKILL.md`:** step 3 dispatches a bug with the Bug-Fix Rule (reproduce, smallest test that fails on the unfixed code, then fix, with the failing run quoted and redacted; the closest check, and why, when a test isn't practical). Step 4 confirms the report quotes the failing run before the checks, has the fixer produce it if not, and says plainly when none could fail first. The brief's `verification` carries it, and Red Flags gets a row.
+2. **`skills/sdlc-revise/SKILL.md`:** the same for a request that reports a bug, in steps 3 and 4 and Red Flags.
+3. No schema change: the evidence goes in the brief's existing `verification` entries.
+
+**Rationale:** a bug-fix test that passes on the unfixed code proves nothing, and CD reviews from the PR's description. The orchestrator still never edits code, so it checks the report and sends the fixer back rather than producing the evidence itself. The incubator's copies of both skills need `zsdlc-import-factory --to-incubator` (not run).
+
+---
+
 ## 2026-11-18: The smoke check stops looping and reads its triggers from the verify skill; review dispatch and the round cap
 
 **Origin:** Eight notes from a project's session, from the follow-ups after its v2.7.0 migration, sent at CD's request for z-sdlc to triage.
