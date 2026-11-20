@@ -37,6 +37,19 @@ Each entry contains:
 
 ---
 
+## 2026-11-20: A factory feature can start where its workload is
+
+**Origin:** planning the factory's browser-based bug reproduction (`docs/current_work/ideas/factory-browser-repro_handoff.md`). z-sdlc proposed building it in the incubator first, as the incubator rule (CD, 2026-10-12) says. CD: the incubator first "seems counterintuitive considering its workload is nothing like" the pilot project's, so build it in the pilot project "then import". The pilot project runs WebGL end-to-end suites, two browsers to a duel; the incubator has no Playwright at all.
+
+**Changes made:**
+
+1. **`CLAUDE.md`** (the incubator rule): a feature whose workload the incubator doesn't have is built and proven in a project that installed the bundle and has it. It then goes into `bundles/factory/tree/` the way a fix found in such a project does, and the import hands it to the incubator.
+2. **`.claude/skills/zsdlc-import-factory/SKILL.md`:** the same in the skill's opening, which already describes how the import keeps a pilot fix and copies it to the incubator.
+
+**Rationale:** a feature proven where its workload doesn't exist proves little. The import already carries a project's change into the bundle and on to the incubator, so the only change is what may start in a project: a feature now, as well as a fix.
+
+---
+
 ## 2026-11-19: The factory's code stages prove a bug before fixing it
 
 **Origin:** CD compared the factory with another team's agent workflow, which makes a regression test that fails on the old code a rule for every fix. z-sdlc already had that rule (`CLAUDE-SDLC.md` § Bug-Fix Rule, `sdlc-lite-plan`'s bug-fix phase), but the factory's `sdlc-implement` and `sdlc-revise` never carried it: neither dispatch told the fixer it was a bug fix, and neither asked for the failing run, so a PR could show a passing test that had never failed.
