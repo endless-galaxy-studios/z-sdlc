@@ -37,6 +37,19 @@ Each entry contains:
 
 ---
 
+## 2026-11-20: The factory:needs-repro label fits GitHub's limit
+
+**Origin:** the pilot project's `bootstrap.py --apply` after migrating to v2.8.0. GitHub refused `factory:needs-repro` (HTTP 422): its description was 101 characters, one over the 100 GitHub allows.
+
+**Changes made:**
+
+1. **`bundles/factory/tree/bootstrap.py`:** the description is shorter (84 characters).
+2. **`bundles/factory/tree/tests/test_bootstrap.py`:** every factory label's name, description and colour is held to GitHub's limits (50, 100, six hex digits), so a new label can't ship one bootstrap can't create.
+
+**Rationale:** `bootstrap.py` compares descriptions, so a project can't work around a label it can't create without the check reporting drift.
+
+---
+
 ## 2026-11-20: A verify exception for the factory too says so in its entry
 
 **Origin:** the pilot project's v2.8.0 migration review. The verify skill's template said an exception recorded in Recorded Exceptions "doesn't carry over" to the factory's runs. That read as contradicting D6 rule 6, which says CD records a factory exception in that same section, and the pilot's CDN exception is one.

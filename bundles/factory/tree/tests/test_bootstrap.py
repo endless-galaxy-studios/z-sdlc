@@ -774,5 +774,15 @@ class Bootstrap(unittest.TestCase):
         self.assertIn("factory.json", err.getvalue())
 
 
+
+class LabelLimits(unittest.TestCase):
+    def test_every_label_fits_githubs_limits(self):
+        # GitHub refuses a label (HTTP 422) whose name is over 50 characters or whose description is over 100.
+        for name, color, description in bootstrap.LABELS:
+            with self.subTest(name=name):
+                self.assertLessEqual(len(name), 50)
+                self.assertLessEqual(len(description), 100)
+                self.assertRegex(color, r"^[0-9a-f]{6}$")
+
 if __name__ == "__main__":
     unittest.main()
