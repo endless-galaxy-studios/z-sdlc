@@ -116,13 +116,13 @@ Write `features/README.md` and one file for each of the 3 to 5 most-used user-fa
 
 ### 5. Prove It
 
-In one launch, run the generated skill exactly as written: launch, health check, drive every seeded feature, capture each one's evidence, clean up. Then confirm the evidence is still in `.evidence/`: a cleanup that deletes the proof fails this step. Fix what fails in the skill or map; a failing helper goes back to its agent. Run the skill's cleanup after every failed attempt, so nothing is left running.
+In one launch, run the generated skill exactly as written: launch, health check, drive every seeded feature, capture each one's evidence, clean up. Then confirm the evidence and its `manifest.json` are still in `.evidence/<run ID>/`, the manifest listing every captured file and nothing else, each entry with its step, what it shows and `bug`: a cleanup that deletes the proof fails this step. Fix what fails in the skill or map; a failing helper goes back to its agent. Run the skill's cleanup after every failed attempt, so nothing is left running.
 
 After three attempts, mark each feature that still fails as `unproven` in the index and go on, naming them at handover. If launch or the health check itself still fails, stop and report the failing step. **Headless run:** stop with status `escalated` and the failing step.
 
 If you proved it somewhere other than the real target (a container standing in for a fresh machine), list in the skill's Unproven section each step the stand-in did that the target won't.
 
-**Validation:** the commands run, each feature's result, and the evidence path.
+**Validation:** the commands run, each feature's result, and the evidence path, with its manifest.
 
 ### 6. Review
 
@@ -130,7 +130,7 @@ Check the skill's files, excluding `.evidence/`. First, mechanically: no value o
 
 Fix each finding: in `SKILL.md` or the map yourself, in a helper through its agent. Then run the mechanical check again, drive the features the fixes touched, and send the major findings back to the same reviewer, scoped to those rows, to confirm each is closed. That re-check confirms the named findings only and gathers no new ones. Give each finding two tries. A major finding still open after that stops the handover: report it to CD. A minor one still open is named at handover, and marks its feature `unproven` when it has one. **Headless run:** an open major finding stops with status `escalated` and the findings table.
 
-This is a quality gate, as in `sdlc-develop-skill`, not a review-fix loop: step 5 already ran everything the reviewer read. Finish with a teardown check: nothing this run started still runs, and the evidence is in place.
+This is a quality gate, as in `sdlc-develop-skill`, not a review-fix loop: step 5 already ran everything the reviewer read. Finish with a teardown check: nothing this run started still runs, and the evidence and its manifest are in place.
 
 ### 7. Hand Over
 
@@ -163,7 +163,7 @@ Check that every feature has a report. Merge the returned recipes into as few ap
 Follow the skill's own launch model: one long-lived instance driven in turn for a server or UI, or a fresh session per drive for a short-lived CLI. Drive every feature at least once, even when the source reading found nothing. Hold three rules the whole pass:
 
 - **Health check before trusting an instance,** including the target and integration checks: before the first drive, on every fresh session, and after any failed drive. Where the health check can't see the problem, such as a stuck UI on a healthy process, reset to a known state or relaunch.
-- **Evidence survives every cleanup.** Check it in `.evidence/`.
+- **Evidence survives every cleanup.** Check it, and its `manifest.json` listing each file, in `.evidence/<run ID>/`.
 - **Nothing a drive started outlives the drive.** Clean up after a failed attempt too. With the run's long-lived instance, clean up what the drive created, not the instance.
 
 A health check that fails because the skill has drifted is drift: fix it, with the same two tries as any fix (step 5). If launch or the health check still fails after that, stop driving: the run is `blocked`. A feature you can't reach is `unreachable` only with the missing prerequisite (sign-in, entitlement, operating system, a live integration) and the route you tried. If the map doesn't name that prerequisite, that's drift too.

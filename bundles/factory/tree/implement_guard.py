@@ -35,6 +35,11 @@ punctuation mark escaped outside `code spans`, so only this script makes heading
 collapsed agent record. <stats.json> is the run's cost, turns and models, read from the runtime's
 record in the agent job; without it the record says they weren't recorded.
 
+Browser evidence (ops/sdlc/process/factory.md D6 rule 7): evidence.py's record from the agent job, in EVIDENCE_MANIFEST,
+and the IDs of the artifacts the job uploaded, in EVIDENCE_REPORT, EVIDENCE_VIDEO and EVIDENCE_TRACE. The guard builds
+every link itself, from <run-url> and an ID, and the archive path from factory.json's `evidence.archive`. The agent's
+captions are text like every other field; a record that doesn't check turns the section into one line saying so.
+
 Where to look (ops/sdlc/process/factory.md § Where to look): factory.json's `review.focus` rules, read from
 the factory.json beside this script (the default branch's), flag changed files. A code PR's body lists them
 over the whole PR, from where it leaves the checkout; a continued execution's segment also gets its own
@@ -491,7 +496,7 @@ def check_revise_result(result, plan="", next_gate=""):
         raise Refused("only a revision stopped at a production gate names a gate")
 
 
-def revise_comment(result, revision, limit, run_url, paths, stats=None, flags=(), focus_error=""):
+def revise_comment(result, revision, limit, run_url, paths, stats=None, flags=(), focus_error="", evidence=()):
     """The revision comment on the PR. The writer's marker opens it; factory-revise.yml counts them.
     `flags` is focus_flags() over this revision's commits; `focus_error` says why the rules didn't load."""
     lines = [f"<!-- factory-revise: {revision} -->", "",
@@ -513,6 +518,8 @@ def revise_comment(result, revision, limit, run_url, paths, stats=None, flags=()
                   "not the agent):", ""] + focus_bullets(flags)
     if result["verification"]:
         lines += ["", "### How it was verified", ""] + bullets(result["verification"])
+    if evidence:
+        lines += ["", "### Browser evidence", ""] + list(evidence)
     serious = [f for f in result["findings"] if f["severity"] in ("critical", "major")]
     minor = [f for f in result["findings"] if f["severity"] == "minor"]
     if serious:
@@ -972,8 +979,105 @@ def run_stats(stats):
     return f"{', '.join(models)}; ${cost:.2f} at API rates{turns}"
 
 
+EVIDENCE_FILE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}\.(png|webm|zip)")
+EVIDENCE_KINDS = {"screenshot": "png", "video": "webm", "trace": "zip"}
+RUN_URL = re.compile(r"https://[A-Za-z0-9.-]+/[A-Za-z0-9_.-]+/([A-Za-z0-9_.-]+)/actions/runs/([0-9]+)")
+ARCHIVE_ROOT = re.compile(r"/[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*")
+ARTIFACT_ID = re.compile(r"[0-9]{1,20}")
+# The Browser evidence section's share of a PR body or comment (MAX_POST is the whole): past it, the manifest lines
+# give way to one line pointing at the report, so evidence never costs the run.
+MAX_EVIDENCE = 12_000
+
+
+def evidence_record(text):
+    """evidence.py's record, checked: (kept files, dropped files, which uploads it made). Raises Refused."""
+    try:
+        rec = json.loads(text)
+    except ValueError:
+        raise Refused("the evidence record isn't JSON")
+    if not isinstance(rec, dict) or not {"files", "dropped", "report", "video", "trace"} <= set(rec) \
+            or set(rec) - {"files", "dropped", "report", "video", "trace", "issue", "run"} \
+            or not all(isinstance(rec.get(k, 0), int) and not isinstance(rec.get(k, 0), bool) for k in ("issue", "run")) \
+            or not all(isinstance(rec[k], bool) for k in ("report", "video", "trace")) \
+            or not isinstance(rec["files"], list) or not isinstance(rec["dropped"], list) \
+            or len(rec["files"]) > 30 or len(rec["dropped"]) > 21:
+        raise Refused("the evidence record isn't evidence.py's")
+    texts = []
+    for f in rec["files"]:
+        if not isinstance(f, dict) or set(f) != {"file", "step", "shows", "bug", "kind"} \
+                or not isinstance(f["file"], str) or not EVIDENCE_FILE.fullmatch(f["file"]) \
+                or not isinstance(f["kind"], str) or EVIDENCE_KINDS.get(f["kind"]) != f["file"].rsplit(".", 1)[-1] \
+                or not isinstance(f["step"], int) or isinstance(f["step"], bool) or not 1 <= f["step"] <= 999 \
+                or not isinstance(f["shows"], str) or not 0 < len(f["shows"]) <= 300 or not isinstance(f["bug"], bool):
+            raise Refused("an evidence entry isn't evidence.py's")
+        texts.append(f["shows"])
+    for d in rec["dropped"]:
+        if not isinstance(d, dict) or set(d) != {"file", "why"} or not all(isinstance(d[k], str) for k in d) \
+                or len(d["file"]) > 80 or len(d["why"]) > 300:
+            raise Refused("a dropped-evidence entry isn't evidence.py's")
+        texts += [d["file"], d["why"]]
+    for t in texts:
+        try:
+            t.encode("utf-8")
+        except UnicodeEncodeError:
+            raise Refused("the evidence record has text that isn't UTF-8")
+        if TOKEN.search(t):
+            raise Refused("the evidence record contains a credential-like string")
+        if EMBED.search(t):
+            raise Refused("the evidence record contains an image or embed")
+    return rec
+
+
+def evidence_archive():
+    """factory.json's evidence.archive (the default branch's): the root the archive keeps runs under, or ''."""
+    try:
+        root = (json.loads(FOCUS_SETTINGS.read_text()).get("evidence") or {}).get("archive") or ""
+    except (OSError, ValueError, AttributeError):
+        return ""
+    return root.rstrip("/") if isinstance(root, str) and ARCHIVE_ROOT.fullmatch(root.rstrip("/") or "x") else ""
+
+
+def evidence_lines(text, ids, run_url, issue, archive=""):
+    """The Browser evidence lines for a PR body or a revision comment: [] when the run left none."""
+    if not (text or "").strip():
+        return []
+    try:
+        rec = evidence_record(text)
+    except (Refused, TypeError, KeyError, AttributeError, ValueError, RecursionError) as e:
+        why = e if isinstance(e, Refused) else "the evidence record isn't evidence.py's"
+        return [f"- Not shown: {why}. The run's artifacts still hold what was uploaded."]
+    if not rec["files"] and not rec["dropped"]:
+        return []
+    links = []
+    for key, label in (("report", "report"), ("video", "video"), ("trace", "Playwright trace")):
+        if rec[key]:
+            ident = str(ids.get(key) or "")
+            links.append(f"[{label}]({run_url}/artifacts/{ident})" if ARTIFACT_ID.fullmatch(ident)
+                         else f"{label} (its upload failed)")
+    lines = []
+    if links:
+        lines.append(f"- **From this run, kept 90 days:** {', '.join(links)}. The report has the screenshots and what "
+                     f"each shows.")
+        m = RUN_URL.fullmatch(run_url)
+        if archive and m:
+            lines.append(f"- **After that:** the archive, at `{archive}/{m.group(1)}/{issue}/{m.group(2)}/`")
+    entries = []
+    for f in sorted(rec["files"], key=lambda f: (f["step"], f["file"])):
+        bug = " **Shows the bug.**" if f["bug"] else ""
+        entries.append(f"- Step {f['step']}, `{f['file']}` ({f['kind']}): {literal(f['shows'])}{bug}")
+    for d in rec["dropped"]:
+        name = f"`{d['file']}`" if EVIDENCE_FILE.fullmatch(d["file"]) or d["file"] == "manifest.json" else literal(d["file"])
+        entries.append(f"- Dropped by the factory: {name}: {literal(d['why'])}")
+    size = len("\n".join(lines).encode())
+    for i, line in enumerate(entries):
+        size += len(line.encode()) + 1
+        if size > MAX_EVIDENCE:
+            return lines + entries[:i] + [f"- And {len(entries) - i} more, in the report."]
+    return lines + entries
+
+
 def pr_body(result, issue, run_url, paths, stage="implement", stats=None, exists=None, present=None, plan_gates=None,
-            flags=(), focus_error="", release=None):
+            flags=(), focus_error="", release=None, evidence=()):
     """The PR description in the template's fixed order. `exists` says whether a path is in the base
     checkout (the default branch), to mark a key file new or not found. `present` is the changed paths
     that still exist at the head (a moved file counts once, at its new path); defaults to `paths`.
@@ -1079,6 +1183,8 @@ def pr_body(result, issue, run_url, paths, stage="implement", stats=None, exists
         lines.append("- **SDLC knowledge changed** (future agents read these): " + ", ".join(path_text(p) for p in hygiene))
     lines += [f"- **Open {f['severity']} finding** at {literal(f['location'])}: {literal(f['summary'])}" for f in serious]
     lines += ["", "## How it was verified" if code else "## How it will be verified", ""] + bullets(brief["verification"])
+    if code and evidence:
+        lines += ["", "### Browser evidence", ""] + list(evidence)
     lines += ["", "## How it works", "", literal(brief["how_it_works"])]
     lines += ["", "## Learn the change", "", "**Files, in reading order**", ""]
     for f in brief["files"]:
@@ -1157,12 +1263,15 @@ def main():
             stats = json.loads(pathlib.Path(stats_path).read_text()) if stats_path else None
         except (OSError, ValueError):
             stats = None
+        evidence = evidence_lines(os.environ.get("EVIDENCE_MANIFEST", ""),
+                                  {k: os.environ.get(f"EVIDENCE_{k.upper()}", "") for k in ("report", "video", "trace")},
+                                  run_url, issue, evidence_archive()) if stage in CODE_STAGES + ("revise",) else []
         if stage == "revise":
             revision, limit = int(os.environ["REVISION"]), int(os.environ["REVISION_LIMIT"])
             if not 1 <= revision <= limit:
                 raise Refused(f"revision {revision} is outside 1..{limit}")
             body = revise_comment(result, revision, limit, run_url, paths, stats, focus_flags(rules, base, head),
-                                  focus_error)
+                                  focus_error, evidence)
         else:
             # Changed paths that exist at the head: a move is one file, at its new path.
             present = git("diff", "--name-only", "-M", "--diff-filter=d", base, head).split()
@@ -1170,7 +1279,8 @@ def main():
             # continued execution <base> is the PR's head before this segment, so base..head would miss the rest.
             start = git("merge-base", "HEAD", head).strip() if rules else base
             body = pr_body(result, issue, run_url, paths, stage, stats, present=present, plan_gates=plan_gates,
-                           flags=focus_flags(rules, start, head), focus_error=focus_error, release=release)
+                           flags=focus_flags(rules, start, head), focus_error=focus_error, release=release,
+                           evidence=evidence)
             # A continued execution's body is rewritten only when it's done, so its gate stop's comment lists
             # what this segment changed.
             if focus_error and stage in CODE_STAGES:

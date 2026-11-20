@@ -62,7 +62,8 @@ Preconditions:
 - **From the CLI.** Run `tally add --amount 12 --category Travel --date <today> --json`. Exit code 0,
   and the output has the new expense's ID.
 - **Proof.** Save an accessibility snapshot and a screenshot of the list to
-  `.evidence/<run>/expense-add/`, and the CLI output to `.evidence/<run>/expense-cli/`.
+  `.evidence/<run>/expense-add/`, and the CLI output to `.evidence/<run>/expense-cli/`, and list each file
+  in `.evidence/<run>/manifest.json` with its step, what it shows and `bug`.
 
 ## Gotchas
 

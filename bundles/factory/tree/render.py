@@ -22,7 +22,7 @@ setting existed keeps rendering; the fixtures block). Plain text substitution, s
 workflow byte for byte outside its placeholders. Refused: an unknown key, a %{ left unresolved, and a
 factory.json setting no template uses (keys starting with _ are notes; the stack block is read at run
 time, by agent_job.sh, the policy block by workflow_policy.py, the review block by implement_guard.py, the browser
-block by browser.py, and the ci block, runners.ci and runners.groups by host/setup.sh and bootstrap.py).
+block by browser.py, the evidence block by implement_guard.py, and the ci block, runners.ci and runners.groups by host/setup.sh and bootstrap.py).
 """
 
 import json
@@ -116,10 +116,10 @@ def render_all(factory_dir, templates_dir):
         except Invalid as e:
             raise Invalid(f"{template}: {e}")
     # planning.json and the stack block are read at run time too (planning-services.sh, agent_job.sh), the policy
-    # block by workflow_policy.py, the review block by implement_guard.py, the browser block by browser.py (and smoke's
-    # browser-host job), and the CI tier's label and the runner groups by host/setup.sh and bootstrap.py, so a setting
+    # block by workflow_policy.py, the review block and the evidence block by implement_guard.py, the browser block by
+    # browser.py (and smoke's browser-host job), and the CI tier's label and the runner groups by host/setup.sh and bootstrap.py, so a setting
     # there no template names isn't dead.
-    run_time = ("planning.", "stack.", "policy.", "review.", "browser.", "ci.", "runners.groups.")
+    run_time = ("planning.", "stack.", "policy.", "review.", "browser.", "evidence.", "ci.", "runners.groups.")
     unused = sorted(k for k in leaves(values) if not k.startswith(run_time) and k != "runners.ci" and k not in used)
     if unused:
         raise Invalid(f"factory.json settings no template uses: {', '.join(unused)}")

@@ -35,7 +35,8 @@
       "policy",
       "runners.ci",
       "release",
-      "browser"
+      "browser",
+      "evidence"
     ],
     "planning.json": [
       "database.sslmode"

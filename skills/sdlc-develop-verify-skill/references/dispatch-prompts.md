@@ -73,6 +73,7 @@ The three prompts `sdlc-develop-verify-skill` sends: the helper script prompt (C
 **Acceptance criteria:** One row per finding, with `path:line`, severity (major / minor), what is wrong, and the fix. Check:
 - Every Safety Rule is copied word for word and nothing in the files breaks one beyond what a Recorded Exceptions entry allows: a target not overridden to a local copy, an integration not confirmed sandboxed, a stop by process name, a secret's value, cleanup that can reach `.evidence/` or an instance the run didn't start.
 - Each Recorded Exceptions entry names the rule, exactly what it allows, why, and who decided it and when; an entry missing any of them, one for stopping, secrets or evidence (which take no exception), or a command that goes beyond its entry is major. Don't judge whether CD's decision is right.
+- The Evidence section names a `manifest.json` in the run's folder (each file with its step, what it shows and `bug`), and no recipe's Proof step leaves it out.
 - A missing prerequisite outside the repo prints `UNAVAILABLE: <what>`, never a plain failure, and cleanup stops a recorded process only while its start time still matches.
 - Every command runs alike under zsh and bash: no unquoted variable meant to split into several words, no glob that may match nothing; a helper that needs either starts `#!/usr/bin/env bash`.
 - The frontmatter has `name: verify` and a description naming the app, its surface and when to use it.

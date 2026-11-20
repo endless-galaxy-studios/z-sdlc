@@ -98,6 +98,10 @@
     "stages": [],
     "allow": []
   },
+  "evidence": {
+    "_doc": "Where a stage's browser evidence lives after GitHub's 90 days (process/factory.md, D6 rule 7). archive: the root, on the host that keeps it, that a timer there pulls each run's evidence into, as <repository>/<issue>/<run id>/; the PR names that path. Empty, the default: the PR names no archive.",
+    "archive": ""
+  },
   "policy": {
     "_doc": "Read by workflow_policy.py, which CI runs over every workflow, the project's own included (process/factory.md, Enablement step 10); no template uses these. hosted_labels: the organization's own GitHub-hosted (larger) runner labels, addressed by label, not by runner group; a listed label counts as hosted wherever the policy asks (the container rule, the App key's job, the fixtures job), so never list one a self-hosted runner can carry (self-hosted, linux, x64 and the like are refused) or a factory runner label. self_hosted_exemptions: the project's own CI jobs that may run on a self-hosted runner without the factory container, each {\"workflow\": \"ci.yml\", \"job\": \"<job id>\", \"reason\": \"<how that runner is isolated, and why the job can't run hosted>\"}; never a factory workflow, a job on the factory's runners or an agent job; the factory's secret rules still hold in it; an entry for a job that no longer exists or now runs hosted is a violation. Both empty by default.",
     "hosted_labels": [],

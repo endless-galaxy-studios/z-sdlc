@@ -37,6 +37,29 @@ Each entry contains:
 
 ---
 
+## 2026-11-20: The factory's browser evidence reaches the PR, and an archive keeps it (D6 rule 7)
+
+**Origin:** CD's decisions on evidence (2026-11-20): CD sees it through links the writer job builds; GitHub keeps it 90 days and then an archive on the runner host's redundant storage, "so it's never gone"; video for reproduce and verify runs; annotated video where Playwright has the screencast API.
+
+**What happened:** a stage's screenshots, video and trace come back through the browser host's front end to the client (tested 2026-11-20), but the agent's files can't go to a PR as they are: an agent-chosen file or link is a way out, and D2 rule 3 refuses images and embeds in agent text.
+
+**Changes made:**
+
+1. **`process/factory.md`:** D6 rule 7. The agent writes only `.factory/evidence/`, with a manifest. Frozen code packs it after the agent, each file goes up unzipped, the writer builds the links, and the archive keeps it after 90 days. D2 rule 3: a writer job's own links to its run's artifacts are the one link it adds outside agent text. Enablement step 14.5 installs the archive.
+2. **The bundle:**
+   - `evidence.py` packs `.factory/evidence/` after the agent and quiesce. It reads only manifest-listed regular files, follows no link, and writes screenshots again from their image data alone, checking a palette's size. It keeps one video, and one trace written again entry by entry, stored or deflated only. A bzip2 entry unpacked 785 bytes to 1 GB in a reviewer's test. It enforces the caps and writes a report that runs no script. Every name and reason it prints or records is escaped, so a newline can't start a workflow command, and a crafted file costs only itself. It records the issue and run from the job's own environment.
+   - The implement and revise jobs upload the report, video, trace and `evidence.json` as their own unzipped artifacts for 90 days.
+   - `implement_guard.py` renders a Browser evidence section in the PR or revision comment. Its links are built from the run's URL and ASCII-digit artifact IDs, the archive path comes from `factory.json`'s new `evidence.archive`, and the manifest goes in as escaped text, capped at 12,000 bytes. A record of the wrong shape degrades to one line rather than refusing the publish.
+   - `workflow_policy.py` holds an agent job's uploads to the runner's temp directory or an execution file, read case-insensitively as GitHub does. Only the packed evidence goes up unzipped, and an `archive` that isn't a literal true counts as unzipped.
+   - `host/evidence_archive.py` pulls each run's evidence into `<root>/<repository>/<issue>/<run>/`, never overwriting. It takes only this repository's implement and revise runs on the default branch that were started as the factory starts them and weren't skipped. It reads every page within 90 days, keeps a list of runs it has finished with, and lets one bad run cost only itself. It takes an artifact's file bare or in a zip, since the download of an unzipped artifact isn't documented. `host/setup-archive.sh` installs it with root under a user of its own on a systemd timer: the token is read without echo, and a system directory, a link or a path with odd characters is refused.
+   - `render.py` counts the `evidence` block as read at run time; the seed's `evidence` block is off by default, and `import.json` marks it optional.
+   - Tests: the packer, the PR section, the upload rule and the record's issue and run in `tests/test_browser.py`, and `tests/test_evidence_archive.py` against a stand-in API.
+3. **`process/verify-command.md` § Companion, `skills/sdlc-develop-verify-skill/`:** the shared evidence layout, a `manifest.json` with each file's step, what it shows and whether it shows the bug. It names a file by its path in the run's folder, since the verify skill keeps per-feature subfolders; the factory's is flat. The skill's proof, teardown and maintain checks look for it, and so do its template, worked example and review checklist. "Evidence survives cleanup" names it, so each project's verify skill picks it up on its next maintain run.
+
+**Rationale:** evidence crosses the boundary only through frozen code that checks what it is, and only the writer makes links. So the agent can't use the PR as a way out, and CD gets the screenshots, video and trace a click away.
+
+---
+
 ## 2026-11-20: The factory's browser route: a stage drives a real browser on the browser host (D6)
 
 **Origin:** `docs/current_work/ideas/factory-browser-repro_handoff.md`. CD's decisions (2026-11-19/20): the browser runs on a dedicated browser host with a GPU, the strict tier gets its first network opening for it, nothing relies on it until smoke passes, offline by default, and it's built for the pilot project first. The pilot project's session reviewed the design against its own end-to-end setup. It also proved, by hand on the runner host in the same sandbox, that the pilot's own servers build, migrate and start inside it and that two of its specs pass through the route. That run is the source of the protocol's points on one spec at a time, `page.clock`, timeouts, the project's own fixtures, and a code-owned script for what its servers need before they start.

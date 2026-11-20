@@ -77,6 +77,10 @@ Allowlists, not blocklists:
   ${{ secrets['NAME'] }} in a run step's FIXTURE_SECRET, and no other job or workflow env references
   that secret. factory.json's fixtures values, which render into the workflow text, hold no
   expression and no character that would break it.
+- Uploads from an agent job (D2 rule 4, D6 rule 7): an actions/upload-artifact step uploads one path, from the runner's
+  temp directory (`${{ runner.temp }}/...` or /__w/_temp/...) or an agent step's execution file, never the workspace
+  the agent writes. Only the browser evidence evidence.py packed (`${{ runner.temp }}/evidence/evidence-report.html`,
+  `-video.webm`, `-trace.zip`) goes up unzipped (`archive: false`), which opens it in the browser.
 - Job conditions: in a factory workflow, a job after one whose `if` has a status function (always(),
   !cancelled(): it runs past a skipped or failed job) has one in its own `if` too. Without one GitHub adds
   success(), which reads every job before it, not just those it needs, so it is skipped whenever an earlier
@@ -818,6 +822,33 @@ def fixture_value_failures(factory_dir):
     return failures
 
 
+UPLOAD = "actions/upload-artifact@"
+UPLOAD_FROM = re.compile(r"^(\$\{\{ runner\.temp \}\}|/__w/_temp)/[A-Za-z0-9._/-]+$"
+                         r"|^\$\{\{ (steps\.[A-Za-z0-9_-]+\.outputs\.execution_file( \|\| )?)+ \}\}$")
+UNZIPPED = {"${{ runner.temp }}/evidence/evidence-report.html", "${{ runner.temp }}/evidence/evidence-video.webm",
+            "${{ runner.temp }}/evidence/evidence-trace.zip", "${{ runner.temp }}/evidence/evidence.json"}
+
+
+def upload_failures(name, steps, is_agent_job):
+    """An agent job uploads only what the job wrote outside the workspace; only the packed evidence goes up unzipped."""
+    failures = []
+    for step in steps:
+        # Action names and inputs are case-insensitive to GitHub.
+        if not str(step.get("uses", "")).lower().startswith(UPLOAD):
+            continue
+        label = f"{name} / {step.get('name', step.get('id', 'upload-artifact'))}"
+        with_ = {str(k).lower(): v for k, v in (step.get("with") or {}).items()}
+        path = str(with_.get("path", "")).strip()
+        # Anything but archive left out or a literal true counts as unzipped: an expression could yield false.
+        unzipped = "archive" in with_ and str(with_["archive"]).strip().lower() != "true"
+        if unzipped and path not in UNZIPPED:
+            failures.append(f"{label}: only the packed browser evidence is uploaded unzipped (archive: false)")
+        if is_agent_job and (".." in path.split("/") or not UPLOAD_FROM.fullmatch(path)):
+            failures.append(f"{label}: an agent job uploads only from the runner's temp directory or an agent step's "
+                            f"execution file, never the workspace: {path[:80]!r}")
+    return failures
+
+
 def job_failures(name, job, workflow_env, model_input, factory_dir, workflow_name="", used_exemptions=None):
     # Every rule below reads the job with its local composite actions' steps in place.
     steps, failures = expand_steps(name, job.get("steps") or [])
@@ -855,6 +886,7 @@ def job_failures(name, job, workflow_env, model_input, factory_dir, workflow_nam
     failures += production_failures(workflow_name, name, job, is_agent_job)
     failures += fixtures_failures(workflow_name, name, job, is_agent_job)
     failures += ci_tier_failures(workflow_name, name, job, is_agent_job)
+    failures += upload_failures(name, steps, is_agent_job)
     if is_agent_job and str({**workflow_env, **(job.get("env") or {})}.get("CLAUDE_CODE_DISABLE_BACKGROUND_TASKS")) != "1":
         # Headless mode: the run ends with the orchestrator's turn, so a background agent's work is lost.
         failures.append(f"{name}: agent job without CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: \"1\"")

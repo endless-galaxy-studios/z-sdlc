@@ -173,6 +173,11 @@ jobs:
       packaged: ${{ steps.package.outcome }}
       status: ${{ steps.package.outputs.status }}
       bundle: ${{ steps.package.outputs.bundle }}
+      # The browser evidence evidence.py packed, and the artifacts it went up as (the publish job links them).
+      evidence: ${{ steps.evidence.outputs.manifest }}
+      evidence-report: ${{ steps.evidence-report.outputs.artifact-id }}
+      evidence-video: ${{ steps.evidence-video.outputs.artifact-id }}
+      evidence-trace: ${{ steps.evidence-trace.outputs.artifact-id }}
       stats: ${{ steps.stats.outputs.stats }}
       # Why the agent step ended with no result, and whether its transcripts were kept.
       lost: ${{ steps.lost.outputs.why }}
@@ -329,6 +334,55 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
+      # The browser evidence the agent left in .factory/evidence/ (process/factory.md D6 rule 7), checked and packed by
+      # frozen code after quiesce: screenshots written again without their metadata, one video, one trace, capped, and
+      # a report that runs no script. Each goes up as its own unzipped artifact, which opens in the browser; the
+      # publish job links them itself.
+      - name: Pack the browser evidence
+        id: evidence
+        if: always() && steps.package.outcome == 'success'
+        continue-on-error: true
+        shell: bash
+        run: |
+          /usr/local/bin/python3 -I "$CHECKS/evidence.py" "$GITHUB_WORKSPACE" .factory/evidence \
+            "$RUNNER_TEMP/evidence" "Issue #$ISSUE_NUMBER, revise"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        id: evidence-report
+        if: always() && steps.evidence.outputs.report == 'yes'
+        continue-on-error: true
+        with:
+          path: ${{ runner.temp }}/evidence/evidence-report.html
+          archive: false
+          retention-days: 90
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        id: evidence-video
+        if: always() && steps.evidence.outputs.video == 'yes'
+        continue-on-error: true
+        with:
+          path: ${{ runner.temp }}/evidence/evidence-video.webm
+          archive: false
+          retention-days: 90
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        id: evidence-trace
+        if: always() && steps.evidence.outputs.trace == 'yes'
+        continue-on-error: true
+        with:
+          path: ${{ runner.temp }}/evidence/evidence-trace.zip
+          archive: false
+          retention-days: 90
+
+      # The packed record (issue and run included), for the archive's pull (host/evidence_archive.py).
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.evidence.outputs.report == 'yes'
+        continue-on-error: true
+        with:
+          path: ${{ runner.temp }}/evidence/evidence.json
+          archive: false
+          retention-days: 90
+
       - name: Record cost and models for the PR
         id: stats
         if: always() && steps.claude.outputs.execution_file != ''
@@ -440,6 +494,10 @@ jobs:
           REVISION: ${{ needs.gate.outputs.revision }}
           PLAN: ${{ needs.gate.outputs.plan }}
           NEXT_GATE: ${{ needs.gate.outputs.next_gate }}
+          EVIDENCE_MANIFEST: ${{ needs.revise.outputs.evidence }}
+          EVIDENCE_REPORT: ${{ needs.revise.outputs.evidence-report }}
+          EVIDENCE_VIDEO: ${{ needs.revise.outputs.evidence-video }}
+          EVIDENCE_TRACE: ${{ needs.revise.outputs.evidence-trace }}
           READ_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail

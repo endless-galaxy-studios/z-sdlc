@@ -66,6 +66,7 @@ A prerequisite outside the repo that is missing ({the container runtime, images,
 
 - **Where:** `.claude/skills/verify/.evidence/<run>/`, which the skill's `.gitignore` excludes.
 - **What:** {screenshots and accessibility snapshots for UI; command, output and exit code for a CLI; request and response for an API}, plus a second, read-only view of anything a drive changed.
+- **Manifest:** `manifest.json` in the run's folder, one entry per file, named by its path there: `{"file": "expense-add/02-list.png", "step": 2, "shows": "the list with the new expense, rounded to cents", "bug": false}`, `bug` saying whether it shows the bug. Screenshots are PNG; a run keeps at most one video (WebM) and one Playwright trace. The factory's stages write the same manifest to `.factory/evidence/`, kept flat there.
 - **Name each artifact** with the feature and the entry point it proves.
 - **Strip** auth headers, cookies and tokens from captured requests and logs.
 

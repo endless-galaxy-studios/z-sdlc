@@ -4,8 +4,12 @@ factory-smoke's browser-host probe. The route itself is proven only by that smok
 host and sandbox; these pin what the scripts decide."""
 
 import base64
+import io
 import json
 import os
+import struct
+import zipfile
+import zlib
 import pathlib
 import shutil
 import subprocess
@@ -17,6 +21,8 @@ FACTORY = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(FACTORY))
 import browser  # noqa: E402
 import browser_check  # noqa: E402
+import evidence  # noqa: E402
+import implement_guard as guard  # noqa: E402
 import render  # noqa: E402
 
 try:
@@ -456,8 +462,322 @@ class Verdict(unittest.TestCase):
             self.assertIn("with-browser found no browser host", r.stdout)
 
 
+
+def png(width=4, height=3, extra=b"", trailing=b"", raw=None):
+    """An 8-bit RGBA PNG, with any extra chunks before the image data and bytes after its end."""
+    if raw is None:
+        raw = b"".join(b"\x00" + bytes(i % 256 for i in range(width * 4)) for _ in range(height))
+    body = evidence.chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)) + extra
+    body += evidence.chunk(b"IDAT", zlib.compress(raw)) + evidence.chunk(b"IEND", b"")
+    return evidence.PNG_SIG + body + trailing
+
+
+def trace(names=("trace.trace", "trace.network", "resources/abc.png")):
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w") as z:
+        for n in names:
+            z.writestr(n, b"x" * 10)
+    return out.getvalue()
+
+
+WEBM = b"\x1a\x45\xdf\xa3\x9f\x42\x86\x81\x01\x42\x82\x84webm" + b"\x00" * 200
+
+
+class Evidence(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.ws = pathlib.Path(self.tmp.name) / "ws"
+        self.dir = self.ws / ".factory" / "evidence"
+        self.dir.mkdir(parents=True)
+        self.out = pathlib.Path(self.tmp.name) / "out"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def write(self, manifest, **files):
+        (self.dir / "manifest.json").write_text(json.dumps(manifest))
+        for name, body in files.items():
+            (self.dir / name.replace("__", ".")).write_bytes(body)
+
+    def pack(self):
+        return evidence.pack(str(self.ws), ".factory/evidence", self.out, "Issue #7, implement")
+
+    def entry(self, f, step=1, shows="the board before the click", bug=False):
+        return {"file": f, "step": step, "shows": shows, "bug": bug}
+
+    def test_a_reproduction_is_packed(self):
+        self.write([self.entry("before.png"), self.entry("after.png", 2, "the score stays at 0", True),
+                    self.entry("run.webm", 3, "the whole run"), self.entry("trace.zip", 3, "the trace")],
+                   before__png=png(), after__png=png(), run__webm=WEBM, trace__zip=trace())
+        r = self.pack()
+        self.assertEqual((r["report"], r["video"], r["trace"]), (True, True, True))
+        self.assertEqual([f["file"] for f in r["files"]], ["before.png", "after.png", "run.webm", "trace.zip"])
+        self.assertEqual(r["dropped"], [])
+        page = (self.out / "evidence-report.html").read_text()
+        self.assertIn("default-src 'none'", page)
+        self.assertNotIn("<script", page.lower())
+        self.assertIn("the score stays at 0", page)
+        self.assertEqual((self.out / "evidence-video.webm").read_bytes(), WEBM)
+        names = zipfile.ZipFile(self.out / "evidence-trace.zip").namelist()
+        self.assertEqual(sorted(names), ["resources/abc.png", "trace.network", "trace.trace"])
+
+    def test_screenshots_lose_their_metadata_and_keep_their_pixels(self):
+        text = evidence.chunk(b"tEXt", b"Comment\x00exfiltrated") + evidence.chunk(b"eXIf", b"MM\x00*")
+        self.write([self.entry("a.png")], a__png=png(extra=text, trailing=b"hidden after the end"))
+        self.pack()
+        page = (self.out / "evidence-report.html").read_text()
+        data = base64.b64decode(page.split("data:image/png;base64,")[1].split('"')[0])
+        self.assertNotIn(b"exfiltrated", data)
+        self.assertNotIn(b"hidden", data)
+        self.assertNotIn(b"eXIf", data)
+        self.assertEqual(evidence.clean_png(data), data)  # stable: a clean PNG cleans to itself
+        # The pixels survive: the image data decompresses to exactly the original rows.
+        idat = data[data.index(b"IDAT") + 4:data.index(b"IEND") - 8]
+        self.assertEqual(zlib.decompress(idat), b"".join(b"\x00" + bytes(i % 256 for i in range(16)) for _ in range(3)))
+        self.assertEqual(evidence.clean_png(png()), evidence.clean_png(png(extra=text)))
+
+    def test_what_isnt_listed_or_doesnt_check_is_dropped(self):
+        self.write([self.entry("fake.png"), self.entry("second.webm"), self.entry("first.webm"),
+                    self.entry("missing.png"), self.entry("evil.zip")],
+                   fake__png=b"<html>not a png</html>", first__webm=WEBM, second__webm=WEBM, stray__png=png(),
+                   evil__zip=trace(("trace.trace", "../outside")))
+        r = self.pack()
+        why = {d["file"]: d["why"] for d in r["dropped"]}
+        self.assertIn("not a PNG", why["fake.png"])
+        self.assertEqual(why["stray.png"], "not in the manifest")
+        self.assertIn("not there", why["missing.png"])
+        self.assertIn("isn't plain", why["evil.zip"])
+        self.assertIn("only one video", why["first.webm"])
+        self.assertEqual([f["file"] for f in r["files"]], ["second.webm"])
+
+    def test_links_and_odd_files_are_never_followed(self):
+        outside = pathlib.Path(self.tmp.name) / "secret.png"
+        outside.write_bytes(png())
+        (self.dir / "link.png").symlink_to(outside)
+        os.mkfifo(self.dir / "pipe.png")
+        (self.dir / "sub.png").mkdir()
+        self.write([self.entry("link.png"), self.entry("pipe.png"), self.entry("sub.png")])
+        r = self.pack()
+        self.assertEqual(r["files"], [])
+        self.assertEqual(len(r["dropped"]), 3)
+        # The directory itself, or a component of it, as a link: nothing is read through it.
+        shutil.rmtree(self.ws / ".factory")
+        (self.ws / ".factory").symlink_to(pathlib.Path(self.tmp.name))
+        with self.assertRaises(evidence.Bad):
+            self.pack()
+
+    def test_a_bad_manifest_drops_everything(self):
+        for manifest in ([{"file": "a.png"}], [self.entry("../a.png")], [self.entry("a.png", shows="two\nlines")],
+                         [self.entry("a.png", step=0)], [self.entry("a.png", bug="yes")], {"file": "a.png"},
+                         [self.entry("a.png")] * 2):
+            with self.subTest(manifest=manifest):
+                self.write(manifest, a__png=png())
+                r = self.pack()
+                self.assertEqual(r["files"], [])
+                self.assertEqual(r["dropped"][0]["file"], "manifest.json")
+
+    def test_odd_names_and_crafted_files_cost_only_themselves(self):
+        try:  # a name that isn't UTF-8 (macOS refuses one; Linux, where the jobs run, doesn't)
+            os.close(os.open(os.fsencode(self.dir) + b"/caf\xe9.png", os.O_CREAT | os.O_WRONLY))
+            odd_name = True
+        except OSError:
+            odd_name = False
+        # A zip whose entry claims a compression method zipfile can't read: dropped, the rest kept.
+        bad = bytearray(trace(("trace.trace",)))
+        central = bad.rindex(b"PK\x01\x02")
+        bad[8:10] = bad[central + 10:central + 12] = (99).to_bytes(2, "little")
+        self.write([self.entry("t.zip"), self.entry("a.png")], t__zip=bytes(bad), a__png=png())
+        r = self.pack()
+        self.assertEqual([f["file"] for f in r["files"]], ["a.png"])
+        self.assertIn("t.zip", {d["file"] for d in r["dropped"]})
+        if odd_name:
+            odd = next(d["file"] for d in r["dropped"] if d["file"].startswith("caf"))
+            self.assertEqual(odd, "caf\\udce9.png")
+        # The record, and the PR lines the guard renders from it, are plain UTF-8 throughout.
+        text = json.dumps(r)
+        "\n".join(guard.evidence_lines(text, {"report": "1"}, RUN, "7")).encode("utf-8")
+
+    def test_a_trace_that_would_unpack_past_its_cap_is_refused_unread(self):
+        out = io.BytesIO()
+        with zipfile.ZipFile(out, "w", zipfile.ZIP_BZIP2) as z:
+            z.writestr("trace.trace", b"x" * 1000)
+        with self.assertRaises(evidence.Bad) as e:
+            evidence.clean_trace(out.getvalue())
+        self.assertIn("stored or deflated", str(e.exception))
+
+    def test_a_palette_is_checked(self):
+        def palette_png(plte):
+            raw = b"\x00\x00\x01" * 2
+            body = evidence.chunk(b"IHDR", struct.pack(">IIBBBBB", 2, 2, 8, 3, 0, 0, 0)) + evidence.chunk(b"PLTE", plte)
+            return evidence.PNG_SIG + body + evidence.chunk(b"IDAT", zlib.compress(raw)) + evidence.chunk(b"IEND", b"")
+        self.assertTrue(evidence.clean_png(palette_png(b"\x00" * 6)).startswith(evidence.PNG_SIG))
+        for plte in (b"\x00" * 9000, b"\x00" * 7, b""):
+            with self.subTest(size=len(plte)), self.assertRaises(evidence.Bad):
+                evidence.clean_png(palette_png(plte))
+
+    def test_text_is_printed_plain(self):
+        self.assertEqual(evidence.plain("x\n::warning::forged"), "x\\n::warning::forged")
+        self.assertEqual(evidence.plain("a\u202eb"), "a\\u202eb")
+        # A name with a trailing newline is no name: refused, not taken for another kind.
+        self.write([self.entry("a.png\n"), self.entry("b.png")], b__png=png())
+        r = self.pack()
+        self.assertEqual(r["files"], [])
+        self.assertEqual(r["dropped"][0]["file"], "manifest.json")
+
+    def test_no_evidence_packs_nothing(self):
+        shutil.rmtree(self.ws / ".factory")
+        self.assertEqual(self.pack(), {"files": [], "dropped": [], "report": False, "video": False, "trace": False})
+
+    def test_caps(self):
+        # A header claiming more than the cap is refused before anything is decompressed.
+        self.assertRaises(evidence.Bad, evidence.clean_png, png(width=5000, height=5000, raw=b"\x00"))
+        # Image data that isn't the size its header says, or decompresses past it.
+        self.assertRaises(evidence.Bad, evidence.clean_png, png(raw=b"\x00" * 10))
+        self.assertRaises(evidence.Bad, evidence.clean_png, png(raw=b"\x00" * (3 * 17 + 1)))
+        many = [self.entry(f"s{i}.png") for i in range(21)]
+        self.write(many, **{f"s{i}__png": png() for i in range(21)})
+        r = self.pack()
+        self.assertEqual(len(r["files"]), 20)
+        self.assertIn("more than 20", r["dropped"][-1]["why"])
+        trash = {f"x{i}__png": b"" for i in range(40)}
+        self.write([], **trash)
+        r = self.pack()
+        self.assertEqual(len(r["dropped"]), 21)
+        self.assertIn("more files dropped", r["dropped"][-1]["why"])
+
+    def test_main_writes_the_record_and_outputs(self):
+        self.write([self.entry("a.png")], a__png=png())
+        outputs = pathlib.Path(self.tmp.name) / "outputs"
+        env = {**os.environ, "GITHUB_OUTPUT": str(outputs)}
+        r = subprocess.run([sys.executable, "-I", str(FACTORY / "evidence.py"), str(self.ws), ".factory/evidence",
+                            str(self.out), "Issue #7"], capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        lines = outputs.read_text().splitlines()
+        self.assertIn("report=yes", lines)
+        self.assertIn("video=no", lines)
+        record = json.loads(next(l for l in lines if l.startswith("manifest="))[len("manifest="):])
+        self.assertEqual(record, json.loads((self.out / "evidence.json").read_text()))
+
+
+class EvidenceRecordsItsRun(unittest.TestCase):
+    def test_the_issue_and_run_come_from_the_jobs_environment(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ws, out = pathlib.Path(tmp) / "ws", pathlib.Path(tmp) / "out"
+            (ws / ".factory" / "evidence").mkdir(parents=True)
+            for env_issue, env_run, want in (("42", "123", {"issue": 42, "run": 123}), ("x", "", {})):
+                env = {k: v for k, v in os.environ.items() if k not in ("GITHUB_OUTPUT",)}
+                env.update(ISSUE_NUMBER=env_issue, GITHUB_RUN_ID=env_run)
+                subprocess.run([sys.executable, "-I", str(FACTORY / "evidence.py"), str(ws), ".factory/evidence",
+                                str(out), "t"], check=True, capture_output=True, env=env)
+                rec = json.loads((out / "evidence.json").read_text())
+                self.assertEqual({k: rec[k] for k in ("issue", "run") if k in rec}, want)
+
+    def test_the_guard_takes_only_numbers_there(self):
+        base = {"files": [], "dropped": [{"file": "x.png", "why": "not in the manifest"}], "report": False,
+                "video": False, "trace": False}
+        self.assertTrue(guard.evidence_lines(json.dumps(dict(base, issue=42, run=123)), {}, RUN, "42"))
+        for bad in ({"issue": True}, {"run": "123"}, {"attempt": 2}):
+            with self.subTest(bad=bad):
+                lines = guard.evidence_lines(json.dumps(dict(base, **bad)), {}, RUN, "42")
+                self.assertTrue(lines[0].startswith("- Not shown:"))
+
+
+RUN = "https://github.com/acme/app/actions/runs/123"
+
+
+class EvidenceInThePR(unittest.TestCase):
+    def record(self, **changes):
+        rec = {"files": [{"file": "after.png", "step": 2, "shows": "the score stays at 0", "bug": True, "kind": "screenshot"},
+                         {"file": "run.webm", "step": 3, "shows": "the run", "bug": False, "kind": "video"}],
+               "dropped": [{"file": "stray.png", "why": "not in the manifest"}],
+               "report": True, "video": True, "trace": False}
+        rec.update(changes)
+        return json.dumps(rec)
+
+    def test_the_writer_builds_the_links(self):
+        lines = guard.evidence_lines(self.record(), {"report": "11", "video": "12"}, RUN, "7", "/srv/evidence")
+        text = "\n".join(lines)
+        self.assertIn(f"[report]({RUN}/artifacts/11)", text)
+        self.assertIn(f"[video]({RUN}/artifacts/12)", text)
+        self.assertNotIn("trace", text.split("\n")[0])
+        self.assertIn("`/srv/evidence/app/7/123/`", text)
+        self.assertIn("Step 2, `after.png` (screenshot): the score stays at 0 **Shows the bug.**", text)
+        self.assertIn("Dropped by the factory: `stray.png`", text)
+
+    def test_an_id_that_isnt_a_number_is_no_link(self):
+        text = "\n".join(guard.evidence_lines(self.record(), {"report": "11)](https://evil.example/x", "video": ""},
+                                               RUN, "7"))
+        self.assertNotIn("evil.example", text)
+        self.assertIn("report (its upload failed)", text)
+        self.assertNotIn("archive", text)
+
+    def test_a_record_that_doesnt_check_turns_the_section_into_a_line(self):
+        for rec in ("not json", self.record(files=[{"file": "../x.png", "step": 1, "shows": "x", "bug": False,
+                                                     "kind": "screenshot"}]),
+                    self.record(files=[{"file": "a.png", "step": 1, "shows": "![x](https://evil.example/y)",
+                                        "bug": False, "kind": "screenshot"}]),
+                    self.record(files=[{"file": "a.webm", "step": 1, "shows": "x", "bug": False, "kind": "screenshot"}]),
+                    self.record(dropped=[{"file": "x", "why": "ghp_" + "a" * 30}])):
+            with self.subTest(rec=rec[:60]):
+                lines = guard.evidence_lines(rec, {"report": "1"}, RUN, "7")
+                self.assertEqual(len(lines), 1)
+                self.assertTrue(lines[0].startswith("- Not shown:"))
+        self.assertEqual(guard.evidence_lines("", {}, RUN, "7"), [])
+        empty = json.dumps({"files": [], "dropped": [], "report": False, "video": False, "trace": False})
+        self.assertEqual(guard.evidence_lines(empty, {}, RUN, "7"), [])
+
+    def test_the_section_has_a_budget(self):
+        files = [{"file": f"s{i}.png", "step": i + 1, "shows": "\U0001F600" * 300, "bug": False, "kind": "screenshot"}
+                 for i in range(30)]
+        lines = guard.evidence_lines(self.record(files=files), {"report": "1"}, RUN, "7")
+        self.assertLessEqual(len("\n".join(lines).encode()), guard.MAX_EVIDENCE + 200)
+        self.assertRegex(lines[-1], r"^- And \d+ more, in the report\.$")
+
+    def test_only_ascii_digits_make_a_link(self):
+        text = "\n".join(guard.evidence_lines(self.record(), {"report": "\u0661\u0662", "video": "12\n"}, RUN, "7"))
+        self.assertNotIn("/artifacts/", text)
+
+    def test_a_record_of_the_wrong_shape_never_raises(self):
+        for rec in ('{"files": [{"file": "a.png", "step": 1, "shows": "x", "bug": false, "kind": ["screenshot"]}], '
+                    '"dropped": [], "report": true, "video": false, "trace": false}', "[" * 5000 + "]" * 5000, "null"):
+            with self.subTest(rec=rec[:40]):
+                lines = guard.evidence_lines(rec, {"report": "1"}, RUN, "7")
+                self.assertTrue(lines[0].startswith("- Not shown:"))
+
+    def test_captions_are_literal(self):
+        lines = guard.evidence_lines(self.record(files=[{"file": "a.png", "step": 1, "shows": "# heading [link](x) <b>",
+                                                         "bug": False, "kind": "screenshot"}]), {"report": "1"}, RUN, "7")
+        self.assertNotIn("[link](x)", lines[-2])
+        self.assertIn("\\#", lines[-2])
+
+
 @unittest.skipUnless(HAS_YAML, "needs PyYAML")
 class Policy(unittest.TestCase):
+    def test_uploads_from_an_agent_job(self):
+        ok = [{"uses": policy.UPLOAD + "x", "with": {"path": "${{ runner.temp }}/implement/implement.bundle"}},
+              {"uses": policy.UPLOAD + "x", "with": {"path": "${{ steps.claude.outputs.execution_file }}"}},
+              {"uses": policy.UPLOAD + "x", "with": {"path": "${{ runner.temp }}/evidence/evidence-video.webm",
+                                                     "archive": False}}]
+        self.assertEqual(policy.upload_failures("j", ok, True), [])
+        for step in ({"uses": policy.UPLOAD + "x", "with": {"path": ".factory/evidence"}},
+                     {"uses": policy.UPLOAD + "x", "with": {"path": "${{ github.workspace }}/x"}},
+                     {"uses": policy.UPLOAD + "x", "with": {"path": "${{ runner.temp }}/../__w/x"}},
+                     {"uses": policy.UPLOAD + "x", "with": {"path": "${{ runner.temp }}/a\n.factory"}},
+                     {"uses": policy.UPLOAD + "x", "with": {"path": "${{ runner.temp }}/evidence/x.html", "archive": "false"}}):
+            with self.subTest(step=step):
+                self.assertTrue(policy.upload_failures("j", [step], True))
+        # Spellings GitHub reads the same way, and an archive input that's an expression.
+        for step in ({"uses": "Actions/Upload-Artifact@x", "with": {"path": ".factory/evidence"}},
+                     {"uses": policy.UPLOAD + "x", "with": {"Path": "${{ github.workspace }}/x"}},
+                     {"uses": policy.UPLOAD + "x", "with": {"path": "${{ runner.temp }}/x.html", "Archive": False}},
+                     {"uses": policy.UPLOAD + "x", "with": {"path": "${{ runner.temp }}/x.html", "archive": "${{ false }}"}}):
+            with self.subTest(step=step):
+                self.assertTrue(policy.upload_failures("j", [step], True))
+        # A job without an agent may upload its own files, but never unzipped.
+        self.assertEqual(policy.upload_failures("j", [{"uses": policy.UPLOAD + "x", "with": {"path": "fixtures"}}], False), [])
+        self.assertTrue(policy.upload_failures("j", [{"uses": policy.UPLOAD + "x",
+                                                      "with": {"path": "report.html", "archive": False}}], False))
+
     @unittest.skipUnless((FACTORY / "factory.json").exists(), "needs the project's factory.json")
     def test_the_smoke_job_runs_the_probe_in_implements_sandbox(self):
         self.assertEqual(policy.configure(FACTORY), [])
