@@ -37,6 +37,18 @@ Each entry contains:
 
 ---
 
+## 2026-11-20: A verify exception for the factory too says so in its entry
+
+**Origin:** the pilot project's v2.8.0 migration review. The verify skill's template said an exception recorded in Recorded Exceptions "doesn't carry over" to the factory's runs. That read as contradicting D6 rule 6, which says CD records a factory exception in that same section, and the pilot's CDN exception is one.
+
+**Changes made:**
+
+1. **`skills/sdlc-develop-verify-skill/references/generated-skill-template.md`, `process/verify-command.md` § Companion:** an exception recorded for interactive verify doesn't carry over to the factory. One CD makes for the factory too says so in its entry, and CD also records it in the factory's allowlist (`browser.allow`).
+
+**Rationale:** the same section holds both kinds of exception. Only an entry that names the factory reaches the factory.
+
+---
+
 ## 2026-11-20: The factory reproduces a bug the code can't confirm before planning it (D6 rule 8)
 
 **Origin:** CD's decision (2026-11-20): triage stays code-only, flags `needs-repro`, and a short reproduce job on the strict tier writes the failing spec before a plan. In the pilot project, triage left 4 of 16 issues unreproduced, and half of its plan PRs were UI work built on unconfirmed causes. CD confirmed the shape the same day: a mode of the implement workflow, which needs no change to the runner group's selected workflows, where a workflow of its own would.
