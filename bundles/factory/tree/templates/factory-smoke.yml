@@ -8,8 +8,10 @@
 # the planning stages' job setup. The lost-session job proves an agent step killed at its time limit still
 # leaves its session for session_log.sh. The mcp-services job proves an MCP service's credential reaches its
 # server and never the sandbox, and that a tool off the entry's list is refused, for a planning and an
-# execution entry (when services.json lists an MCP service, or dispatched with mcp_probe). Re-run after
-# every action, image or tool-policy change.
+# execution entry (when services.json lists an MCP service, or dispatched with mcp_probe). The browser-host
+# job proves the browser route from inside the implement stage's sandbox (when factory.json names a browser
+# host; D6), required before any stage gets it. Re-run after every action, image or tool-policy change, and
+# after any change to the browser host or the project's Playwright version.
 name: factory-smoke
 
 on:
@@ -322,6 +324,181 @@ jobs:
           print(c if isinstance(c, str) else "\n".join(x.get("text", "") for x in c or []))
           PY
           [ "$bad" = 0 ] && { /usr/local/bin/python3 -I "$CHECKS/sandbox_check.py" agent "$CHECKS/agent.txt" "$CHECKS/control.txt" "$CHECKS/profiles/%{stack.profile}/services" || bad=1; }
+          for v in "$OAUTH" "$GHTOKEN" "$CONTEXT7_API_KEY"; do
+            if [ -n "$v" ] && grep -qF -- "$v" "$EXEC"; then echo "::error::a raw token is in the transcript"; bad=1; fi
+          done
+          exit $bad
+
+      # Checkout's post step runs git in this workspace; the agent could have left files in .git for it.
+      - name: Remove the agent's repository
+        if: always()
+        shell: bash
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
+
+  # Required before any stage gets the browser route (D6), when factory.json names a browser host. From inside the
+  # implement stage's own sandbox, with the route browser.py adds, the probe must find: the app it starts on its own
+  # loopback loaded by the browser host, WebSocket included, with WebGL on the GPU; the screenshot, trace and video
+  # back; the forced flags on the browser's command line, and a hostile client's own browser and launch options
+  # replaced by them; the outside world refused, by name and by address; a context proxy refused, by address and by
+  # name; no WebSocket from a page to a run-server on the host's loopback (which plain HTTP shows it reaches); the
+  # browser host's next port refused by the sandbox's proxy; no credential. An unsandboxed control first must reach the outside world through the same tunnel and find a
+  # canary credential in its environment, so the agent's refusals and clean environment are the sandbox's. The host's own check (D6) proves what this can't: its
+  # outbound block, and that no DNS lookup leaves it.
+  browser-host:
+    runs-on: [self-hosted, %{runners.strict}]
+    permissions:
+      contents: read
+      packages: read
+    timeout-minutes: 30
+    container:
+      image: %{image.repository}@%{image.digest}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      options: >-
+        --security-opt seccomp=/etc/factory-runner/seccomp-bwrap.json
+        --security-opt systempaths=unconfined
+    env:
+      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"
+      CHECKS: /__w/_temp/factory-checks
+      PROBE_DIR: /opt/factory-probe
+    steps:
+      - name: Clean workspace
+        shell: bash
+        run: find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      # The action would write the job token into origin's URL, where the agent can read it.
+      - name: Remove the git remote
+        shell: bash
+        run: git remote remove origin
+
+      - name: Run only for a project with a browser host
+        id: need
+        shell: bash
+        run: |
+          if jq -e '(.browser.host // "") != ""' .github/factory/factory.json > /dev/null; then
+            echo "run=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=no" >> "$GITHUB_OUTPUT"
+            echo "| Browser host | skipped: factory.json names no browser host (browser.host) |" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # As the implement stage has it, with no secret in the environment (the project's install runs here): its
+      # test services, the project's dependencies (its Playwright client among them), with-browser at /opt/factory,
+      # and the route in implement's sandbox settings.
+      - name: Freeze the probe, the checker and the implement sandbox; install the dependencies; add the route
+        if: steps.need.outputs.run == 'yes'
+        shell: bash
+        run: |
+          set -euo pipefail
+          install -d -m 755 "$PROBE_DIR"
+          .github/factory/agent_job.sh freeze implement-sandbox.settings.json
+          install -m 644 "$CHECKS/browser_probe.mjs" "$PROBE_DIR/"
+          echo "FACTORY_TOOL_ARGS=$(tr '\n' ' ' < .github/factory/bash-probe-tools.args)" >> "$GITHUB_ENV"
+          "$CHECKS/agent_job.sh" services
+          "$CHECKS/agent_job.sh" workspace
+          "$CHECKS/agent_job.sh" browser smoke "$CHECKS/implement-sandbox.settings.json"
+          jq -r 'if .browser.gpu == false then "nogpu" else "gpu" end' "$CHECKS/factory.json" > "$CHECKS/browser-gpu"
+
+      # The secrets' hashes for the probe, and a canary: the control holds the canary under a credential's name, never
+      # a real token, since it runs the project's Playwright with network.
+      - name: The secrets' hashes and a canary
+        if: steps.need.outputs.run == 'yes'
+        shell: bash
+        env:
+          OAUTH: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          GHTOKEN: ${{ github.token }}
+          CONTEXT7_API_KEY: ${{ secrets.CONTEXT7_API_KEY }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 "$RUNNER_TEMP/browser-canary"
+          canary="canary$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+          printf '%s' "$canary" > "$RUNNER_TEMP/browser-canary/value"
+          h() { printf %s "$1" | sha256sum | cut -c1-12; }
+          {
+            echo "oauth $(h "$OAUTH")"
+            echo "github $(h "$GHTOKEN")"
+            echo "canary $(h "$canary")"
+            if [ -n "$CONTEXT7_API_KEY" ]; then echo "context7 $(h "$CONTEXT7_API_KEY")"; fi
+          } > "$PROBE_DIR/secret-hashes"
+          chmod 644 "$PROBE_DIR/secret-hashes"
+
+      # Control: unsandboxed, with network, and the canary as GH_TOKEN. It reaches the front end straight through the
+      # runner host's firewall opening (D6), and the outside world through the tunnel.
+      - name: Control probe
+        if: steps.need.outputs.run == 'yes'
+        shell: bash
+        run: |
+          GH_TOKEN=$(cat "$RUNNER_TEMP/browser-canary/value") /opt/factory/with-browser /usr/local/bin/node \
+            "$PROBE_DIR/browser_probe.mjs" "$PROBE_DIR/secret-hashes" > "$CHECKS/browser-control.txt"
+          /usr/local/bin/python3 -I "$CHECKS/browser_check.py" control "$CHECKS/browser-control.txt" "$(cat "$CHECKS/browser-gpu")"
+
+      # --settings makes the sandbox admin-required, so the repository's settings can't loosen it; the same file
+      # at user scope (the action's settings input) carries the user-scope-only keys.
+      - name: Agent probe
+        id: claude
+        if: steps.need.outputs.run == 'yes'
+        timeout-minutes: 15
+        env:
+          # Present on purpose: the probe shows sandboxed Bash can't see it.
+          CONTEXT7_API_KEY: ${{ secrets.CONTEXT7_API_KEY }}
+        uses: anthropics/claude-code-action@d535f5172dec02b204866b393d6b20b9b2aaf98d # v1.0.266
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          settings: ${{ env.CHECKS }}/implement-sandbox.settings.json
+          prompt: |
+            Run exactly this command once with the Bash tool, with a timeout of 600000 ms, and report its output verbatim:
+            /opt/factory/with-browser /usr/local/bin/node /opt/factory-probe/browser_probe.mjs /opt/factory-probe/secret-hashes
+            Do nothing else.
+          claude_args: >-
+            --model %{models.probe}
+            --settings ${{ env.CHECKS }}/implement-sandbox.settings.json
+            ${{ env.FACTORY_TOOL_ARGS }}
+            --strict-mcp-config
+            --setting-sources user
+            --permission-mode auto --permission-prompts none
+            --max-turns 6
+
+      # Judges only the output of the one expected command, as recorded by the runtime.
+      - name: Assert the route held
+        if: always() && steps.need.outputs.run == 'yes'
+        shell: bash
+        env:
+          OAUTH: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          GHTOKEN: ${{ github.token }}
+          CONTEXT7_API_KEY: ${{ secrets.CONTEXT7_API_KEY }}
+          EXEC: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          [ -n "$EXEC" ] || { echo "::error::the agent step left no execution file"; exit 1; }
+          bad=0
+          /usr/local/bin/python3 -I - > "$CHECKS/browser-agent.txt" <<'PY' || bad=1
+          import json, os, sys
+          expected = "/opt/factory/with-browser /usr/local/bin/node /opt/factory-probe/browser_probe.mjs /opt/factory-probe/secret-hashes"
+          uses, results = [], {}
+          for m in json.load(open(os.environ["EXEC"])):
+              msg = m.get("message")
+              content = msg.get("content") if isinstance(msg, dict) else None
+              for b in content if isinstance(content, list) else []:
+                  if b.get("type") == "tool_use":
+                      uses.append(b)
+                  elif b.get("type") == "tool_result":
+                      results[b["tool_use_id"]] = b
+          cmds = [(u.get("input") or {}).get("command", "").strip() for u in uses]
+          if len(uses) != 1 or uses[0].get("name") != "Bash" or cmds[0] != expected:
+              sys.exit(f"expected one Bash call running the probe; got {len(uses)}: {[u.get('name') for u in uses]}")
+          extra = set(uses[0].get("input") or {}) - {"command", "description", "timeout"}
+          if extra:
+              sys.exit(f"the probe call set unexpected Bash inputs: {sorted(extra)}")
+          c = results.get(uses[0]["id"], {}).get("content")
+          print(c if isinstance(c, str) else "\n".join(x.get("text", "") for x in c or []))
+          PY
+          [ "$bad" = 0 ] && { /usr/local/bin/python3 -I "$CHECKS/browser_check.py" agent "$CHECKS/browser-agent.txt" "$(cat "$CHECKS/browser-gpu")" || bad=1; }
           for v in "$OAUTH" "$GHTOKEN" "$CONTEXT7_API_KEY"; do
             if [ -n "$v" ] && grep -qF -- "$v" "$EXEC"; then echo "::error::a raw token is in the transcript"; bad=1; fi
           done

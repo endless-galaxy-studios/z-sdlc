@@ -90,6 +90,14 @@
     "cache_key": "",
     "key_files": ""
   },
+  "browser": {
+    "_doc": "The browser route (process/factory.md, D6): a stage's sandboxed Bash drives a real browser on the browser host through /opt/factory/with-browser, which reaches the host's front end for the project's own Playwright version (port_base + its minor) and nothing else. host: the browser host's one IPv4 address, the same as the runner host's host.conf STRICT_BROWSER_HOST; empty, the default, turns the route off. client: the directory holding the project's Playwright (default stack.node). gpu: factory-smoke's browser-host job requires WebGL on a GPU (false for a host with none). stages: the stages given the route (implement, execute, revise), none until factory-smoke's browser-host job has passed. allow: the outside hosts CD approved for the route (D6 rule 6), each {host, why, decided}, recorded in the verify skill's Recorded Exceptions too; none to start.",
+    "host": "",
+    "port_base": 3100,
+    "gpu": true,
+    "stages": [],
+    "allow": []
+  },
   "policy": {
     "_doc": "Read by workflow_policy.py, which CI runs over every workflow, the project's own included (process/factory.md, Enablement step 10); no template uses these. hosted_labels: the organization's own GitHub-hosted (larger) runner labels, addressed by label, not by runner group; a listed label counts as hosted wherever the policy asks (the container rule, the App key's job, the fixtures job), so never list one a self-hosted runner can carry (self-hosted, linux, x64 and the like are refused) or a factory runner label. self_hosted_exemptions: the project's own CI jobs that may run on a self-hosted runner without the factory container, each {\"workflow\": \"ci.yml\", \"job\": \"<job id>\", \"reason\": \"<how that runner is isolated, and why the job can't run hosted>\"}; never a factory workflow, a job on the factory's runners or an agent job; the factory's secret rules still hold in it; an entry for a job that no longer exists or now runs hosted is a violation. Both empty by default.",
     "hosted_labels": [],

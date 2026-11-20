@@ -16,6 +16,11 @@
 #                       install.sh (the dependencies), point the project's paths (stack.env) into the
 #                       workspace, set the factory's git identity and record the hooks' hashes. Run
 #                       after services, and after any secret is out of the environment.
+#   browser <stage> <settings>
+#                       the browser route (D6): when factory.json's browser block lists the stage (smoke
+#                       always counts), add the browser host's front end for the project's Playwright to
+#                       the frozen sandbox settings and write /opt/factory/browser.conf for with-browser,
+#                       which workspace installed. Run after workspace (it reads the installed client).
 #   issue-context <base> [deliverable]
 #                       the issue and its comments as .factory/issue-context.json (and $RUNNER_TEMP/issue.json)
 #   schema <name>       check <name>.schema.json and set FACTORY_<NAME>_SCHEMA for --json-schema
@@ -67,6 +72,9 @@ case "$cmd" in
     install -m 644 "$here"/*.py "$here"/*.schema.json "$CHECKS/"
     install -m 755 "$here"/*.sh "$CHECKS/"
     install -m 644 "$here/factory.json" "$CHECKS/"
+    # The browser route's wrapper and smoke probe (D6).
+    install -m 755 "$here/with-browser" "$CHECKS/"
+    install -m 644 "$here"/*.mjs "$CHECKS/"
     # The stack profile's scripts, at the same path below $CHECKS.
     stack
     install -d -m 700 "$CHECKS/profiles/$profile"
@@ -100,6 +108,9 @@ case "$cmd" in
     # and runs the project's checks with verify (the factory's skills name it, not the commands).
     install -D -m 755 "$here/profiles/$profile/with-test-services" /opt/factory/with-test-services
     install -D -m 755 "$here/profiles/$profile/verify" /opt/factory/verify
+    # Every stage has the wrapper; without browser.conf (agent_job.sh browser) it reports the browser host
+    # unavailable, so a run without the route says `blocked` rather than guessing.
+    install -D -m 755 "$here/with-browser" /opt/factory/with-browser
     printf 'python=%s\nnode=%s\ndatabase=%s\n' "$python_dir" "$node_dir" "$database" > /opt/factory/verify.conf
     chmod 644 /opt/factory/verify.conf
     "$here/profiles/$profile/install.sh" "$python_dir" "$node_dir"
@@ -112,6 +123,12 @@ case "$cmd" in
     git config user.email "$app_id+$app_login@users.noreply.github.com"
     # quiesce compares the hooks after the agent (the sandbox can't write them; this proves it).
     find .git/hooks -type f -exec sha256sum {} + | sort > "$CHECKS/git-hooks.sha256"
+    ;;
+
+  browser)
+    stage=$1 settings=$2
+    /usr/local/bin/python3 -I "$here/browser.py" "$here/factory.json" "$stage" "$GITHUB_WORKSPACE" "$settings" \
+      /opt/factory/browser.conf
     ;;
 
   issue-context)
@@ -241,7 +258,7 @@ case "$cmd" in
     ;;
 
   *)
-    echo "usage: agent_job.sh freeze|mcp|services|workspace|issue-context|schema|advisor|revise-context|quiesce|bundle|stats|lost|metrics ..." >&2
+    echo "usage: agent_job.sh freeze|mcp|services|workspace|browser|issue-context|schema|advisor|revise-context|quiesce|bundle|stats|lost|metrics ..." >&2
     exit 2
     ;;
 esac

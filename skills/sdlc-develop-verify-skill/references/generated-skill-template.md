@@ -32,6 +32,8 @@ How to run {app} locally and drive it the way a user does. {One sentence on the 
 
 An exception allows only what its entry says. Stop only what this run started, Secrets by name only and Evidence survives cleanup take none. This section is kept apart from Safety Rules, which `/sdlc-develop-verify-skill maintain` replaces word for word.
 
+Launch's Targets, the outbound integrations Health Check confirms, and these exceptions are this app's one list of outside connections. The factory reads the same list and holds it more strictly: an exception recorded here doesn't carry over to its runs.
+
 ## Launch
 
 Do these in order. Nothing writes to a target before step 4 confirms it.

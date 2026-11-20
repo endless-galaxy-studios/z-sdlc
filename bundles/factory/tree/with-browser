@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# Run a command with the browser host's Playwright server reachable from inside the Bash sandbox (D6).
+# Usage: with-browser <command> [args...]
+#
+# The browsers run on the browser host, never here. The command's Playwright client connects to the host's
+# front end for the project's Playwright version, and the front end makes every browser send all its traffic
+# back through that connection (exposeNetwork), so the browser loads the app this command starts on the
+# sandbox's own loopback, and nothing else. The sandbox has no network but its HTTP proxy, which allows the
+# front end's one address and port (browser.py added it to the stage's sandbox settings), so this forwards a
+# loopback port to it through the proxy (CONNECT), as with-test-services does for the test services, and points
+# Playwright Test at it (PW_TEST_CONNECT_WS_ENDPOINT). A script of the agent's own connects to
+# $FACTORY_BROWSER_WS_ENDPOINT with chromium.connect(), loading Playwright from $FACTORY_BROWSER_CLIENT.
+#
+# Composes with with-test-services: `with-test-services with-browser npx playwright test ...`.
+# When the route is missing or the browser host doesn't answer, it prints `UNAVAILABLE: browser host (<why>)`
+# and exits 75: a run that gets it reports `blocked`, never that a bug was reproduced or ruled out.
+# Installed read-only at /opt/factory by the job, with browser.conf (written by browser.py) beside it.
+set -euo pipefail
+
+conf=${FACTORY_BROWSER_CONF:-/opt/factory/browser.conf}
+unavailable() { printf 'UNAVAILABLE: browser host (%s)\n' "$1" >&2; exit 75; }
+[ $# -gt 0 ] || { echo "usage: with-browser <command> [args...]" >&2; exit 2; }
+[ -r "$conf" ] || unavailable "this stage has no browser route: factory.json's browser block doesn't list it"
+host= port= port_base= version= client= allow=
+while IFS='=' read -r k v; do
+  case $k in
+    host) host=$v ;; port) port=$v ;; port_base) port_base=$v ;; version) version=$v ;; client) client=$v ;;
+    allow) allow=$v ;;
+  esac
+done < "$conf"
+[[ $host =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ && $port =~ ^[0-9]{2,5}$ ]] || unavailable "$conf is malformed"
+
+proxy=${HTTP_PROXY:-${http_proxy:-}}
+if [ -n "$proxy" ]; then
+  # http://[user:token@]host:port: the sandbox's proxy takes a per-session credential.
+  hostport=${proxy#*://}
+  hostport=${hostport%%/*}
+  auth=
+  if [[ $hostport == *@* ]]; then auth=${hostport%@*}; hostport=${hostport##*@}; fi
+  phost=${hostport%:*}
+  pport=${hostport##*:}
+  # The same port on the sandbox's own loopback: each sandboxed command has a loopback of its own.
+  socat "TCP-LISTEN:$port,bind=127.0.0.1,fork,reuseaddr" \
+    "PROXY:$phost:$host:$port,proxyport=$pport${auth:+,proxyauth=$auth}" > /dev/null 2>&1 &
+  for _ in $(seq 50); do (exec 3<> "/dev/tcp/127.0.0.1/$port") 2> /dev/null && break; sleep 0.1; done
+  local_host=127.0.0.1
+else
+  # Outside the sandbox (no proxy set), the front end is reached directly.
+  local_host=$host
+fi
+
+# The front end answers a plain request with 404; nothing at all means the host, or this version's front end,
+# is down. (A busy host answers the WebSocket later, from its queue: Playwright waits for that.)
+code=$(curl -s -o /dev/null -m 10 -w '%{http_code}' --noproxy '*' "http://$local_host:$port/" || true)
+if [ "$code" != 404 ]; then
+  why="no answer from the front end for Playwright $version at $host:$port"
+  if [ -n "$proxy" ]; then
+    # Ask the proxy directly: a refusal is the sandbox's settings, not the host.
+    # --noproxy '': the sandbox's NO_PROXY names the private ranges, and curl would skip even an explicit proxy for them.
+    connect=$(curl -s -o /dev/null -m 10 -w '%{http_connect}' --noproxy '' --proxytunnel -x "$proxy" "http://$host:$port/" || true)
+    case $connect in
+      403) why="the sandbox's proxy refuses $host:$port: the stage's allowedDomains doesn't name it" ;;
+      200) why="$why: the proxy connected, but nothing answered" ;;
+    esac
+  fi
+  unavailable "$why (got '${code:-nothing}')"
+fi
+
+export FACTORY_BROWSER_WS_ENDPOINT="ws://$local_host:$port/"
+# Where the project's Playwright client is installed, for a script that loads it (createRequire from there), and the
+# front end's own address and port (factory-smoke's probe checks the sandbox refuses the host's other ports).
+export FACTORY_BROWSER_CLIENT=$client FACTORY_BROWSER_HOST=$host FACTORY_BROWSER_PORT=$port
+export FACTORY_BROWSER_PORT_BASE=${port_base:-3100}
+export PW_TEST_CONNECT_WS_ENDPOINT=$FACTORY_BROWSER_WS_ENDPOINT
+# The front end forces "*" whatever the client asks; asking for it too keeps a client-side check honest.
+export PW_TEST_CONNECT_EXPOSE_NETWORK='*'
+# The outside hosts CD allowed for this project (factory.json browser.allow), space-separated. The browser can't fetch
+# them itself: Playwright's tunnel connects from the client directly, and the sandbox has no network but its proxy.
+# A spec serves their requests with context.route(), fetching each through the proxy with Node's fetch, which
+# NODE_USE_ENV_PROXY makes use the sandbox's HTTPS_PROXY.
+export FACTORY_BROWSER_ALLOW=$allow
+if [ -n "$allow" ]; then export NODE_USE_ENV_PROXY=1; fi
+exec "$@"

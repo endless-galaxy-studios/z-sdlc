@@ -10,7 +10,8 @@
 #
 # Three tiers (design rule D3, and Enablement step 10's CI tier), each its own user, firewall table,
 # runners and label (factory.json's runners.strict, runners.planning and runners.ci):
-#   TIER=strict    factory-runner: implement, execute, revise. No host or LAN access.
+#   TIER=strict    factory-runner: implement, execute, revise. No host or LAN access, except, if host.conf names
+#                  one, the browser host's front-end ports on the one address STRICT_BROWSER_HOST names (D6).
 #   TIER=planning  factory-planner: spec and plan. The same firewall, plus the open internet the stages
 #                  need and, if host.conf names one, a database port: on this host's own addresses, or on
 #                  the one address PLANNING_DB_HOST names.
@@ -412,6 +413,7 @@ dash=${RUNNER_INSTANCE:+-$RUNNER_INSTANCE} under=${RUNNER_INSTANCE:+_$RUNNER_INS
 
 TIER=${TIER:-strict}
 DB_HOST=
+BROWSER_HOST= BROWSER_PORTS=
 case $TIER in
   strict)
     RUNNER_USER=factory-runner$dash
@@ -420,6 +422,10 @@ case $TIER in
     DEFAULT_COUNT=${STRICT_RUNNERS:-3}; MEM_HIGH=${STRICT_MEMORY_HIGH:-8G}; MEM_MAX=${STRICT_MEMORY_MAX:-10G}
     CPU_QUOTA=${STRICT_CPU_QUOTA:-400%}
     RUNNER_GROUP=$(group_setting shared factory-pool)
+    # The strict tier's one exception (D6): the browser host's front ends, one port per Playwright version, on
+    # the one address STRICT_BROWSER_HOST names. The stages' sandbox narrows it to the project's own version.
+    BROWSER_HOST=${STRICT_BROWSER_HOST:-}
+    if [[ -n $BROWSER_HOST ]]; then BROWSER_PORTS=${STRICT_BROWSER_PORTS:-3100-3199}; fi
     DB_PORT= ;;
   planning)
     RUNNER_USER=factory-planner$dash
@@ -457,6 +463,24 @@ esac
 if [[ -n $DB_HOST ]] && { [[ ! $DB_HOST =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || [[ -z $DB_PORT ]] \
     || ! python3 -I -c 'import ipaddress,sys; ipaddress.IPv4Address(sys.argv[1])' "$DB_HOST" 2>/dev/null; }; then
   printf 'ERROR: PLANNING_DB_HOST must be one IPv4 address, with PLANNING_DB_PORT set\n' >&2; exit 1
+fi
+# A private or tailnet address, which the firewall rejects but for this opening: anywhere else the strict tier reaches
+# as the internet, and loopback or this host's own would open its local ports (checked again at step 3).
+if [[ -n $BROWSER_HOST ]] && { [[ ! $BROWSER_HOST =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || ! python3 -I -c '
+import ipaddress, sys
+a = ipaddress.IPv4Address(sys.argv[1])
+sys.exit(0 if any(a in ipaddress.IPv4Network(n) for n in ("10.0.0.0/8", "100.64.0.0/10", "172.16.0.0/12", "192.168.0.0/16")) else 1)' \
+    "$BROWSER_HOST" 2>/dev/null; }; then
+  printf 'ERROR: STRICT_BROWSER_HOST must be one private or tailnet IPv4 address (10/8, 100.64/10, 172.16/12, 192.168/16)\n' >&2
+  exit 1
+fi
+if [[ -n $BROWSER_HOST ]] && { [[ ! $BROWSER_PORTS =~ ^[0-9]{4,5}(-[0-9]{4,5})?$ ]] || ! python3 -I -c '
+import sys
+lo, _, hi = sys.argv[1].partition("-")
+lo, hi = int(lo), int(hi or lo)
+sys.exit(0 if 1024 <= lo <= hi <= 65535 and hi - lo < 1000 else 1)' "$BROWSER_PORTS" 2>/dev/null; }; then
+  printf 'ERROR: STRICT_BROWSER_PORTS must be a port or a range of ports (like 3100-3199) from 1024 up, at most 1000 of them\n' >&2
+  exit 1
 fi
 # At least one label of the tier's own, beyond the ones every self-hosted runner can have (self-hosted, its OS and
 # architecture): a runner registered with none of the factory's could take any job that asks only for self-hosted,
@@ -497,7 +521,8 @@ if [[ ${1:-} == --print-settings ]]; then
   [[ $TIER == ci ]] && ci_settings="CI_APP_CLIENT_ID CI_JOB_CPUS CI_JOB_MEMORY CI_JOB_PIDS CI_JOB_SHM CI_JOB_HOURS CI_IDLE_HOURS CI_MIN_FREE_GB"
   [[ $TIER == ci && -n $CI_JOB_GPUS ]] && ci_settings+=" CI_JOB_GPUS"
   for v in TIER FACTORY_ORG RUNNER_URL RUNNER_GROUP RUNNER_LABELS RUNNER_INSTANCE RUNNER_USER RUNNER_HOME RUNNER_UNIT \
-           FW_UNIT NFT_TABLE NFT_FILE RUNNER_COUNT MEM_HIGH MEM_MAX CPU_QUOTA SLICE_TASKS DB_PORT DB_HOST LAN_DNS PROBE_PORTS $ci_settings; do
+           FW_UNIT NFT_TABLE NFT_FILE RUNNER_COUNT MEM_HIGH MEM_MAX CPU_QUOTA SLICE_TASKS DB_PORT DB_HOST BROWSER_HOST \
+           BROWSER_PORTS LAN_DNS PROBE_PORTS $ci_settings; do
     printf '%s=%s\n' "$v" "${!v}"
   done
   printf 'RUNNER_NAMES=%s\n' "$(for i in $(seq "$RUNNER_COUNT"); do runner_name "$i"; done | tr '\n' ' ' | sed 's/ $//')"
@@ -662,7 +687,14 @@ db_rule=
 if [[ -n $DB_PORT ]]; then
   db_rule="ip daddr { $(if [[ -n $DB_HOST ]]; then echo "$DB_HOST"; else echo $host_ips | tr ' ' ','; fi) } tcp dport $DB_PORT counter accept comment \"production database (D3)\""
 fi
-log "3/8 firewall: $RUNNER_USER may reach the internet, nothing on this host or the LAN${DB_PORT:+ except the database at ${DB_HOST:-this host}:$DB_PORT}"
+browser_rule=
+if [[ -n $BROWSER_HOST ]]; then
+  for ip in $host_ips; do
+    [[ $ip != "$BROWSER_HOST" ]] || die "STRICT_BROWSER_HOST ($BROWSER_HOST) is this host's own address: the opening would reach its own ports"
+  done
+  browser_rule="ip daddr $BROWSER_HOST tcp dport $BROWSER_PORTS counter accept comment \"browser host (D6)\""
+fi
+log "3/8 firewall: $RUNNER_USER may reach the internet, nothing on this host or the LAN${DB_PORT:+ except the database at ${DB_HOST:-this host}:$DB_PORT}${BROWSER_HOST:+ except the browser host at $BROWSER_HOST:$BROWSER_PORTS}"
 install -d -m 755 /etc/factory-runner
 # Seccomp profile for agent jobs that run sandboxed Bash: Docker's default plus the namespace
 # calls bubblewrap needs. Jobs name it with `--security-opt seccomp=/etc/factory-runner/seccomp-bwrap.json`
@@ -702,6 +734,7 @@ table inet $NFT_TABLE {
     # everything a job needs answers over IPv4.
     meta nfproto ipv6 counter reject comment "no IPv6"
     $db_rule
+    $browser_rule
     oifname "lo" counter reject comment "host-local services"
     ip daddr @blocked4 counter reject
   }
@@ -709,7 +742,7 @@ table inet $NFT_TABLE {
 EOF
 cat > /etc/systemd/system/$FW_UNIT.service <<EOF
 [Unit]
-Description=Firewall for the $RUNNER_USER user (blocks host and LAN${DB_PORT:+ except port $DB_PORT})
+Description=Firewall for the $RUNNER_USER user (blocks host and LAN${DB_PORT:+ except port $DB_PORT}${BROWSER_HOST:+ except the browser host})
 DefaultDependencies=no
 Before=network-pre.target
 Wants=network-pre.target
@@ -772,6 +805,12 @@ systemctl enable "$FW_UNIT.service" "$FW_UNIT-reapply.service" >/dev/null
 # Reload in place when already active: restarting would stop user@ (Requires=) and kill running jobs.
 if systemctl is-active --quiet "$FW_UNIT.service"; then nft -f "$NFT_FILE"; else systemctl start "$FW_UNIT.service"; fi
 nft list table inet "$NFT_TABLE" >/dev/null || die "firewall table did not load"
+# The browser host's opening, as nft loaded it (D6): that one address and range, an accept, and nothing wider.
+if [[ -n $BROWSER_HOST ]]; then
+  loaded=$(nft list chain inet "$NFT_TABLE" runner_out | grep -F 'browser host (D6)' || true)
+  [[ $(grep -c . <<< "$loaded") == 1 && $loaded =~ ip\ daddr\ ${BROWSER_HOST//./\\.}\ tcp\ dport\ ${BROWSER_PORTS}\ counter\ .*accept ]] \
+    || die "the browser host's rule didn't load as written: ${loaded:-none}"
+fi
 # The CI tier's checks compare the table with the fingerprint its settings hold: a table this run changed gets its new
 # fingerprint at once, or the minute check would trip the tier (jobs and all) before setup reaches its settings.
 ci_conf=/etc/factory-runner/$RUNNER_UNIT/launcher.json
@@ -876,7 +915,19 @@ PY
   ((blocked == 0)) || die "can't read the blocked4 set from $NFT_FILE"
   { printf '%s\n' $PROBE_PORTS | grep -vx -e "$DB_PORT" || true; } | tr '\n' ' ' | sed 's/ $//'
 }
-log "6/8 isolation test from inside a container (every probe must be BLOCKED${DB_PORT:+, except the database}; IPv6 always)"
+# The probe ports for the strict tier's browser host (D6): every probe port outside BROWSER_PORTS, and the ports just
+# past each end of it, so the opening is shown to be the range and no wider. None when there's no browser host.
+browser_host_other_ports() {
+  [[ -n $BROWSER_HOST ]] || return 0
+  python3 -I - "$BROWSER_PORTS" $PROBE_PORTS <<'PY'
+import sys
+lo, _, hi = sys.argv[1].partition("-")
+lo, hi = int(lo), int(hi or lo)
+ports = [int(p) for p in sys.argv[2:] if not lo <= int(p) <= hi] + [p for p in (lo - 1, hi + 1) if 0 < p < 65536]
+print(" ".join(str(p) for p in dict.fromkeys(ports)))
+PY
+}
+log "6/8 isolation test from inside a container (every probe must be BLOCKED${DB_PORT:+, except the database}${BROWSER_HOST:+, except the browser host front ends}; IPv6 always)"
 probe_py=$(cat <<'PY'
 import socket, sys
 targets = sys.argv[1].split()
@@ -938,6 +989,27 @@ if [[ -n $db_other ]]; then
     || die "isolation test FAILED: $RUNNER_USER reaches $DB_HOST on a port other than the database's ($DB_PORT)"
 elif [[ -n $DB_HOST ]]; then
   echo "PLANNING_DB_HOST ($DB_HOST): no other port probed there. Either it's outside the firewall's blocked set, which the tier reaches as it does the internet, or PROBE_PORTS names only the database's"
+fi
+# The browser host (D6): the opening is its front-end ports and nothing else there. That a front end answers is
+# shown, not required: the browser host may be down while this runs, and factory-smoke's browser-host job proves the
+# whole route before any stage relies on it.
+if [[ -n $BROWSER_HOST ]]; then
+  browser_other=$(browser_host_other_ports)
+  as_runner "docker run --rm --network factory-probe -v \$HOME/.isolation_probe.py:/probe.py:ro \
+    python:3.12-slim python /probe.py '$BROWSER_HOST' '$browser_other'" \
+    || die "isolation test FAILED: $RUNNER_USER reaches $BROWSER_HOST on a port outside $BROWSER_PORTS"
+  if as_runner "docker run --rm --network factory-probe python:3.12-slim python -c \"
+import socket, sys
+lo, _, hi = '$BROWSER_PORTS'.partition('-')
+for p in range(int(lo), int(hi or lo) + 1):
+    try:
+        socket.create_connection(('$BROWSER_HOST', p), timeout=1).close()
+        print(f'ok        $BROWSER_HOST:{p} (a browser host front end answers)'); sys.exit(0)
+    except OSError:
+        pass
+sys.exit(1)\""; then :; else
+    echo "WARNING: no front end answered on $BROWSER_HOST:$BROWSER_PORTS. The firewall's opening is loaded; factory-smoke's browser-host job proves the route once the browser host is up"
+  fi
 fi
 as_runner "docker network rm factory-probe >/dev/null"
 # Root connects first, so a probe that can't connect at all doesn't pass for a refusal; then only a permission

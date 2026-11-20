@@ -79,6 +79,54 @@ class HostSettings(unittest.TestCase):
                 self.assertEqual(r.returncode, 1)
                 self.assertIn("PLANNING_DB_HOST must be one IPv4 address, with PLANNING_DB_PORT set", r.stderr)
 
+    def test_the_strict_tiers_browser_host(self):
+        # D6: the strict tier's one opening, the browser host's front-end ports on one address.
+        s = self.settings("FACTORY_ORG=acme\nSTRICT_BROWSER_HOST=10.20.30.40\n")
+        self.assertEqual((s["BROWSER_HOST"], s["BROWSER_PORTS"]), ("10.20.30.40", "3100-3199"))
+        s = self.settings("FACTORY_ORG=acme\nSTRICT_BROWSER_HOST=10.20.30.40\nSTRICT_BROWSER_PORTS=3161\n")
+        self.assertEqual(s["BROWSER_PORTS"], "3161")
+        # Off by default, and never another tier's.
+        self.assertEqual((self.settings("FACTORY_ORG=acme\n")["BROWSER_HOST"], self.settings("FACTORY_ORG=acme\n")["BROWSER_PORTS"]),
+                         ("", ""))
+        s = self.settings("FACTORY_ORG=acme\nSTRICT_BROWSER_HOST=10.20.30.40\n", tier="planning")
+        self.assertEqual((s["BROWSER_HOST"], s["BROWSER_PORTS"]), ("", ""))
+
+    def test_the_browser_host_is_one_address_and_its_ports_a_range(self):
+        bad_host = "STRICT_BROWSER_HOST must be one private or tailnet IPv4 address"
+        for conf, error in (("STRICT_BROWSER_HOST=browser-host\n", bad_host),
+                            ("STRICT_BROWSER_HOST=10.20.30.300\n", bad_host),
+                            ("STRICT_BROWSER_HOST=10.20.30.40,10.20.30.41\n", bad_host),
+                            # Public: reached as the internet, so the firewall would never be the lock.
+                            ("STRICT_BROWSER_HOST=203.0.113.9\n", bad_host),
+                            # Loopback and the unspecified address: the opening would reach this host's own ports.
+                            ("STRICT_BROWSER_HOST=127.0.0.1\n", bad_host),
+                            ("STRICT_BROWSER_HOST=0.0.0.0\n", bad_host),
+                            ("STRICT_BROWSER_HOST=10.20.30.40\nSTRICT_BROWSER_PORTS=' 3100'\n", "STRICT_BROWSER_PORTS must be"),
+                            ("STRICT_BROWSER_HOST=10.20.30.40\nSTRICT_BROWSER_PORTS=3_100\n", "STRICT_BROWSER_PORTS must be"),
+                            ("STRICT_BROWSER_HOST=10.20.30.40\nSTRICT_BROWSER_PORTS=22\n", "STRICT_BROWSER_PORTS must be"),
+                            ("STRICT_BROWSER_HOST=10.20.30.40\nSTRICT_BROWSER_PORTS=3199-3100\n", "STRICT_BROWSER_PORTS must be"),
+                            ("STRICT_BROWSER_HOST=10.20.30.40\nSTRICT_BROWSER_PORTS=2000-9000\n", "STRICT_BROWSER_PORTS must be"),
+                            ("STRICT_BROWSER_HOST=10.20.30.40\nSTRICT_BROWSER_PORTS='3100 3101'\n", "STRICT_BROWSER_PORTS must be")):
+            with self.subTest(conf=conf), tempfile.TemporaryDirectory() as tmp:
+                host_conf = pathlib.Path(tmp) / "host.conf"
+                host_conf.write_text("FACTORY_ORG=acme\n" + conf)
+                cfg = pathlib.Path(tmp) / "factory.json"
+                cfg.write_text(json.dumps({"runners": {"strict": "strict-pool", "planning": "plan-pool"}}))
+                r = subprocess.run(["bash", str(SCRIPT), "--print-settings"], capture_output=True, text=True,
+                                   env={**os.environ, "HOST_CONF": str(host_conf), "FACTORY_JSON": str(cfg), "TIER": "strict"})
+                self.assertEqual(r.returncode, 1, r.stdout)
+                self.assertIn(error, r.stderr)
+
+    def test_the_browser_hosts_rule_comes_before_the_blocks(self):
+        # The browser host is on a tailnet or LAN address, which the blocked set rejects: its accept rule must come first.
+        text = SCRIPT.read_text()
+        chain = re.search(r"^  chain runner_out \{\n(.*?)^  \}\n", text, re.S | re.M).group(1)
+        lines = [l.strip() for l in chain.splitlines()]
+        self.assertIn("$browser_rule", lines)
+        self.assertLess(lines.index("$browser_rule"), lines.index('oifname "lo" counter reject comment "host-local services"'))
+        self.assertLess(lines.index("$browser_rule"), lines.index("ip daddr @blocked4 counter reject"))
+        self.assertIn('browser_rule="ip daddr $BROWSER_HOST tcp dport $BROWSER_PORTS counter accept', text)
+
     def test_the_ci_tier(self):
         runners = {"strict": "strict-pool", "planning": "plan-pool", "ci": "ci-pool"}
         s = self.settings("FACTORY_ORG=acme\nRUNNER_NAME_PREFIX=box\n", tier="ci", factory={"runners": runners})
@@ -449,6 +497,19 @@ class SetupParts(unittest.TestCase):
         r = ports("10.0.0.5", nft_file=self.root / "other.nft")
         self.assertEqual(r.returncode, 1)
         self.assertIn("can't read the blocked4 set", r.stderr)
+
+    def test_the_browser_hosts_other_ports_are_probed_closed(self):
+        def ports(host, browser_ports="3100-3199", probe="22 80 443 3000 5432"):
+            r = self.bash(function("browser_host_other_ports") + "browser_host_other_ports\n", BROWSER_HOST=host,
+                          BROWSER_PORTS=browser_ports, PROBE_PORTS=probe)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            return r.stdout.strip()
+        # Every probe port outside the opening, and the ports just past each end of it.
+        self.assertEqual(ports("10.20.30.40"), "22 80 443 3000 5432 3099 3200")
+        self.assertEqual(ports("10.20.30.40", "3161", "22 3161"), "22 3160 3162")
+        self.assertEqual(ports("10.20.30.40", "3100-3199", "22 3150"), "22 3099 3200")
+        # No browser host: nothing to probe.
+        self.assertEqual(ports(""), "")
 
     def test_ci_job_gpus_is_one_device_per_slot_never_shared_never_all(self):
         uuid = "GPU-00000000-0000-4000-8000-000000000001"

@@ -255,6 +255,9 @@ jobs:
         shell: bash
         run: |
           cfg=$("$CHECKS/agent_job.sh" mcp)
+          # The browser route (D6), when factory.json's browser block lists revise: the browser host's front end for
+          # the project's Playwright joins the sandbox's allowed hosts, and /opt/factory/with-browser reaches it.
+          "$CHECKS/agent_job.sh" browser revise "$CHECKS/implement-sandbox.settings.json"
           # Read-only MCP services the execution stages may use (README § Services, process/factory.md D2
           # rule 8): their servers and allowed tools, every service slot masked in the sandbox, and a
           # non-secret list for the agent. With none listed for this stage, only the masks change.

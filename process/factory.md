@@ -111,7 +111,7 @@ Agent jobs run on self-hosted runners, and a runner host may also run production
    - container `options`: the narrow seccomp profile (Docker's default plus `unshare`, `clone`, `setns`, `mount`, `umount2`, `pivot_root`, `mount_setattr`, `open_tree`, `move_mount`) and `--security-opt systempaths=unconfined`;
    - **file tools are outside the sandbox:** Read, Edit and Write run in the Claude Code process, which holds the token. The stage's tool policy denies Read on `/proc`, `/dev`, `/sys` and the runner's mounts, and Edit on system directories, runner state, `HOME`, temp and mount points, `.git`, `.github`, and `.claude/`, `CLAUDE.md` and `.mcp.json` at any depth (deny rules also match a symlink's target). Skill shell execution is off;
    - **a service the job starts outside the sandbox that sandboxed Bash can reach is part of the boundary**. Test databases run outside the sandbox with open network, on the job container's loopback, reached through the sandbox's HTTP proxy with `localhost` as the only local entry in `allowedDomains`. Never `allowAllUnixSockets`: it drops the sandbox's seccomp helper, whose nested PID namespace and clean environment hide bubblewrap's own environment, and a smoke probe showed sandboxed Bash then reads the job's GitHub token from `/proc/1/environ` (the env scrub leaves GitHub tokens in place) and reaches Claude Code's own Unix sockets. Each runs least-privileged (no Postgres superuser, so no `COPY ... TO PROGRAM`; Redis without `MIGRATE`, `REPLICAOF`, `MODULE`, `CONFIG` and the like), starts with an empty environment, and the start script checks all of it on every run;
-   - `network.allowedDomains` empty for a stage that installs nothing (implement): a package registry that accepts publishes is a way out.
+   - `network.allowedDomains` empty for a stage that installs nothing (implement): a package registry that accepts publishes is a way out. The one exception is the browser host's front end for the project's Playwright, one address and port, when the stage has the browser route (D6).
 3. **Writer jobs refuse to post** token-shaped strings, images and embeds.
 4. **After an agent step that can write the workspace, the job trusts nothing the agent could have touched.** Later steps in that job run only code copied out beforehand to places the sandbox can't write, call `python3 -I` by absolute path, and run git with hooks and fsmonitor disabled, only after checking that `.git` is a real directory that wasn't redirected (`commondir`, `alternates`), its hooks are unchanged and its config holds only allowlisted keys (read with `git config --file`, which follows no include), and the index holds no submodule; and never into a nested repository (`--ignore-submodules=all`): `git status` runs a staged submodule's own config, filters included, which a planted repository outside `.git/` can define (review round 2, reproduced). The sandbox leaves empty read-only placeholder files behind at protected paths it mounts over (`commondir`, `alternates`, `config.worktree`); the guard removes empty ones and refuses any with content. The job removes `origin` before the agent step, because the action writes the job token into its URL, and passes the factory's bot identity so the action's git setup commits as the factory. The job removes `.git` at the end, because `actions/checkout`'s post step runs git in the workspace. The commits themselves are judged by a writer job on a clean GitHub-hosted runner.
 5. **The boundary is tested before it is relied on.** Every smoke run probes the tool policy and does an exact-value credential scan. Before any stage gets Bash, smoke carries that stage's sandbox probe (`factory-smoke` job `bash-sandbox`):
@@ -360,6 +360,98 @@ The factory repeats mistakes nobody tells it about, while CD's corrections alrea
 - The window's commits are harvested so the analysis can drop already-fixed problems; a busy week means a large digest.
 - The analysis can't run code, so it can't measure; numbers come only from the harvest.
 
+## D6: Browser Host (stages drive a real browser, with no way out)
+
+### Why
+
+The code-writing stages can't see a web app run. Triage confirms UI bugs from code alone, plans hand every browser check to CD or CI, and a bug CI stayed green on was found only when CD drove the app at a gate. CLAUDE-SDLC's "prove the bug before fixing it" needs a browser for a UI bug. A browser is also the widest way out a sandbox can have: it fetches whatever a page names. So the browser has to run where it can't reach anything, and drive only the app the stage starts. WebGL needs a GPU, which renders a frame for about 7 CPUs' software rendering.
+
+**Options considered:**
+1. **Playwright MCP in the stage's config.** MCP servers run outside the sandbox, next to the job's credentials, so the agent would get an open browser: the channel D2 Forbid 1 removed.
+2. **Chromium inside the sandbox.** Unproven under the sandbox's seccomp filter, browsers have crashed in sandboxes before, and WebGL would render in software. A GPU passed into agent jobs puts its driver within reach of agent code on a host that does more than CI (§ Stack Profiles).
+3. **A dedicated browser host the sandbox reaches through one port (chosen, CD 2026-11-19/20).** The app and its servers stay in the sandbox, as tests do today. A Playwright client in the same sandboxed command connects to the browser host, and every request the browser makes comes back through that connection and is made from the sandbox's side, so the browser can load the sandbox's own `localhost` and nothing else.
+
+### Rules
+
+1. **The browser runs on the browser host, never in a stage's job.** A Playwright client in a sandboxed command connects to the host's front end for the project's own Playwright version: a client's major.minor must match its server's, so the host serves each version on its own port (`port_base` + minor, 3100 by default). The front end forces `exposeNetwork: "*"`, so all of the browser's traffic goes back through the client and is made inside the sandbox. The job image needs no browser, and `playwright install` never runs in a job. A GPU renders WebGL wherever the host has one (CD, 2026-11-19).
+2. **The strict tier's one network opening** (CD, 2026-11-20). The strict runner users may reach the browser host's front-end ports and nothing else on the host or LAN: the one address `host.conf`'s `STRICT_BROWSER_HOST` names, on `STRICT_BROWSER_PORTS` (3100–3199 by default). It is the same shape as the planning tier's database exception (D3 rule 2):
+   - setup's firewall accepts that address and range before it rejects the private and tailnet ranges;
+   - setup's isolation test finds every other probe port there closed, and the ports just past each end of the range;
+   - setup reads the loaded rule back, and refuses an address that isn't private or tailnet, or that is the runner host's own;
+   - the address is set twice, in different repositories, and nothing compares them: the runner host's `host.conf` builds the firewall, and each project's `factory.json` (`browser.host`) is what its stages connect to. They must agree; when they don't, the connection is refused. That holds only because both must be private or tailnet addresses, which the firewall otherwise rejects: `browser.py` refuses any other, since a public one would be reached as the internet is.
+
+   A stage's sandbox narrows the opening to one port. `browser.py`, run outside the sandbox before the agent starts, adds `<address>:<port>` for the project's installed Playwright to the stage's `allowedDomains`, and the sandbox's proxy refuses every other port and host. D2 holds otherwise: no other host, no direct connection, no DNS.
+3. **The browser host is part of the boundary.** The client is agent-written code, so nothing it chooses is trusted. The host must hold all of these:
+   - **A front end is the only thing the network reaches.** It replaces whatever the client sends with:
+     - the browser `chromium`;
+     - `exposeNetwork: "*"`;
+     - fixed launch options: new headless (which uses the GPU), `--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1` and `--force-webrtc-ip-handling-policy=disable_non_proxied_udp`.
+
+     No launch option of the client's takes effect. `run-server` has no authentication, so the network's access policy (the runner host only, on those ports) is the lock.
+   - **Each `run-server` listens on loopback, at `port_base` + 100 + minor, on a secret path,** random per start, known only to the front end and never logged. A page can reach the host's loopback (a context proxy whose bypass names `127.0.0.1` makes Chrome connect there directly). With launch options taken from the request, a page that opened a `run-server` WebSocket could launch any program as the browser's account (found 2026-11-20, before the secret path; nothing was launched). Plain HTTP on the host's loopback stays reachable, so every service there must require credentials.
+   - **An outbound block keeps the browser's account to loopback,** passing only the replies to the runner host's connections. A client can give a browser context its own proxy (`newContext({proxy})`), which skips the forced tunnel: before the block, a client in a sandbox with no network fetched an outside page that way.
+   - **The browser looks up no name itself.** The outbound block doesn't cover the operating system's resolver, which runs as root. A context proxy's hostname and a WebRTC STUN server's both leaked a lookup from the host until the resolver rule above closed them. Page traffic is unaffected: its names resolve on the client's side.
+   - **A session cap** (two browsers on an 8 GB host), with a first-come queue that answers 503 after 10 minutes.
+   - **Its code is root-owned,** versioned and reviewed like the runner host's setup, and started only in the browser account's own session. The browser account is a standard one.
+4. **What proves it.** Two checks prove the route, because neither can see everything:
+   - **`factory-smoke`'s `browser-host` job,** from inside the implement stage's own sandbox with the route added. The probe (`browser_probe.mjs`, judged by `browser_check.py`) must find:
+     - the app it starts on its own loopback loaded by the browser host, its WebSocket included, with WebGL on the GPU (unless `browser.gpu` is false);
+     - a screenshot, the trace and the video come back;
+     - the forced flags on the browser's own command line, the resolver rule exactly once;
+     - a second client that asks for another browser, its own launch options (a program, headed, a proxy, its own resolver rule, a debugging port) and loopback only, in its headers and its query, gets the forced Chromium and flags and none of its own;
+     - the outside world refused, by name and by address;
+     - a context proxy refused, by address and by name;
+     - a page that reaches the host's loopback (plain HTTP answers on the run-servers' ports, at `port_base` + 100 + minor) opens no WebSocket to a `run-server` there;
+     - the sandbox's proxy refuses the browser host's next port, since the stage's sandbox allows one;
+     - no credential, by name or by value.
+
+     An unsandboxed control in the same job must first reach the outside world through the same tunnel and find a canary credential in its environment, so the agent's refusals and clean environment are the sandbox's doing, not a broken check. The control holds the canary, never a real token: it runs the project's own Playwright with network.
+   - **The browser host's own check,** on a timer, as the browser's account, reporting to a dead-man's switch so a check that stops running also alerts. It checks that outside addresses and the LAN are blocked, loopback is reached, the front ends are up and the browser's account holds the session. The smoke job can't see the outbound block: the resolver rule refuses outside hosts, bare addresses included, before the block is ever reached. Nor can it see a DNS lookup leave the host: a changed launch flag is proven on the host with a canary resolver before it ships.
+
+   **Nothing relies on the route until smoke passes.** A stage gets it only when CD lists the stage in `browser.stages`, after the `browser-host` job has passed. Run smoke again after any change to the browser host (its code, its Chrome, its flags, a new Playwright version), and after the project upgrades Playwright.
+5. **Absence is reported, never guessed.** With no route for the stage, or no answer from the host, `with-browser` prints `UNAVAILABLE: browser host (<why>)` and exits 75. A stage that gets it reports `blocked`. It never claims a bug was reproduced or ruled out.
+6. **Offline by default, at the network.** The sandbox blocks the app's server and the browser alike, since most outside calls in the projects swept are server-side (server rendering, back-end calls to maps, media or partner APIs). Every outside connection falls into one of five kinds:
+
+   | Kind | Handled by |
+   |---|---|
+   | The project's own services | the profile's test services, or emulators |
+   | Static files (CDNs, fonts, images) | a local copy from the fixtures job (D2 rule 7), or a recording replayed with `routeFromHAR` |
+   | Live services with effects (payments, auth providers, analytics, telemetry, streaming) | the app's own offline mode, or a stub; a feature that needs one can't be driven here |
+   | Links out to partners | caught and checked, never followed |
+   | The partner's own side | outside the factory (below) |
+
+   - **Anything not sorted is blocked, and listed in the stage's result.** Tests that tolerate a missing service can pass while the app is broken: one project's suite went 21 of 21 green with its content service returning nothing.
+   - **The project's verify skill is the one list** of its outside connections (its Targets, outbound integrations and Recorded Exceptions; CD, 2026-11-20). The factory reads the same list and enforces it more strictly.
+   - **No approved outside host to start** (CD, 2026-11-20). An exception recorded for interactive verify (a CDN, say) doesn't carry over: the fixtures job supplies the files instead.
+   - **Partner sites stay outside the factory, except by exception** (CD, 2026-11-20). Checking a partner's side, such as an affiliate link's destination, is a scheduled script or a supervised session, not an agent with open internet. An exception names one host, and CD records it in the project's verify skill (Recorded Exceptions) and in the factory's reviewed allowlist. Each exception weighs what the visit does on the partner's side, such as an affiliate click it records, and that a reachable host is a way out through request URLs.
+   - **The reviewed allowlist is `factory.json`'s `browser.allow`** (code-owned): one plain hostname per entry, with `why` and `decided` (who, and when). `browser.py` adds each as `<host>:443` to the stage's `allowedDomains`, and nothing else. The browser can't fetch it by itself: Playwright's tunnel connects from the client directly, and the sandbox has no network but its proxy. So the project's spec serves those requests: `context.route` for the host, fulfilled from Node's `fetch`, which `with-browser` points at the sandbox's proxy (`NODE_USE_ENV_PROXY`, with the hosts in `FACTORY_BROWSER_ALLOW`). The same exception goes in the verify skill's Recorded Exceptions, in the same PR, so CD reviews the boundary change once.
+
+### Forbids
+
+1. A browser in a stage's job or sandbox, or a browser MCP server in a stage's config.
+2. Giving a stage the route before `factory-smoke`'s `browser-host` job has passed, or keeping it while a property of rule 3 is missing.
+3. A strict-tier opening beyond the browser host's front-end ports, or a sandbox entry for the browser host beyond the project's one port.
+4. A browser, launch option or proxy the client chooses taking effect on the browser host.
+5. Reporting a bug reproduced or ruled out when the browser host was unavailable.
+
+### Costs
+
+- A machine, its upkeep and its own reviewed setup. Each Playwright version a project uses needs a front end there, and a project's upgrade needs one before its stages can use the browser.
+- A remote browser is slower. Each request makes extra round trips through the tunnel, and timing-sensitive specs flake: one passed 2 of 4 runs on the browser host that passes on the CI host. Specs drive the app's timers with `page.clock` rather than wall time, and a timeout on its own never counts as reproduced.
+- Two browsers at once across every project, since an 8 GB host holds about two. A run that waits past the queue is `blocked`.
+- The browser renders with the host's own fonts, not the CI image's, so pixel comparisons differ from CI.
+
+### Leaves open
+
+- **Which Playwright versions the host serves,** and who adds one when a project upgrades.
+- **Whether a timing-sensitive spec failing on the browser host counts as reproduced.** Only a failing check of the mechanism does; a timeout alone doesn't.
+
+### Revisit when
+
+- Playwright changes how `connect` works, `run-server`'s launch-option filter, or `exposeNetwork`.
+- The browser host leaves macOS (Asahi Linux is the fallback if its lockdown can't hold) or gains a second browser host.
+- GPU passthrough to a job's container becomes safe on a host that does nothing else, which would make option 2 worth another look.
+
 ---
 
 ## Tiers in the factory
@@ -439,7 +531,7 @@ What every code-writing stage's agent works inside (D2), stated once and mirrore
 that run there:
 
 <!-- MIRROR-SOURCE-START: factory-sandbox -->
-- **Bash is sandboxed:** it can write only the workspace and the temp directory, and has no network. Dependencies are already installed; nothing can be installed.
+- **Bash is sandboxed:** it can write only the workspace and the temp directory, and has no network. Dependencies are already installed; nothing can be installed. The one exception is the browser route, when this stage has it: `/opt/factory/with-browser <command>` reaches the browser host's front end for the project's Playwright, and the browser loads only what the command serves on its own `localhost` (`[sdlc-root]/process/factory.md` D6). Without the route it prints `UNAVAILABLE: browser host`.
 - **No GitHub access:** no `gh`, no push. The issue is in the context file.
 - **Off-limits paths:** edits to `.github/`, `.claude/`, `CLAUDE.md`, `.mcp.json` and `.git/` are denied, and the publish job rejects any commit touching a path in `.github/CODEOWNERS` (the project's test and build config, dependency manifests, `[sdlc-root]/` and the like). The SDLC hygiene files are the exception, and you may write them: the discipline parking lots (`[sdlc-root]/disciplines/*.md`) and the knowledge YAMLs (`[sdlc-root]/knowledge/`), except the eight that route or govern agents (`[sdlc-root]/knowledge/agent-context-map.yaml` and seven in `[sdlc-root]/knowledge/architecture/`), which the publish guard refuses by name. It also refuses other agents' and editors' configuration (`AGENTS.md`, `GEMINI.md`, `.codex/`, `.gemini/`, `.cursor/`, `.vscode/`, `.devcontainer/`), all of these in any letter case, and a path that differs from another only in case. A knowledge entry the fix makes wrong is corrected in this PR. If the change needs one of them, stop (Edge Cases).
 <!-- MIRROR-SOURCE-END: factory-sandbox -->
@@ -447,6 +539,32 @@ that run there:
 | Mirror | Copies |
 |---|---|
 | `factory-sandbox` | `sdlc-implement`, `sdlc-revise` |
+
+## Reproducing in a browser
+
+How a code-writing stage proves and verifies a bug a user sees in a web app, when the stage has the browser route
+(D6), stated once and mirrored into the skills that run there. `sdlc-execute`'s UI smoke check and
+`[sdlc-root]/process/review-fix-loop.md` Step 0.5 point here for a factory run.
+
+<!-- MIRROR-SOURCE-START: factory-browser -->
+**A bug a user sees in the web app is reproduced in a real browser when this stage has the browser route** (`[sdlc-root]/process/factory.md` D6). `/opt/factory/with-browser <command>` runs a command with the browser host reached, and the browser loads only what that command serves on its own `localhost`. Without the route, it prints `UNAVAILABLE: browser host (<why>)` and exits 75.
+1. **Before the fix,** an agent writes the smallest Playwright spec that follows the reported steps (the issue's, or CD's request's) and runs it alone, at one worker, through `/opt/factory/with-test-services /opt/factory/with-browser`, with the project's own Playwright command, so the project's config starts the app's servers in the same command. The run must fail for the reason the issue gives. Build the spec on the project's own end-to-end fixtures (its test sign-in, its seeded state), not on clicking through the whole UI. Drive the app's timers with `page.clock`, never wall time: a remote browser adds round trips. The spec stays in the PR (CLAUDE.md § Bug-Fix Rule), named `repro-<issue>-<slug>.spec.ts` where the project's Playwright config runs it (its CLAUDE.md or verify skill says where), so one pattern there picks up every kept spec.
+2. **Follow the report's steps first,** then make at most two targeted variations. Find the UI's elements by searching the code for their strings, not by clicking around.
+3. **Report one of four outcomes** in the result:
+   - `reproduced`: a check of the mechanism fails as the report says. A timeout alone is not one.
+   - `partially reproduced`: part of what the report describes, said which.
+   - `not reproduced`: with what was tried. It is a valid result.
+   - `blocked`: the browser host was unavailable, or an outside service the feature needs is offline. It never counts as reproduced or ruled out.
+4. **List every request the page made that failed** (Playwright's `requestfailed`, and responses of 400 or more), not the servers' own output: a dev server stopped at the end of a run prints a failure of its own. An outside host is blocked by design, and is listed, except one CD allowed for the project (`$FACTORY_BROWSER_ALLOW`), which the spec serves itself with `context.route`, fetched through the sandbox's proxy with Node's `fetch`. A skipped test counts as not passing.
+5. **A helper agent drives the browser and reports in text.** Screenshots, video and traces stay in its files, never in the orchestrator's context (the manager rule): under `.factory/evidence/` and nowhere else, with a `manifest.json` that lists each file as `{"file", "step", "shows", "bug"}`. The reproducing and verifying runs record video (Playwright's `recordVideo`, or its screencast API from 1.59) at a fixed viewport.
+6. **After the fix,** the same spec runs again and passes.
+7. **Run only the reproducing spec, never a whole suite:** the browser host holds two browsers across every project.
+8. **CI may not run the kept spec.** Where the project's end-to-end suite doesn't run in CI, or doesn't pick up the spec's file, the result says so: the spec is the stage's own evidence.
+<!-- MIRROR-SOURCE-END: factory-browser -->
+
+| Mirror | Copies |
+|---|---|
+| `factory-browser` | `sdlc-implement`, `sdlc-revise` |
 
 ---
 
@@ -510,7 +628,11 @@ script chains in (a bundle-size gate, a generated file) is left to CI on the PR.
 sockets are blocked, and MSBuild's worker nodes use them: `dotnet-node` builds in one process
 (`-m:1`), and `verify --print` tells the agent to do the same (`dotnet run` and `dotnet ef` ignore
 the switch, so they run with `--no-build` after a `dotnet build -m:1`). End-to-end suites
-(Playwright) are not in any profile: they need browsers and live servers, and CI runs them.
+(Playwright) are not in `verify`: they need browsers and live servers, and CI runs them. A stage with the
+browser route (D6) runs the project's own Playwright through `/opt/factory/with-browser`, which composes with
+`with-test-services`: the app's servers start in the sandbox and the browsers run on the browser host. A
+project whose end-to-end setup needs steps before its servers start (a build, migrations, a production bundle)
+keeps them in one code-owned script, so a stage doesn't rediscover them each run.
 
 **What CODEOWNERS must cover, per profile** (Enablement step 9). A revise or continued run installs a
 factory branch's dependencies outside the sandbox, and the project's CI builds a factory PR's code.
@@ -1132,6 +1254,20 @@ needs an organization owner's `gh` login (`admin:org`) for the runner groups and
        included. It copies itself to `~/.config/agent-sessions/`, records the App there, and adds the
        hook to Claude Code's user settings once. New sessions pick it up; `session_identity.py status
        <a clone>` says which identity a session there gets.
+14. **The browser route** (optional, D6), for a project with a web app and Playwright. Once per organization, a
+    browser host: a machine with a GPU, set up from the organization's own reviewed host repository so that it
+    holds every property of D6 rule 3, with a front end for each Playwright version its projects use and a
+    self-check reporting to a dead-man's switch. Its network's access policy lets only the runner host reach the
+    front-end ports. Then:
+    1. **The runner host:** set `STRICT_BROWSER_HOST` (and `STRICT_BROWSER_PORTS`, if not 3100–3199) in the shared
+       tiers' `host.conf`, and re-run the strict tier's setup. Its isolation test probes the browser host's other
+       ports.
+    2. **The project:** before a stage uses the browser, the project's verify skill lists its outside connections
+       (D6 rule 6), fixtures cover its static files, it has a test sign-in that works offline, and a code-owned
+       script prepares what its end-to-end servers need. Set `factory.json`'s `browser.host` to the same address,
+       with `browser.client` if its Playwright isn't installed in `stack.node`. Leave `browser.stages` empty.
+    3. **Smoke:** run `factory-smoke`. Its `browser-host` job must pass (D6 rule 4).
+    4. **The stages:** list them in `browser.stages` (implement, execute, revise), through a PR.
 
 ---
 
@@ -1156,6 +1292,10 @@ project's previous version with the release's.
   → the migration doesn't apply it, since seeds are the project's: list it for CD, with what to copy.
 - **The runner audit:** a template's runner labels or groups changed → regenerate the audit's expected state
   (Enablement step 12).
+- **The browser route:** `browser.py`, `with-browser`, `browser_probe.mjs` or `browser_check.py` changed → a
+  project with `browser.host` set runs `factory-smoke` once the migration's PR merges, and its `browser-host`
+  job must pass before its stages keep the route (D6 rule 4). `host/setup.sh`'s browser opening changed → re-run
+  the strict tier's setup.
 
 The rest of the factory's upkeep isn't release-triggered (token rotation, a runner more than 30 days behind
 without a release, Dependabot's pin updates): `[sdlc-root]/process/factory-runbook.md` § 7.

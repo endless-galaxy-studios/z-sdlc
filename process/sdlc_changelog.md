@@ -37,6 +37,50 @@ Each entry contains:
 
 ---
 
+## 2026-11-20: The factory's browser route: a stage drives a real browser on the browser host (D6)
+
+**Origin:** `docs/current_work/ideas/factory-browser-repro_handoff.md`. CD's decisions (2026-11-19/20): the browser runs on a dedicated browser host with a GPU, the strict tier gets its first network opening for it, nothing relies on it until smoke passes, offline by default, and it's built for the pilot project first. The pilot project's session reviewed the design against its own end-to-end setup. It also proved, by hand on the runner host in the same sandbox, that the pilot's own servers build, migrate and start inside it and that two of its specs pass through the route. That run is the source of the protocol's points on one spec at a time, `page.clock`, timeouts, the project's own fixtures, and a code-owned script for what its servers need before they start.
+
+**What happened:** the code-writing stages couldn't see a web app run, so a UI bug was "fixed" from code alone. The browser host was built and proven by hand on 2026-11-19/20. The handoff left open whether a Playwright client inside the factory's real sandbox, which reaches out only through its HTTP proxy, could drive it. It can. The test ran on the runner host, in a container with the factory's seccomp profile and the sandbox runtime Claude Code's sandbox is built on (`@anthropic-ai/sandbox-runtime` 0.0.83), using implement's settings plus one `allowedDomains` entry: `<address>:<port>`, which Claude Code 2.1.316's own sandbox also honours as one port.
+- The client loaded an app on the sandbox's own loopback, WebSocket included, with WebGL on the host's GPU, and got a screenshot, a trace and a video back.
+- The outside world and context proxies were refused. An unsandboxed control reached the outside world through the same tunnel, which shows the refusal is the sandbox's.
+- Against the pilot project's own install (pnpm's `@playwright/test` 1.61.1), `browser.py` found the client and its port, and the probe passed.
+
+**Changes made:**
+
+1. **`process/factory.md`:** a new design rule, **D6: Browser Host**, rules 1 to 6.
+   - Where the browser runs, and the strict tier's one opening, narrowed by the sandbox to the project's Playwright version's port.
+   - What the browser host must hold, and what proves it: the smoke job, and the host's own check for its outbound block and DNS, which smoke can't see.
+   - Absence is reported as `UNAVAILABLE`, never guessed.
+   - Offline by default, with the five kinds of outside connection, the verify skill as the one list, and no outside hosts to start. The reviewed allowlist `browser.allow` covers the exceptions: one plain hostname per entry, with why and who decided it. CD made the first exception the same day, the pilot project's card-art CDN.
+   - D2 rule 2's empty `allowedDomains` gains the route as its one exception. Stack Profiles says how a stage runs the project's own Playwright, and the stages' sandbox mirror names the route.
+   - A new § Reproducing in a browser holds the stage protocol: the failing spec first, kept as `repro-<issue>-<slug>.spec.ts`; the four outcomes; failed requests listed; a helper agent drives; one spec at one worker; `page.clock` over wall time; and a timeout alone isn't a reproduction.
+   - Enablement step 14 and an After migrating item cover setup.
+2. **`skills/sdlc-implement/SKILL.md`, `skills/sdlc-revise/SKILL.md`:** both mirrors. A bug a user sees is reproduced in the browser when the stage has the route, and `verification` names the spec, its outcome and its failed requests. "Step 0.5 has no browser here" now applies only without the route, and `sdlc-revise` Step 5 says how Step 0.5 runs.
+3. **`skills/sdlc-execute/SKILL.md`, `skills/sdlc-lite-execute/SKILL.md`, `process/review-fix-loop.md` Step 0.5, `CLAUDE-SDLC.md` § UI Verification:** a factory run has no MCP browser. Its UI checks go through the route, or are reported as not run. `process/factory-runbook.md` § 3.5 names the new smoke job.
+4. **`process/verify-command.md` § Companion and the verify skill's template:** the verify skill is the project's one list of outside connections, which the factory holds more strictly.
+5. **The bundle (`bundles/factory/tree/`):**
+   - `with-browser` forwards a loopback port through the sandbox's proxy to the front end and points Playwright Test at it. It composes with `with-test-services`, and says `UNAVAILABLE: browser host (<why>)` and exits 75 when there's no route, or no answer.
+   - `browser.py` reads `factory.json`'s new `browser` block. It refuses a host that isn't a private or tailnet address, since only those get the firewall's say. It finds the project's installed Playwright, adds `<host>:<port>` and each allowed host to the stage's sandbox settings, and writes `/opt/factory/browser.conf`. `agent_job.sh browser` runs it, and `workspace` installs the wrapper.
+   - The implement and revise workflows call it before their sandbox settings are final, and execute's prompt names the route.
+   - `factory-smoke` gains a `browser-host` job: an unsandboxed control holding a canary credential, then the agent probe in implement's own sandbox. The probe is `browser_probe.mjs`, judged by `browser_check.py`. It checks:
+     - the app, its WebSocket and the GPU, and that the evidence comes back;
+     - the forced flags, and a hostile client's own browser and launch options replaced;
+     - the outside world and context proxies refused;
+     - no run-server WebSocket opens on the host's loopback, against a control showing loopback answers;
+     - the browser host's next port refused by the sandbox, and no credential visible.
+   - `host/setup.sh`: the strict tier's opening (`STRICT_BROWSER_HOST`, `STRICT_BROWSER_PORTS`), before the private-range rejects. It is a private or tailnet address only, never the host's own, with a strict port pattern. The loaded rule is read back, and the browser host's other ports and the ports past each end of the range are probed. Real `nft` loaded the ruleset in a throwaway network namespace on the runner host, and a widened rule failed the read-back.
+   - Playwright's tunnel connects from the client without the proxy, so a spec serves an allowed host's requests itself with `context.route`, fetched through the proxy. `with-browser` exports `NODE_USE_ENV_PROXY` and the hosts for that. On the runner host an allowed host answered through the proxy, another was refused, and the client still connected.
+   - `render.py` counts the `browser` block as read at run time.
+   - Tests: `tests/test_browser.py` (route, wrapper, verdict, and the smoke job under the policy), and `tests/test_host_setup.py` for the opening.
+6. **`bundles/factory/seed/factory.json`, `seed/host/host.conf`:** the `browser` block (off by default) and the two `host.conf` settings, commented. `zsdlc-import-factory`'s `import.json` marks the block optional, since the incubator doesn't use it yet.
+
+An outside review found smoke claiming more than it proved: the loopback check had no control, no hostile client was tried, and D6 promised a firewall safety net for any address. Those are the checks and refusals above. No `contract_changes.yaml` entry: the block is optional and off when absent, and seeds are never rewritten. A project opts in with Enablement step 14.
+
+**Rationale:** the route keeps D2's shape. The agent's sandbox still has no way out but its proxy, and the proxy now allows one more address and port. Everything else the browser could reach is closed on the browser host, by rules the smoke job and the host's own check prove. Absence reports `blocked`, so a stage never claims a reproduction it couldn't run.
+
+---
+
 ## 2026-11-20: A factory feature can start where its workload is
 
 **Origin:** planning the factory's browser-based bug reproduction (`docs/current_work/ideas/factory-browser-repro_handoff.md`). z-sdlc proposed building it in the incubator first, as the incubator rule (CD, 2026-10-12) says. CD: the incubator first "seems counterintuitive considering its workload is nothing like" the pilot project's, so build it in the pilot project "then import". The pilot project runs WebGL end-to-end suites, two browsers to a duel; the incubator has no Playwright at all.

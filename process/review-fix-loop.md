@@ -47,6 +47,8 @@ Verification gate:
 
 Machine verification (Step 0) confirms the code is correct. Experiential verification confirms the *experience* is correct. A feature can pass all tests, type checks, and linting while being unusable — duplicated controls, missing scroll behavior, invisible buttons, broken interaction flows. These are not bugs that automated tooling catches; they require using the app.
 
+**In the factory** (a headless stage in the factory's sandbox), there is no Playwright MCP: MCP servers run outside the sandbox, so the factory never configures a browser there. A stage with the browser route drives a real browser through `/opt/factory/with-browser`, with a helper agent that reports in text, as `[sdlc-root]/process/factory.md` § Reproducing in a browser says; one without it lists Step 0.5 as not run, and never claims it passed.
+
 **Tooling:** If Playwright MCP (`@playwright/mcp` or equivalent) is configured in the project's `.mcp.json`, use it to automate the checks below — navigate, screenshot, inspect the DOM, read console errors. This replaces manual browser inspection with programmatic verification that produces artifacts (screenshots, console logs) the review agents can reference. If no browser automation MCP is available, perform the checks manually or flag to CD that automated experiential verification was not possible.
 
 **Required checks:**
