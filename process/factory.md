@@ -13,7 +13,7 @@ decisions never override them. A project keeps only its settings and operating n
 | `.github/factory/` | The scripts, guards, schemas, tool policies, sandbox settings, workflow templates, the renderer (`render.py`), the workflow policy check, the stack profiles, the setup tools (`bootstrap.py`, `create_app.py`, `host/setup.sh`), the echo service's source (`echo/`) and their tests | z-sdlc: refreshed by every migration |
 | `.github/factory/factory.json`, `planning.json`, `services.json`, `triage-policy.md`, `README.md`, `host/host.conf`, and the tests of the project's CODEOWNERS | The project's settings, its runner host's settings, triage policy and notes | The project: seeded once, never overwritten |
 | `.github/workflows/factory-*.yml` | The workflows, rendered from the templates with `factory.json` | Generated: re-rendered on every migration; CI refuses a hand edit |
-| `.claude/skills/sdlc-triage`, `sdlc-implement`, `sdlc-revise` | The stages' skills. Headless only: the workflows run them, so they have no commands | z-sdlc |
+| `.claude/skills/sdlc-triage`, `sdlc-reproduce`, `sdlc-implement`, `sdlc-revise` | The stages' skills. Headless only: the workflows run them, so they have no commands | z-sdlc |
 
 Not installed: the production tier, its broker, operations catalog, runner and host setup (D4
 rule 16). It is per project and per host (`[sdlc-root]/process/production-gates.md` covers gates in
@@ -433,6 +433,17 @@ The code-writing stages can't see a web app run. Triage confirms UI bugs from co
    - **The writer job adds the links** (D2 rule 3): to the report, the video and the trace, each built from the run's URL and the artifact's ID, never from agent text. It also adds the archive path, `<factory.json evidence.archive>/<repository>/<issue>/<run id>/`, known in advance, and the manifest as text, every caption escaped like the rest of the agent's text. A record that doesn't check turns the section into one line saying so; the run isn't lost.
    - **After 90 days, the archive keeps it** (CD, 2026-11-20: "so it's never gone"). `host/evidence_archive.py`, on a timer on the host that keeps it, as its own user with a read-only Actions token, pulls each run's evidence under that path. It takes only the factory's implement and revise runs on the default branch, since any workflow can upload a file by those names. It learns the issue from the run's `evidence.json`, which `evidence.py` writes from the job's own environment, and it never overwrites. `host/setup-archive.sh` installs it with root, on storage the host already has: redundant, with a quota and daily snapshots. Creating that storage is the host's own business.
 
+8. **A bug the code can't confirm is reproduced before it's planned** (CD, 2026-11-20). Planned work was otherwise never reproduced before its plan was written: in the pilot project, triage left 4 of 16 issues unreproduced, and half of its plan PRs were UI work built on unconfirmed causes. The plan stage can't do it itself, since the planning tier reads production data and must not run app code.
+   - **Triage stays code-only.** When it returns `ready-to-plan` for a web-app bug whose cause the code didn't confirm, it sets `needs_repro` (`sdlc-triage` step 7b). Its apply job decides the route from the default branch's `factory.json`, never from the agent: with a browser host and `reproduce` in `browser.stages`, it adds `factory:needs-repro` and dispatches the implement workflow with `reproduce`, instead of the plan stage. Without them it says the cause is unconfirmed and starts the plan, as before. A direct-tier fix skips the step, since implement reproduces first anyway.
+   - **The reproduce job** runs on the strict tier in the implement stage's sandbox, with the route for `reproduce` (`sdlc-reproduce`). It writes the failing spec through the route, records the evidence (rule 7) and commits nothing. It returns one of four outcomes with the spec, what was tried and the failed requests (`reproduce.schema.json`).
+   - **Its report job** (`reproduce_report.py`, as the App) posts the outcome on the issue. The summary, what was tried and the failed requests go in as escaped text, the spec in a fenced block whose fence the writer picks, and the evidence as links the writer builds. Then:
+     - `reproduced` or `partially reproduced`: the plan starts, and reads the spec from the comment;
+     - `not reproduced`: `factory:needs-input`, with a `reproduce` stage marker, so CD's reply runs the step again with what it adds, and nothing is planned first;
+     - `blocked`: the plan starts, its comment saying the cause is unconfirmed.
+
+     It starts the plan only for an issue still open and labelled `factory:ready-to-plan`, since CD may have re-triaged it meanwhile. The spec is agent text in an App comment, so every reader of a marker takes it only from the comment's leading marker block (D1 rule 5): the tier readers in the plan stage and `factory:go` were anchored to it with this rule. A spec with bidirectional or invisible control characters is refused, and one too long to post with the rest is left in the run's transcript.
+   - **It's a mode of the implement workflow, not a workflow of its own,** so it needs no change to the runner group's selected workflows. Resume restarts it (`reproduce` → the implement workflow with `reproduce`), and `factory:go` starts it for a held issue that carries `factory:needs-repro`.
+
 ### Forbids
 
 1. A browser in a stage's job or sandbox, or a browser MCP server in a stage's config.
@@ -546,7 +557,7 @@ that run there:
 
 | Mirror | Copies |
 |---|---|
-| `factory-sandbox` | `sdlc-implement`, `sdlc-revise` |
+| `factory-sandbox` | `sdlc-implement`, `sdlc-revise`, `sdlc-reproduce` |
 
 ## Reproducing in a browser
 
@@ -572,7 +583,7 @@ How a code-writing stage proves and verifies a bug a user sees in a web app, whe
 
 | Mirror | Copies |
 |---|---|
-| `factory-browser` | `sdlc-implement`, `sdlc-revise` |
+| `factory-browser` | `sdlc-implement`, `sdlc-revise`, `sdlc-reproduce` |
 
 ---
 
@@ -593,6 +604,7 @@ The factory owns every label starting `factory:`. `bootstrap.py` creates these a
 | `factory:advisor` | triage or CD | A property, not a state: planning gets an advisor. Triage sets it when the plan turns on judgment and clears it otherwise; a label CD added always stands. State sweeps leave it alone. |
 | `factory:follow-up` | follow-up filer | A property: filed from a merged plan's checklist. Triage runs, then holds; the App's provenance marker, not the label, decides the hold. |
 | `factory:go` | CD | Releases a held issue (a follow-up or a split part): starts its triaged stage once, then removes itself. Needs write access. |
+| `factory:needs-repro` | triage | A property: the code alone didn't confirm this web-app bug, so the reproduce step (D6 rule 8) runs before the plan, and `factory:go` starts it for a held issue. Set only where the project has that step. Triage clears it when it no longer flags the issue, and the step removes it once the bug reproduced or it was blocked; CD removes it to plan without reproducing. |
 | `factory:revise` | CD | On a factory PR: revise it from the review comments since the last revision. A Request-changes review does the same. |
 | `factory:escalated` | revise workflows | The PR had its revise runs (3 for code, 5 for a spec or plan) and CD requested changes again. No more automatic runs; CD decides. |
 | `factory:gate` | execute or revise | The execution is stopped before a production gate (D4). Its PR's gate run waits for CD's approval in the production environment. |
@@ -1275,7 +1287,8 @@ needs an organization owner's `gh` login (`admin:org`) for the runner groups and
        script prepares what its end-to-end servers need. Set `factory.json`'s `browser.host` to the same address,
        with `browser.client` if its Playwright isn't installed in `stack.node`. Leave `browser.stages` empty.
     3. **Smoke:** run `factory-smoke`. Its `browser-host` job must pass (D6 rule 4).
-    4. **The stages:** list them in `browser.stages` (implement, execute, revise), through a PR.
+    4. **The stages:** list them in `browser.stages` (implement, execute, revise, and `reproduce` for the step before
+       planning, D6 rule 8), through a PR.
     5. **The archive** (optional, D6 rule 7): on the host that keeps it, with storage already in place,
        `sudo bash .github/factory/host/setup-archive.sh <root> <owner/repository> ...` from the shared tiers'
        repository, then set each project's `factory.json` `evidence.archive` to `<root>`.

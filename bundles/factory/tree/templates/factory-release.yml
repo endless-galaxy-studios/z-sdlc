@@ -57,12 +57,19 @@ jobs:
           # The tier from the latest triage decision the App posted.
           tier=$(gh api "repos/$GH_REPO/issues/$ISSUE/comments" --paginate \
                  --jq '.[] | select(.user.type == "Bot" and .user.id == %{app.user_id}) | .body
-                       | capture("<!-- factory-triage: (?<m>\\{[^<>]*\\}) -->")? | .m | fromjson | .tier // empty' | tail -1)
+                       | capture("\\A(<!-- [^\\n]*-->\\n)*<!-- factory-triage: (?<m>\\{[^<>]*\\}) -->")? | .m | fromjson | .tier // empty' | tail -1)
+          extra=()
           case "$state:$tier" in
             factory:ready-for-dispatch:*) workflow=factory-implement.yml ;;
-            factory:ready-to-plan:lite|factory:ready-to-plan:full) workflow=factory-plan.yml ;;
+            factory:ready-to-plan:lite|factory:ready-to-plan:full)
+              # Triage flagged it for the reproduce step (D6 rule 8), which starts the plan when it's done.
+              if jq -e 'index("factory:needs-repro") != null' <<< "$labels" > /dev/null; then
+                workflow=factory-implement.yml; extra=(-f reproduce=true)
+              else
+                workflow=factory-plan.yml
+              fi ;;
             *) done_; say "Not started: there's no triaged stage to start (state ${state#factory:}). Re-triage with \`factory:triage\` first."; exit 0 ;;
           esac
-          gh workflow run "$workflow" --ref "$DEFAULT_BRANCH" -f issue_number="$ISSUE"
+          gh workflow run "$workflow" --ref "$DEFAULT_BRANCH" -f issue_number="$ISSUE" "${extra[@]}"
           done_
           say "Released by @$SENDER: started \`$workflow\`."

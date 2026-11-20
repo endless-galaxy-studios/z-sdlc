@@ -9,6 +9,10 @@
 # the gate run CD approves. When the gate is done, factory-gate.yml dispatches this again with continue_pr:
 # the next segment starts from the PR's head (agent configuration from main, as revise does) and adds its
 # commits to the same PR, fast-forward only.
+# Reproduce (design rule D6 rule 8): dispatched with reproduce, by triage's apply job for an issue headed for a plan
+# that triage couldn't confirm from the code, or by resume. The reproduce job writes the failing spec through the
+# browser route and commits nothing; its report job posts the outcome, spec and evidence on the issue and starts
+# the plan, or asks CD when it didn't reproduce. The implement, publish and report jobs don't run.
 name: factory-implement
 run-name: "factory-implement #${{ github.event.issue.number || inputs.issue_number }}"
 
@@ -49,6 +53,12 @@ on:
           start from the default branch
         type: string
         default: ""
+      reproduce:
+        description: >-
+          Reproduce the issue's bug in a real browser before it's planned (D6 rule 8): writes the failing spec,
+          commits nothing, and starts the plan or asks CD
+        type: boolean
+        default: false
 
 permissions: {}
 
@@ -147,7 +157,7 @@ jobs:
     # A label starts implement only when a person adds it: triage and resume set it as the
     # factory App, which (unlike GITHUB_TOKEN) starts workflows, and they dispatch anyway.
     if: >-
-      !cancelled() && needs.fixtures.result != 'failure' && (
+      !cancelled() && needs.fixtures.result != 'failure' && !inputs.reproduce && (
       github.event_name == 'workflow_dispatch' ||
       (github.event.label.name == 'factory:ready-for-dispatch' && github.event.issue.state == 'open' &&
        github.event.sender.type != 'Bot'))
@@ -779,7 +789,8 @@ jobs:
 
   report-failure:
     needs: [fixtures, implement, publish, report]
-    if: failure()
+    # Reproduce mode reports its own failures (reproduce-failure).
+    if: failure() && !inputs.reproduce
     runs-on: ubuntu-latest
     timeout-minutes: 5
     environment: %{environments.writer}
@@ -839,3 +850,297 @@ jobs:
             next="The draft PR was opened ($PR_URL); don't re-run, review it and fix the labels by hand."
           fi
           gh issue comment "$ISSUE_NUMBER" --body "Factory implement failed ([run]($RUN_URL)). $why $next"
+
+  # Reproduce (D6 rule 8): the bug in a real browser, before a plan is written. The implement stage's sandbox and
+  # tool policy, with the browser route for `reproduce`; the agent writes the failing spec and the evidence, and
+  # commits nothing (the workspace is discarded; the spec goes on in the result).
+  reproduce:
+    needs: fixtures
+    if: >-
+      !cancelled() && needs.fixtures.result != 'failure' && github.event_name == 'workflow_dispatch' && inputs.reproduce
+    runs-on: [self-hosted, %{runners.strict}]
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      issues: read
+      packages: read
+    container:
+      image: %{image.repository}@%{image.digest}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      options: >-
+        --security-opt seccomp=/etc/factory-runner/seccomp-bwrap.json
+        --security-opt systempaths=unconfined
+    outputs:
+      result: ${{ steps.claude.outputs.structured_output }}
+      ran: ${{ steps.claude.outcome }}
+      evidence: ${{ steps.evidence.outputs.manifest }}
+      evidence-report: ${{ steps.evidence-report.outputs.artifact-id }}
+      evidence-video: ${{ steps.evidence-video.outputs.artifact-id }}
+      evidence-trace: ${{ steps.evidence-trace.outputs.artifact-id }}
+    env:
+      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"
+      CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"
+      CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: "3600000"
+      CONTEXT7_API_KEY: ${{ secrets.CONTEXT7_API_KEY }}
+      CHECKS: /__w/_temp/factory-checks
+    steps:
+      - name: Clean workspace
+        shell: bash
+        run: find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Prepare the workspace, test services, issue context and the browser route
+        id: prepare
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          echo "FACTORY_PROMPT=/sdlc-reproduce $GITHUB_WORKSPACE/.factory/issue-context.json Time budget: this run is stopped after 60 minutes; with 10 left, start nothing new and return what you have (blocked, saying so, if the spec never ran)." >> "$GITHUB_ENV"
+          .github/factory/agent_job.sh freeze implement-sandbox.settings.json
+          echo "FACTORY_TOOL_ARGS=$(tr '\n' ' ' < .github/factory/implement-tools.args)" >> "$GITHUB_ENV"
+          "$CHECKS/agent_job.sh" schema reproduce
+          "$CHECKS/agent_job.sh" advisor none
+          base=$(git rev-parse HEAD)
+          "$CHECKS/agent_job.sh" services
+          "$CHECKS/agent_job.sh" workspace
+          git remote remove origin
+          "$CHECKS/agent_job.sh" issue-context "$base"
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: needs.fixtures.result == 'success'
+        with:
+          name: factory-fixtures
+          path: %{fixtures.path?}
+
+      - name: Write MCP config
+        shell: bash
+        run: |
+          "$CHECKS/agent_job.sh" mcp > /dev/null
+          # Without the route (browser.stages doesn't list reproduce, or no browser host) with-browser says
+          # UNAVAILABLE, and the run reports blocked.
+          "$CHECKS/agent_job.sh" browser reproduce "$CHECKS/implement-sandbox.settings.json"
+
+      - name: Reproduce
+        id: claude
+        timeout-minutes: 60
+        uses: anthropics/claude-code-action@d535f5172dec02b204866b393d6b20b9b2aaf98d # v1.0.266
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ github.token }}
+          allowed_bots: github-actions
+          classify_inline_comments: "false"
+          bot_name: %{app.login}
+          bot_id: "%{app.user_id}"
+          settings: ${{ env.CHECKS }}/implement-sandbox.settings.json
+          prompt: ${{ env.FACTORY_PROMPT }}
+          claude_args: >-
+            --model ${{ inputs.model || '%{models.implement.default}' }}
+            --advisor ${{ env.FACTORY_ADVISOR }}
+            --effort medium
+            --settings ${{ env.CHECKS }}/implement-sandbox.settings.json
+            ${{ env.FACTORY_TOOL_ARGS }}
+            --setting-sources user,project
+            --append-system-prompt "SDLC headless mode: no person is present."
+            --json-schema '${{ env.FACTORY_REPRODUCE_SCHEMA }}'
+            --mcp-config ${{ env.FACTORY_MCP_CONFIG }} --strict-mcp-config
+            --permission-mode auto --permission-prompts none
+            --max-turns 120
+
+      # Everything in the workspace may be the agent's now: only frozen code runs from here (D2 rule 4).
+      - name: Stop the agent's processes
+        id: quiesce
+        if: always() && steps.claude.outcome != 'skipped'
+        shell: bash
+        run: |
+          "$CHECKS/agent_job.sh" quiesce
+
+      # The browser evidence (D6 rule 7), packed by frozen code; each file its own unzipped artifact.
+      - name: Pack the browser evidence
+        id: evidence
+        if: always() && steps.quiesce.outcome == 'success'
+        continue-on-error: true
+        shell: bash
+        run: |
+          /usr/local/bin/python3 -I "$CHECKS/evidence.py" "$GITHUB_WORKSPACE" .factory/evidence \
+            "$RUNNER_TEMP/evidence" "Issue #$ISSUE_NUMBER, reproduce"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        id: evidence-report
+        if: always() && steps.evidence.outputs.report == 'yes'
+        continue-on-error: true
+        with:
+          path: ${{ runner.temp }}/evidence/evidence-report.html
+          archive: false
+          retention-days: 90
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        id: evidence-video
+        if: always() && steps.evidence.outputs.video == 'yes'
+        continue-on-error: true
+        with:
+          path: ${{ runner.temp }}/evidence/evidence-video.webm
+          archive: false
+          retention-days: 90
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        id: evidence-trace
+        if: always() && steps.evidence.outputs.trace == 'yes'
+        continue-on-error: true
+        with:
+          path: ${{ runner.temp }}/evidence/evidence-trace.zip
+          archive: false
+          retention-days: 90
+
+      # The packed record (issue and run included), for the archive's pull (host/evidence_archive.py).
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.evidence.outputs.report == 'yes'
+        continue-on-error: true
+        with:
+          path: ${{ runner.temp }}/evidence/evidence.json
+          archive: false
+          retention-days: 90
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.claude.outputs.execution_file != ''
+        continue-on-error: true
+        with:
+          name: reproduce-transcript
+          path: ${{ steps.claude.outputs.execution_file }}
+          retention-days: 7
+
+      - name: Record the run's metrics
+        if: always()
+        continue-on-error: true
+        shell: bash
+        env:
+          EXEC: ${{ steps.claude.outputs.execution_file }}
+          RESULT: ${{ steps.claude.outputs.structured_output }}
+          INPUTS: ${{ toJSON(inputs) }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          WORKFLOW: factory-implement
+        run: |
+          "$CHECKS/agent_job.sh" metrics reproduce
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        continue-on-error: true
+        with:
+          name: factory-metrics
+          path: ${{ runner.temp }}/metrics/metrics.json
+          retention-days: 35
+
+      - name: Remove the agent's repository
+        if: always()
+        shell: bash
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
+
+  # The reproduce run's outcome on the issue, as the App (D1): the summary, what was tried, failed requests, the
+  # evidence links and the spec, checked by reproduce_report.py. Then the plan starts, or CD is asked.
+  reproduce-report:
+    needs: reproduce
+    if: always() && needs.reproduce.result == 'success'
+    runs-on: ubuntu-latest
+    environment: %{environments.writer}
+    timeout-minutes: 5
+    # actions: write only to start the plan stage (dispatch advances, D1 rule 2).
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Check the result and write the comment
+        id: check
+        env:
+          RESULT: ${{ needs.reproduce.outputs.result }}
+          EVIDENCE_MANIFEST: ${{ needs.reproduce.outputs.evidence }}
+          EVIDENCE_REPORT: ${{ needs.reproduce.outputs.evidence-report }}
+          EVIDENCE_VIDEO: ${{ needs.reproduce.outputs.evidence-video }}
+          EVIDENCE_TRACE: ${{ needs.reproduce.outputs.evidence-trace }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$RESULT" > "$RUNNER_TEMP/result.json"
+          python3 -I .github/factory/reproduce_report.py "$RUNNER_TEMP/result.json" "$ISSUE_NUMBER" "$RUN_URL" "$RUNNER_TEMP/out"
+          echo "next=$(cat "$RUNNER_TEMP/out/next")" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        id: app
+        with:
+          client-id: ${{ vars.FACTORY_APP_CLIENT_ID }}
+          private-key: ${{ secrets.FACTORY_APP_PRIVATE_KEY }}
+          permission-issues: write
+
+      - name: Comment, label and start the next stage
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          DISPATCH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          NEXT: ${{ steps.check.outputs.next }}
+        run: |
+          set -euo pipefail
+          # Comment first: a needs-input label must never exist without its stage marker.
+          gh issue comment "$ISSUE_NUMBER" -F "$RUNNER_TEMP/out/comment.md"
+          if [ "$NEXT" = needs-input ]; then
+            # factory:needs-repro stays: CD's reply restarts the reproduce step (factory-resume.yml).
+            .github/factory/report.sh labels factory:needs-input
+            echo "Reproduce #$ISSUE_NUMBER: not reproduced; asked CD" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          gh issue edit "$ISSUE_NUMBER" --remove-label factory:needs-repro || true
+          # Start the plan only for an issue still waiting for one: CD may have re-triaged it while this ran.
+          if [ "$(gh issue view "$ISSUE_NUMBER" --json state,labels -q '.state == "OPEN" and any(.labels[]; .name == "factory:ready-to-plan")')" != true ]; then
+            echo "Reproduce #$ISSUE_NUMBER: the issue isn't waiting for a plan any more; nothing started" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if GH_TOKEN="$DISPATCH_TOKEN" gh workflow run factory-plan.yml --ref "$DEFAULT_BRANCH" -f issue_number="$ISSUE_NUMBER"; then
+            echo "Reproduce #$ISSUE_NUMBER: started factory-plan.yml" >> "$GITHUB_STEP_SUMMARY"
+          else
+            gh issue comment "$ISSUE_NUMBER" --body "The reproduce step could not start the plan ([run]($RUN_URL)). Dispatch \`factory-plan.yml\` for this issue by hand."
+            exit 1
+          fi
+
+  reproduce-failure:
+    needs: [fixtures, reproduce, reproduce-report]
+    if: failure() && inputs.reproduce
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: %{environments.writer}
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        id: app
+        # A broken App key must not silence the failure report: fall back to GITHUB_TOKEN.
+        continue-on-error: true
+        with:
+          client-id: ${{ vars.FACTORY_APP_CLIENT_ID }}
+          private-key: ${{ secrets.FACTORY_APP_PRIVATE_KEY }}
+          permission-issues: write
+
+      - name: Comment on the issue
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token || github.token }}
+          GH_REPO: ${{ github.repository }}
+          REPRODUCE: ${{ needs.reproduce.result }}
+          FIXTURES: ${{ needs.fixtures.result }}
+        run: |
+          if [ "$FIXTURES" = failure ]; then
+            why="The fixtures job failed (factory.json's fixtures), so nothing ran."
+          elif [ "$REPRODUCE" = failure ]; then
+            why="The reproduce agent failed: it may have hit its time or turn limit, or returned no result."
+          else
+            why="Its result was refused, or the comment, labels or the plan's start failed (the run page says which)."
+          fi
+          gh issue comment "$ISSUE_NUMBER" --body "Factory reproduce failed ([run]($RUN_URL)). $why Nothing was planned: re-run the job, or dispatch \`factory-plan.yml\` for this issue to plan it unconfirmed."

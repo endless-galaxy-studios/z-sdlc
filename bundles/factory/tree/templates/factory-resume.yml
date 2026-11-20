@@ -83,10 +83,13 @@ jobs:
               extra=(-f plan="$plan")
               if [ -n "$pr" ]; then extra+=(-f continue_pr="$pr"); fi ;;
             plan) workflow=factory-plan.yml; label=factory:ready-to-plan ;;
+            # CD answered a reproduce run that didn't reproduce (D6 rule 8): reproduce again, with the reply.
+            reproduce) workflow=factory-implement.yml; label=factory:ready-to-plan; extra=(-f reproduce=true) ;;
             "") echo "::error::no factory-stage marker on #$ISSUE_NUMBER"; exit 1 ;;
             *) echo "::error::no workflow handles stage '$stage' yet"; exit 1 ;;
           esac
           echo "label=$label" >> "$GITHUB_OUTPUT"
+          echo "stage=$stage" >> "$GITHUB_OUTPUT"
           # Claim: swap to the stage's label so the issue always shows it's in flight (stage
           # workflows ignore labels set by a bot; the stage's writer job replaces it).
           gh issue edit "$ISSUE_NUMBER" --add-label "$label" --remove-label factory:needs-input
@@ -104,6 +107,9 @@ jobs:
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           STAGE_LABEL: ${{ steps.restart.outputs.label }}
+          STAGE: ${{ steps.restart.outputs.stage }}
         run: |
           if [ -n "$STAGE_LABEL" ]; then retry="reply again or re-add \`$STAGE_LABEL\`"; else retry="reply again once it's fixed"; fi
+          # Re-adding factory:ready-to-plan would start the plan and skip the reproduce step.
+          if [ "$STAGE" = reproduce ]; then retry="reply again once it's fixed"; fi
           gh issue comment "$ISSUE_NUMBER" --body "Factory resume failed ([run]($RUN_URL)), so your reply did not restart anything. Check the run, then $retry."

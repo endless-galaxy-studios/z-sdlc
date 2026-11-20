@@ -219,6 +219,7 @@ jobs:
             and (if .state == "ready-for-dispatch" then
                    .estimate == {"validity":"high","correctness":"high","effort":"light"}
                  else true end)
+            and (.needs_repro | type == "boolean") and (if .needs_repro then .state == "ready-to-plan" else true end)
           ' result.json > /dev/null || { echo "::error::triage result breaks the output rules"; jq . result.json; exit 1; }
           # The skill's sentinel for "could not triage" (it must still return schema-valid JSON).
           if jq -e '.comment | startswith("**Triage blocked:**")' result.json > /dev/null; then
@@ -247,6 +248,11 @@ jobs:
           q() { jq -L .github/factory -r "include \"report\"; $1" result.json; }
           state=$(jq -r '.state' result.json)
           advisor=$(jq -r '.advisor' result.json)
+          # Reproduce first (D6 rule 8): triage flags it, and this, the default branch's factory.json, decides whether
+          # the project has the step (a browser host, and reproduce in browser.stages).
+          flagged=$(jq -r '.state == "ready-to-plan" and .needs_repro' result.json)
+          route=$(jq -r '((.browser.host // "") != "") and ((.browser.stages // []) | index("reproduce") != null)' .github/factory/factory.json)
+          repro=$([ "$flagged" = true ] && [ "$route" = true ] && echo true || echo false)
           # A follow-up the factory filed (its App-written provenance marker, not the label) is triaged,
           # then held: no stage starts until CD adds factory:go (factory-release.yml).
           gh api "repos/$GH_REPO/issues/$ISSUE_NUMBER" > issue.json
@@ -261,6 +267,11 @@ jobs:
             if [ "$state" = ready-to-plan ]; then
               printf '\n**Planning advisor:** %s. %s\n' "$advisor" "$(q '.advisor_reason | unmark')"
               printf '_Add or remove `factory:advisor` before a plan run to override._\n'
+            fi
+            if [ "$repro" = true ]; then
+              printf '\n**Reproduce first:** the code alone did not confirm this bug, so the factory reproduces it in a real browser before planning, and posts the failing spec here.\n'
+            elif [ "$flagged" = true ]; then
+              printf '\n**Unconfirmed:** the code alone did not confirm this bug, and this project has no reproduce step, so planning starts from the report.\n'
             fi
             if [ "$held" = true ] && { [ "$state" = ready-for-dispatch ] || [ "$state" = ready-to-plan ]; }; then
               printf '\n**Held for you:** this is a follow-up the factory filed%s. Add `factory:go` to start the next stage.\n' \
@@ -281,10 +292,19 @@ jobs:
           # not a state: it follows this run's advisor decision. factory:follow-up and factory:go are
           # properties too, and stay.
           .github/factory/report.sh labels "factory:$state" "$advisor"
+          # factory:needs-repro follows this run's decision, like factory:advisor. A project that hasn't re-run
+          # bootstrap.py --apply has no such label yet: warn, and still start the step.
+          if [ "$repro" = true ]; then
+            gh issue edit "$ISSUE_NUMBER" --add-label factory:needs-repro > /dev/null \
+              || echo "::warning::couldn't add factory:needs-repro (run bootstrap.py --apply to create it)"
+          else
+            gh issue edit "$ISSUE_NUMBER" --remove-label factory:needs-repro > /dev/null 2>&1 || true
+          fi
           echo "Triage #$ISSUE_NUMBER: factory:$state (tier $(jq -r '.tier' result.json), advisor $advisor)" >> "$GITHUB_STEP_SUMMARY"
           echo "state=$state" >> "$GITHUB_OUTPUT"
           echo "tier=$(jq -r '.tier' result.json)" >> "$GITHUB_OUTPUT"
           echo "held=$held" >> "$GITHUB_OUTPUT"
+          echo "repro=$repro" >> "$GITHUB_OUTPUT"
 
       # F6: ready-for-dispatch runs on to a draft PR; ready-to-plan to a plan PR (lite) or a spec PR
       # (full; factory-plan picks the mode). Stage workflows ignore labels set by a bot, so dispatch
@@ -301,9 +321,13 @@ jobs:
           # gh would otherwise look the default branch up via GraphQL, which needs contents access.
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           STATE: ${{ steps.apply.outputs.state }}
+          REPRO: ${{ steps.apply.outputs.repro }}
         run: |
           workflow=$([ "$STATE" = ready-for-dispatch ] && echo factory-implement.yml || echo factory-plan.yml)
-          if gh workflow run "$workflow" --ref "$DEFAULT_BRANCH" -f issue_number="$ISSUE_NUMBER"; then
+          extra=()
+          # Reproduce first: the implement workflow's reproduce mode, which starts the plan when it's done.
+          if [ "$REPRO" = true ]; then workflow=factory-implement.yml; extra=(-f reproduce=true); fi
+          if gh workflow run "$workflow" --ref "$DEFAULT_BRANCH" -f issue_number="$ISSUE_NUMBER" "${extra[@]}"; then
             echo "Started $workflow for #$ISSUE_NUMBER" >> "$GITHUB_STEP_SUMMARY"
           else
             GH_TOKEN="$APP_TOKEN" gh issue comment "$ISSUE_NUMBER" --body "Factory triage could not start the next stage ([run]($RUN_URL)). Dispatch \`$workflow\` for this issue by hand."

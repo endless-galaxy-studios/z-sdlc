@@ -140,7 +140,7 @@ jobs:
           set -euo pipefail
           bot='select(.user.type == "Bot" and (.user.id == %{app.user_id} or .user.login == "github-actions[bot]"))'
           tier=$(gh api "repos/$GH_REPO/issues/$ISSUE_NUMBER/comments" --paginate \
-                 --jq ".[] | $bot | .body | capture(\"<!-- factory-triage: (?<m>\\\\{[^<>]*\\\\}) -->\")? | .m | fromjson | .tier // empty" | tail -1)
+                 --jq ".[] | $bot | .body | capture(\"\\\\A(<!-- [^\\\\n]*-->\\\\n)*<!-- factory-triage: (?<m>\\\\{[^<>]*\\\\}) -->\")? | .m | fromjson | .tier // empty" | tail -1)
           [ "$TIER" = auto ] || tier=$TIER
           spec=""
           case "$tier" in

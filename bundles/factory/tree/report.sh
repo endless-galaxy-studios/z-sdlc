@@ -10,7 +10,7 @@
 #                  image or an embed
 #   labels <new> [fable|none]
 #                  make <new> (a factory:* state label, or empty for none) the issue's only state label;
-#                  factory:advisor, factory:follow-up and factory:go are properties and stay. fable adds
+#                  factory:advisor, factory:follow-up, factory:go and factory:needs-repro are properties and stay. fable adds
 #                  factory:advisor, none removes it.
 # Environment: ISSUE_NUMBER; GH_TOKEN and GH_REPO for labels.
 # Tested in CI by tests/test_report.py.
@@ -34,7 +34,7 @@ case "$cmd" in
   labels)
     new=$1 advisor=${2:-}
     old=$(gh issue view "$ISSUE_NUMBER" --json labels \
-          -q "[.labels[].name | select(startswith(\"factory:\") and . != \"$new\" and (IN(\"factory:advisor\", \"factory:follow-up\", \"factory:go\") | not))] | join(\",\")")
+          -q "[.labels[].name | select(startswith(\"factory:\") and . != \"$new\" and (IN(\"factory:advisor\", \"factory:follow-up\", \"factory:go\", \"factory:needs-repro\") | not))] | join(\",\")")
     add=$new
     case "$advisor" in
       "") ;;

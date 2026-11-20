@@ -37,6 +37,23 @@ Each entry contains:
 
 ---
 
+## 2026-11-20: The factory reproduces a bug the code can't confirm before planning it (D6 rule 8)
+
+**Origin:** CD's decision (2026-11-20): triage stays code-only, flags `needs-repro`, and a short reproduce job on the strict tier writes the failing spec before a plan. In the pilot project, triage left 4 of 16 issues unreproduced, and half of its plan PRs were UI work built on unconfirmed causes. CD confirmed the shape the same day: a mode of the implement workflow, which needs no change to the runner group's selected workflows, where a workflow of its own would.
+
+**Changes made:**
+
+1. **`process/factory.md`:** D6 rule 8, the `factory:needs-repro` label, and `sdlc-reproduce` in the installed skills and both browser mirrors' copies.
+2. **Triage:** `sdlc-triage` step 7b and a `needs_repro` flag in `triage.schema.json`, for a web-app bug headed for a plan whose cause the code didn't confirm. The apply job decides the route from the default branch's `factory.json` (a browser host and `reproduce` in `browser.stages`), never from the agent. It adds the property label `factory:needs-repro` (`bootstrap.py`, § Labels, `report.sh`'s properties), clears it when it no longer flags the issue, and warns rather than stops when the label doesn't exist yet. It then dispatches the implement workflow with `reproduce`. Without the route, it starts the plan as before, saying the cause is unconfirmed.
+3. **New skill `sdlc-reproduce`** (headless, in the bundle's skills). It writes the failing spec through the route, commits nothing, and returns `reproduce.schema.json`.
+4. **The implement workflow's `reproduce`, `reproduce-report` and `reproduce-failure` jobs;** the implement, publish, report and report-failure jobs step aside. `reproduce_report.py` (the writer) checks the result and posts it on the issue: the outcome, summary, what was tried and failed requests as escaped text, the spec in a fence the writer picks, and the evidence links. It refuses a spec with bidirectional or invisible control characters, and posts a spec too long for the comment by pointer. It then starts the plan, but only for an issue still waiting for one, or asks CD (`needs-input` with a `reproduce` stage marker). Resume restarts it, with a failure hint that fits a reproduce retry, and `factory:go` starts it for a held issue that carries the label.
+5. **The tier readers in the plan stage and `factory:go`** take a triage marker only from a comment's leading block, as D1 rule 5 says. A review found that a marker in a reproduce spec, the first agent text posted raw in an App comment, could otherwise set the plan's tier.
+6. `browser.py` takes `reproduce` as a stage, and `run_metrics.py` takes the stage and its outcomes. Tests: `tests/test_reproduce.py`.
+
+**Rationale:** the plan starts from a failing spec rather than a guess, and the stage that can't run app code (planning reads production data) never has to.
+
+---
+
 ## 2026-11-20: The factory's browser evidence reaches the PR, and an archive keeps it (D6 rule 7)
 
 **Origin:** CD's decisions on evidence (2026-11-20): CD sees it through links the writer job builds; GitHub keeps it 90 days and then an archive on the runner host's redundant storage, "so it's never gone"; video for reproduce and verify runs; annotated video where Playwright has the screencast API.

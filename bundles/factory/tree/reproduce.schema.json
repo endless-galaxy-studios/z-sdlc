@@ -1,0 +1,84 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "status",
+    "summary",
+    "reason",
+    "tried",
+    "failed_requests",
+    "spec",
+    "ci_runs_spec"
+  ],
+  "properties": {
+    "status": {
+      "description": "reproduced: a check of the mechanism fails as the report says (a timeout alone is not one). partially-reproduced: part of it, said which in summary. not-reproduced: the steps and variations in tried all behaved. blocked: the browser host was unavailable, or an outside service the feature needs is offline; never counts as reproduced or ruled out.",
+      "type": "string",
+      "enum": [
+        "reproduced",
+        "partially-reproduced",
+        "not-reproduced",
+        "blocked"
+      ]
+    },
+    "summary": {
+      "description": "What the browser showed, for CD and the planner, in plain language: what failed and how, or what behaved. Posted on the issue.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1500
+    },
+    "reason": {
+      "description": "For blocked: what blocked it (the UNAVAILABLE line, the offline service). For not-reproduced: what would change the outcome, such as data or steps the issue lacks. Empty otherwise.",
+      "type": "string",
+      "maxLength": 500
+    },
+    "tried": {
+      "description": "The steps followed and each variation, one line each: the steps in the report first, then at most two variations.",
+      "type": "array",
+      "maxItems": 10,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 300
+      }
+    },
+    "failed_requests": {
+      "description": "Every request the page made that failed (requestfailed, or a response of 400 or more), method, URL and status or error, one each; outside hosts blocked by design included.",
+      "type": "array",
+      "maxItems": 30,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 300
+      }
+    },
+    "spec": {
+      "description": "The reproducing spec as written: its path in the repository (repro-<issue>-<slug>.spec.ts where the Playwright config of the project runs it) and its full content. Both empty when no spec was written (blocked before one could be).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "content"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "content": {
+          "type": "string",
+          "maxLength": 20000
+        }
+      }
+    },
+    "ci_runs_spec": {
+      "description": "Whether the CI of the project runs a spec at that path: yes, no, or unknown.",
+      "type": "string",
+      "enum": [
+        "yes",
+        "no",
+        "unknown"
+      ]
+    }
+  }
+}

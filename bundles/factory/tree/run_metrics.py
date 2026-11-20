@@ -16,10 +16,10 @@ import os
 import re
 import sys
 
-STAGES = {"triage", "implement", "execute", "plan", "spec", "revise", "improve"}
+STAGES = {"triage", "reproduce", "implement", "execute", "plan", "spec", "revise", "improve"}
 # Every stage's outcome values (triage returns `state`; the others `status`).
 STATUSES = {"ready-for-dispatch", "ready-to-plan", "needs-input", "wait", "done", "escalated", "rescope",
-            "failed", "awaiting-approval", "split"}
+            "failed", "awaiting-approval", "split", "reproduced", "partially-reproduced", "not-reproduced", "blocked"}
 INPUT_KEYS = {"tier", "advisor", "model", "compare"}
 INPUT_VALUE = re.compile(r"^[a-z0-9.-]{0,40}$")
 MODEL = re.compile(r"^claude-[a-z0-9.-]{1,60}$")

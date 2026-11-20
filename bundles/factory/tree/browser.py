@@ -28,7 +28,7 @@ import pathlib
 import re
 import sys
 
-STAGES = {"implement", "execute", "revise"}
+STAGES = {"reproduce", "implement", "execute", "revise"}
 CLIENTS = ("@playwright/test", "playwright", "playwright-core")
 VERSION = re.compile(r"1\.(\d{1,2})\.\d+(-[0-9A-Za-z.-]+)?")
 KEYS = {"_doc", "host", "port_base", "gpu", "stages", "client", "allow"}

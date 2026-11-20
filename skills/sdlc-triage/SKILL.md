@@ -183,6 +183,10 @@ Only for `ready-to-plan`. An advisor (Fable) reviews the planning session at its
 
 Give the reason in one sentence (`advisor_reason`), citing what in the issue or code drove it. For every other state, return `none` with an empty reason.
 
+### 7b. Flag a bug the code can't confirm
+
+Only for `ready-to-plan`. Set `needs_repro` to `true` when the issue reports a bug a user sees in a web app and reading the code didn't confirm its cause: you can't point to the line that makes it happen, or several causes fit. Triage stays code-only and never runs the app. In a project with the reproduce step (`[sdlc-root]/process/factory.md` D6 rule 8), the factory reproduces such a bug in a real browser before it's planned, so the plan starts from a failing spec rather than a guess; elsewhere the flag only says the cause is unconfirmed. Set it `false` for anything else: a feature, a bug whose cause the code shows, or a bug outside the web app. A `ready-for-dispatch` fix never needs it: implement reproduces a bug before fixing it anyway.
+
 ### 8. Write the comment
 
 Write `comment` as reporter-facing GitHub markdown, under about 200 words, in plain language (`[sdlc-root]/process/writing-for-cd.md`):
@@ -214,6 +218,7 @@ Headless (the factory): return **only** a JSON object matching `.github/factory/
 | `questions` | string[] | 1–3 entries for `needs-input`, empty otherwise |
 | `advisor` | `fable` \| `none` | `fable` only with `ready-to-plan` (step 7), else `none` |
 | `advisor_reason` | string | One sentence for `ready-to-plan`, empty otherwise |
+| `needs_repro` | boolean | `true` only with `ready-to-plan`, for a web-app bug the code didn't confirm (step 7b); else `false` |
 
 In the factory, `--json-schema` enforces the shape and the apply job re-checks the rules. Submit the result exactly once, as your final action, and add nothing after it.
 
@@ -223,7 +228,7 @@ In the factory, `--json-schema` enforces the shape and the apply job re-checks t
 {"state": "ready-for-dispatch", "tier": "direct",
  "estimate": {"validity": "high", "correctness": "high", "effort": "light"},
  "comment": "**Ready to run directly.** ...",
- "questions": [], "advisor": "none", "advisor_reason": ""}
+ "questions": [], "advisor": "none", "advisor_reason": "", "needs_repro": false}
 ```
 
 ```json
@@ -231,7 +236,16 @@ In the factory, `--json-schema` enforces the shape and the apply job re-checks t
  "estimate": {"validity": "high", "correctness": "medium", "effort": "moderate"},
  "comment": "**Ready for a plan (lite).** ...",
  "questions": [], "advisor": "none",
- "advisor_reason": "Extends an existing parser convention to more views; no design choice."}
+ "advisor_reason": "Extends an existing parser convention to more views; no design choice.",
+ "needs_repro": false}
+```
+
+```json
+{"state": "ready-to-plan", "tier": "lite",
+ "estimate": {"validity": "medium", "correctness": "low", "effort": "moderate"},
+ "comment": "**Ready for a plan (lite), once it's reproduced.** The score update and the result screen both fit the report ...",
+ "questions": [], "advisor": "none",
+ "advisor_reason": "A bounded UI bug; the open part is its cause, not the design.", "needs_repro": true}
 ```
 
 ```json
@@ -239,7 +253,7 @@ In the factory, `--json-schema` enforces the shape and the apply job re-checks t
  "estimate": {"validity": "low", "correctness": "medium", "effort": "light"},
  "comment": "**Needs input.** The issue doesn't say which page ... ",
  "questions": ["Which page shows the wrong value?", "What value did you expect?"],
- "advisor": "none", "advisor_reason": ""}
+ "advisor": "none", "advisor_reason": "", "needs_repro": false}
 ```
 
 ## Edge Cases
@@ -262,6 +276,7 @@ Before returning, check:
 - If the thread has an implement hand-back (`from=implement`), a `ready-for-dispatch` result cites the later CD comment that removes its reason.
 - `questions` holds 1–3 entries if and only if the state is `needs-input`.
 - `advisor` is `fable` only with `ready-to-plan`, and always when the issue carries `factory:advisor`; `advisor_reason` is one sentence then, empty otherwise.
+- `needs_repro` is `true` only with `ready-to-plan`, for a bug a user sees in a web app whose cause the code didn't confirm.
 - A `ready-for-dispatch` result names no plan trigger or collision, and its estimate is validity high, correctness high and effort light.
 - A short-circuit `wait` uses the `low` / `low` / `heavy` placeholder and has no `Estimate:` line.
 - No third question round was asked (step 6 round limit).
@@ -294,10 +309,12 @@ Before returning, check:
 - **Feeds into:** `factory-triage.yml`'s apply job, which:
   - validates the result;
   - labels `factory:<state>`;
-  - posts `comment` with a machine-readable `<!-- factory-triage: {...} -->` marker that later stages read for the tier.
+  - posts `comment` with a machine-readable `<!-- factory-triage: {...} -->` marker that later stages read for the tier;
+  - for `needs_repro`, where the project has the reproduce step, adds `factory:needs-repro` and dispatches it instead of the plan (`[sdlc-root]/process/factory.md` D6 rule 8).
 - **Uses:** Read, Grep, Glob, WebSearch, Context7. `gh`, read-only, in interactive use only.
 - **Complements:**
   - `sdlc-plan` and `sdlc-lite-plan`, which `ready-to-plan` hands to;
+  - `sdlc-reproduce`, which a `needs_repro` flag hands to first, where the project has the step;
   - `sdlc-idea`, the interactive counterpart for vague directions;
   - `sdlc-manage-github`, which owns issue reads and writes outside the factory.
 - **Does NOT replace:** the plan stage's approval gate. Triage proposes a tier, and every plan still stops for CD.

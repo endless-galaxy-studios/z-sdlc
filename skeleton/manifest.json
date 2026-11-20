@@ -318,6 +318,7 @@
       "description": "Software factory: issue-driven agent stages (triage, implement, plan and spec, revise, execute with production gates, the weekly improve loop) on self-hosted runners, as GitHub Actions workflows rendered from the project's .github/factory/factory.json. Inert until configured via the process doc's Enablement section.",
       "skills": [
         "skills/sdlc-triage/SKILL.md",
+        "skills/sdlc-reproduce/SKILL.md",
         "skills/sdlc-implement/SKILL.md",
         "skills/sdlc-revise/SKILL.md"
       ],
