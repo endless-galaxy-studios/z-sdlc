@@ -37,6 +37,17 @@ Each entry contains:
 
 ---
 
+## 2026-11-21: CLAUDE-SDLC.md: the changelog rule names CLAUDE.md, and /model and /effort save by default
+
+**Origin:** The pilot project's migration. In two of its `CLAUDE.md` deviations CD took upstream's text, and both carried fixes worth taking upstream.
+
+**Changes made:**
+
+1. **`CLAUDE-SDLC.md` § Process Changelog** — names "the SDLC sections of `CLAUDE.md`" among the process files whose changes are logged. Before, it named `CLAUDE-SDLC.md`, which an installed project doesn't have, since its SDLC text lives in `CLAUDE.md`.
+2. **§ Session Model & Effort** — `/model` and `/effort` save a pick as the default for new sessions when it's confirmed with `Enter` (or typed after the command). `s` in either picker keeps it to the session, and `max` effort never saves. The launch flags set one session and save nothing, which is why the aliases are the way to set both dials for one session. Effort is saved per model. This was checked against Claude Code's model-configuration and settings documentation (2026-11-21). `s` needs Claude Code v2.1.257 or later.
+
+---
+
 ## 2026-11-21: The factory imported from the incubator (664b097..f2af44d): z-sdlc's changes through v2.9.4 handed back
 
 **Origin:** The incubator took z-sdlc's factory changes from v2.8.0 to v2.9.4 in two PRs, #148 (through v2.9.0) and #149 (v2.9.1 to v2.9.4). Those changes are the browser route, browser evidence, the reproduce step and the `sdlc-reproduce` skill, the `browser.stages` check, and the video and trace rules.

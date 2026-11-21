@@ -124,7 +124,7 @@ If you're in direct dispatch and ANY of these become true, stop and ask CD about
 **When starting any session:** Check `docs/current_work/` for in-progress deliverables before accepting new work.
 
 ### Process Changelog
-When you change an SDLC process file (skills, agents, process docs, CLAUDE-SDLC.md, disciplines, knowledge), write its entry in the process changelog (`[sdlc-root]/process/sdlc_changelog.md`) in the same step, before moving on to other work. The changelog records *why* a process decision changed (new rules, classification changes, workflow adjustments, guard additions), which git log alone doesn't preserve. Don't backdate entries for changes made in prior sessions.
+When you change an SDLC process file (skills, agents, process docs, the SDLC sections of `CLAUDE.md`, disciplines, knowledge), write its entry in the process changelog (`[sdlc-root]/process/sdlc_changelog.md`) in the same step, before moving on to other work. The changelog records *why* a process decision changed (new rules, classification changes, workflow adjustments, guard additions), which git log alone doesn't preserve. Don't backdate entries for changes made in prior sessions.
 
 ### Marking Changes to Framework Files
 Framework files (skills and their references, process docs, upstream knowledge entries, these SDLC sections) are updated from z-sdlc at each migration, and migration keeps only the changes the project marked. Mark every addition, replacement or removal you make to one, as `[sdlc-root]/process/project-section-markers.md` defines; an unmarked change is asked about at the next migration that updates its file, and upstream's text replaces it unless CD keeps it then. A knowledge entry the project added, and a filled placeholder such as `[build command]`, need no mark.
@@ -304,7 +304,7 @@ alias ccplan-opus="claude --model opus --effort high"   # planning / idea (Opus)
 alias ccexec="claude --model sonnet --effort medium"    # execution
 ```
 
-Both `--model` and `--effort` are launch flags. Setting effort at launch also avoids a gotcha: switching model mid-session with `/model` can reset effort to that model's default, so re-check `/effort` after any `/model`. The `M4` "don't escalate to be safe" guardrail applies to your own session too: reserve `max` for the genuinely hardest planning.
+Both `--model` and `--effort` are launch flags: they set this session only and change no saved default. `/model` and `/effort` do save: confirming a pick with `Enter`, or typing `/model <name>` or `/effort <level>`, makes it your default for new sessions, while `s` in either picker applies it to this session only (`max` effort always applies to the session only). Effort is saved per model, so switching model mid-session with `/model` can change effort to that model's saved level: re-check `/effort` after any `/model`. The `M4` "don't escalate to be safe" guardrail applies to your own session too: reserve `max` for the genuinely hardest planning.
 
 ## Agent Conventions
 
