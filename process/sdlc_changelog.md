@@ -37,6 +37,17 @@ Each entry contains:
 
 ---
 
+## 2026-11-21: A run that records video traces without screenshots
+
+**Origin:** The pilot project, measuring a real 90-second run on Playwright 1.61.1. With video on, the trace's screenshot frames are captured at the video's size (1280×720, not 800×450): the trace was 61.2 MB, 57.2 MB of it frames, and `tracing.stop` took 18 s. Without the frames it was 3.9 MB, and stop took 1.5 s. `evidence.py` keeps a trace up to 50 MB, and v2.9.2 turned video on for every browser stage, so every project's long runs would have lost their trace. CD chose the rule over raising the limit.
+
+**Changes made:**
+
+1. **`process/factory.md` D6 rule 5, the `factory-browser` mirror and its copies in `sdlc-implement`, `sdlc-revise` and `sdlc-reproduce`** — a run that records video takes its trace without screenshots (`tracing.start({ screenshots: false })`), since the video is the visual timeline.
+2. **D6 rule 7** — says why, with the measurement.
+
+---
+
 ## 2026-11-20: The factory's evidence folder can hold an earlier run's files
 
 **Origin:** The pilot project, from its evidence PR's review. CD chose to state the rule, and left a mechanical check for later.
