@@ -170,9 +170,10 @@ Skills that reference the knowledge layer MUST use canonical phrasings from `[sd
 
 Content inside `PROJECT-SECTION-START` / `PROJECT-SECTION-END` markers is project-specific — do NOT flag deviations inside markers as convention violations. DO verify:
 
-1. Every `START` has a matching `END` with the same label.
+1. Every `START` has a matching `END` with the same label. A `PROJECT-SECTION-REMOVED` line stands alone.
 2. Labels are descriptive (not generic like "custom" or "changes").
 3. Markers use correct syntax for the file type (HTML comments for Markdown, `#` for YAML).
+4. A `replaces` on a start line and a `PROJECT-SECTION-REMOVED` line name one target, quoted in backticks: a heading as upstream writes it, a YAML key path, `key[field=value]`, or `*`, each target once in the file and none inside another, and no mark inside a `*` replacement (`[sdlc-root]/process/project-section-markers.md` § Target Grammar). Only whole-line marks outside code fences are live (its rule 8): a mark quoted in prose or fenced is an example, so skip it.
 
 Malformed markers are Minor — they break `sdlc-migrate`'s preservation logic.
 

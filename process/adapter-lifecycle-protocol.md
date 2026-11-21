@@ -119,7 +119,7 @@ The adapter is responsible for:
 | | |
 |---|---|
 | **Fires when** | Where upstream would run §2.1b key-level merge on knowledge YAML files |
-| **Default (no adapter)** | Key-level merge: new upstream keys added, existing project keys preserved, project-only keys preserved |
+| **Default (no adapter)** | Marked merge, key by key and item by item: upstream's version of an unmarked upstream entry, the project's marked replacements and removals kept, project-only entries kept (`sdlc-migrate` §2.1b) |
 | **Purpose** | Let the adapter update its backend directly using its native diff/upsert semantics |
 
 When an adapter declares this phase, upstream skips §2.1b entirely for knowledge YAML files. The adapter handles the update using its backend's native capabilities.

@@ -406,7 +406,7 @@ Entry format (context tag in bold header — required for `sdlc-archive` traceab
 - **[YYYY-MM-DD] [DNN — phase N]**: [Insight title] — [description]. [NEEDS VALIDATION]
 ```
 
-No PROJECT-SECTION markers needed — discipline files are project-specific and not overwritten during framework migrations.
+No PROJECT-SECTION markers needed — parking-lot entries are project data, which migration keeps whole (`sdlc-migrate` §2.3).
 
 ### 3e. CLAUDE.md Refresh
 

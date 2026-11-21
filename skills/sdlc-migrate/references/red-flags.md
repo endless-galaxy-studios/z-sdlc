@@ -3,6 +3,8 @@
 | Thought | Reality |
 |---------|---------|
 | "I'll just copy all files from z-sdlc" | Content-merge exists for a reason — direct copy overwrites project customizations |
+| "This key is missing from the project, so it's new upstream: add it" | Compare with upstream at `source_version` first. A key upstream had then is one the project removed: a deviation to ask about, or a removal mark to keep. Never guess intent from a diff |
+| "This difference looks deliberate, I'll keep it unmarked" | Only a mark keeps a change. An unmarked one is asked about in Phase 1, and CD decides |
 | "The project's agent names match z-sdlc's" | They almost never do. Always read the project's context-map, not the source's |
 | "I'll copy agent-selection.yaml with the other process files" | `agent-selection.yaml` is project-specific — it contains the project's agent roster, not the framework's. Never overwrite it. |
 | "I'll skip the changelog review" | Breaking changes and new capabilities need user input before applying |
@@ -19,5 +21,5 @@
 | "I'll auto-fix all the downstream impact findings" | Present findings to the user. They choose what to apply — some findings may not suit the project's context. |
 | "The SDLC is in `ops/sdlc/`" | Not always. Some projects use `.claude/sdlc/`. Detect the actual structure in pre-flight and use `[sdlc-root]` throughout. |
 | "PROJECT-SECTION markers mean this content is protected, just re-inject it" | Markers preserve content from being overwritten, but they don't prevent staleness. Review marked content against upstream changes (§2.1d) — a 6-month-old custom skill phase may reference outdated patterns. |
-| "I'll skip the marker review for old blocks" | Old blocks are the most likely to be stale. The skip threshold is for recent blocks (< 7 days) that can't have drifted yet. |
+| "I'll skip the marker review for old blocks" | Old blocks are the most likely to be stale. The skip threshold is for recent additions (< 7 days) that can't have drifted yet. A replacement or removal is compared with its target whatever its age. |
 | "The user chose 'keep' last time, so keep all markers this time" | Each migration is a fresh review. Upstream may have changed differently this time. Don't cache decisions across migrations. |

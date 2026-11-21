@@ -359,8 +359,8 @@ Guard findings route into the standard severity-classified findings table. Modif
 ## Dimension 7: Migration Integrity
 
 - **7a. Manifest version:** Read `.sdlc-manifest.json`, compare `source_version` against current z-sdlc. If >10 commits or >30 days behind, recommend migration.
-- **7b. File completeness:** Fetch `skeleton/manifest.json` from z-sdlc source (use the repo URL from `.sdlc-manifest.json`), compare installed files against its `source_files` lists.
-- **7c. Content-merge:** Verify framework sections current while project customizations preserved (skill gates, discipline entries, agent context map names).
+- **7b. File completeness:** Fetch `skeleton/manifest.json` from z-sdlc source (use the repo URL from `.sdlc-manifest.json`), compare installed files against its `source_files` lists. A file in `.sdlc-manifest.json` → `declined_files` is declined, not missing: don't report it. A declined file present on disk is a minor finding (take it back by removing its record, or delete it).
+- **7c. Content-merge:** Verify framework sections current while project customizations preserved (skill gates, discipline entries, agent context map names). A section, key or item a `replaces` block or a `PROJECT-SECTION-REMOVED` line names is absent from upstream's text by the project's marked choice, not missing; an unmarked difference from upstream is a finding (`[sdlc-root]/process/project-section-markers.md`).
 - **7d. Removed features:** Search skills/agents for references to deprecated/removed framework features.
 
 ## Dimension 8: Agent Memory Pattern Mining & Hygiene
@@ -420,7 +420,7 @@ After presenting the audit report, run an interactive triage session for all pro
 
 - **§6c parking lot entries** marked `[NEEDS VALIDATION]` or `[READY TO PROMOTE]` that have supporting evidence
 - **Dimension 8 agent memory patterns** flagged as promotion-worthy (recurring across agents, reusable)
-- **§6m Deep Verify DEMOTE verdicts** (only when a Deep Verify sweep ran this invocation) — demotion candidates carrying the entry text, source location (`file.yaml::key`), each judge's verdict and reasoning, and tie-break reasoning if split
+- **§6m Deep Verify DEMOTE verdicts** (only when a Deep Verify sweep ran this invocation) — demotion candidates carrying the entry text, source location (`file.yaml::key` or `file.yaml::key[field=value]`), each judge's verdict and reasoning, and tie-break reasoning if split
 
 It also checks the auditor's **unverified findings**: info findings marked "unverified — check X". Run each named check before the rest of triage (put it to CD when it needs access this session lacks). A confirmed one joins the findings at its real severity; a refuted one is dropped.
 
@@ -457,7 +457,7 @@ For each: (P)romote, (D)efer, (S)kip
 - **Promote:** Create or update the target knowledge YAML file with the new entry. Mark the parking lot entry as `Promoted → [target file path] ([date])`. If the source was an agent memory, add the entry to the relevant discipline parking lot as `Promoted → [target file path] ([date])` for traceability.
 - **Defer:** Update the parking lot entry marker to `[DEFERRED]` with CD's reason appended.
 - **Skip:** Leave the entry unchanged — it stays at its current marker for next audit cycle.
-- **Demote** (Deep Verify candidates only): Remove the entry from the knowledge YAML using the comment-preserving removal script (`references/deep-verify.md` § Reusable Scripts — never a `yaml.safe_dump()` round-trip). Restore a parking-lot entry in the relevant discipline file marked `[NEEDS VALIDATION]` with the demoting judges' reasoning appended inline. Grep the entry's key across `[sdlc-root]/disciplines/*.md` and fix any `Promoted →` ledger lines that point at the removed entry. Bump the knowledge file's `last_updated` if present. Log the sweep in `[sdlc-root]/knowledge/provenance_log.md` with `source-type: audit-sweep` (one entry for the whole sweep, not per demotion).
+- **Demote** (Deep Verify candidates only): Remove the entry from the knowledge YAML using the comment-preserving removal script (`references/deep-verify.md` § Reusable Scripts — never a `yaml.safe_dump()` round-trip), leaving a `PROJECT-SECTION-REMOVED` mark where it was (`references/deep-verify.md` § 6), so the next migration keeps it removed. Restore a parking-lot entry in the relevant discipline file marked `[NEEDS VALIDATION]` with the demoting judges' reasoning appended inline. Grep the entry's key across `[sdlc-root]/disciplines/*.md` and fix any `Promoted →` ledger lines that point at the removed entry. Bump the knowledge file's `last_updated` if present. Log the sweep in `[sdlc-root]/knowledge/provenance_log.md` with `source-type: audit-sweep` (one entry for the whole sweep, not per demotion).
 
 **11d. Report triage results.** Append triage outcomes to the audit artifact:
 

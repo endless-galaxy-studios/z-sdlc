@@ -234,15 +234,22 @@ When the user approves proposals:
 
 **Migration protection:** When applying fixes to framework files (process docs and skills), determine whether the fix is project-specific or a framework correction (see `[sdlc-root]/process/project-section-markers.md` for the full convention):
 
-- **Framework correction** (e.g., fixing a typo in a framework-defined phase, correcting a gate condition) — apply directly, no markers needed. These should flow back upstream.
-- **Project-specific fix to process/skill files** (e.g., adding a project-specific phase to a skill) — wrap in `PROJECT-SECTION` markers:
+- **Framework correction** (e.g., fixing a typo in a framework-defined phase, correcting a gate condition) — these should flow back upstream: list them for z-sdlc. Until a release carries it, mark the corrected section as a replacement, or the next migration asks about it and may take upstream's back. An edit in frontmatter can't be marked (`[sdlc-root]/process/project-section-markers.md` § What Markers Can't Hold): it is re-applied after each migration until upstream has it.
+- **Project-specific fix to process/skill files** (e.g., adding a project-specific phase to a skill) — wrap in `PROJECT-SECTION` markers, as an addition, a replacement or a removal:
 
 ```html
 <!-- PROJECT-SECTION-START: audit-improve-YYYY-MM-DD-description -->
 ... project-specific fix content ...
 <!-- PROJECT-SECTION-END: audit-improve-YYYY-MM-DD-description -->
+
+<!-- PROJECT-SECTION-START: audit-improve-YYYY-MM-DD-description replaces `### The upstream heading` -->
+### The upstream heading
+... the corrected section ...
+<!-- PROJECT-SECTION-END: audit-improve-YYYY-MM-DD-description -->
+
+<!-- PROJECT-SECTION-REMOVED: audit-improve-YYYY-MM-DD-description `### The upstream heading` — why; CD, YYYY-MM-DD -->
 ```
 
-**No markers needed for project-specific files:** Knowledge YAML files, discipline parking lot entries, and agent-context-map.yaml are project-owned — they're not overwritten during framework migrations, so no markers are required.
+**No markers needed for project data:** discipline parking-lot entries (with a discipline's `## Project Context` and `## Active Questions`) and agent-context-map.yaml — migration keeps them whole. A discipline file's framework sections are framework text: a change to one is marked. A knowledge YAML entry the project added needs none either, but a fix that rewrites or removes an entry the framework shipped is marked as a replacement or removal (`[sdlc-root]/process/project-section-markers.md` § The Three Kinds of Change), or the next migration takes upstream's back.
 
 **Always update `[sdlc-root]/process/sdlc_changelog.md`** for every process change. This is a hard rule — changelog entries are written in the same step as the change, not deferred.

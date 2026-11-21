@@ -31,7 +31,7 @@ Read `.claude/skills/sdlc-audit/references/compliance-methodology.md` for the fu
 4. **Knowledge freshness** — CLAUDE.md, agent memories, docs current
 5. **Process health indicators** — tracked vs untracked ratio, archive freshness, changelog coverage
 6. **Knowledge layer health** — disciplines, knowledge stores, triage status, wiring, context map, playbooks, usage, staleness by age, cross-file contradictions, coverage gaps, review-pattern recurrence (6l), mechanized-guard freshness (6n)
-7. **Migration integrity** — manifest version, file completeness, content-merge correctness, PROJECT-SECTION marker validation
+7. **Migration integrity** — manifest version, file completeness (a file in `.sdlc-manifest.json` → `declined_files` is declined, not missing; a declined file present on disk is a minor finding), content-merge correctness, PROJECT-SECTION marker validation
 8. **Agent memory pattern mining & hygiene** — recurring findings worth promoting (8a); oversized (>200 line/25KB), self-contradicting, code-contradicting, or orphaned MEMORY.md files (8b)
 9. **Recommendation follow-through** — previous audit recommendations acted on?
 
@@ -197,12 +197,13 @@ As part of migration integrity (Dimension 7), verify that skills, agents, and pr
 
 As part of migration integrity (Dimension 7), validate `PROJECT-SECTION` marker pairs across all framework files:
 
-1. **Scan all files** in `[sdlc-root]/` (detected in methodology section above) for `PROJECT-SECTION-START` and `PROJECT-SECTION-END` markers
+1. **Scan all files** in `[sdlc-root]/` (detected in methodology section above), `.claude/skills/`, `.claude/agents/` and `CLAUDE.md` for `PROJECT-SECTION-START`, `PROJECT-SECTION-END` and `PROJECT-SECTION-REMOVED` markers, counting only whole-line marks outside code fences (a mark quoted in prose or fenced is an example, as in the markers doc itself; its rule 8)
 2. **Validate pairing:** Every `PROJECT-SECTION-START: label` must have a matching `PROJECT-SECTION-END: label` with the same label
 3. **Flag orphaned markers:**
    - `PROJECT-SECTION-START` without a matching `END` → severity: major (content boundary undefined, migration may corrupt)
    - `PROJECT-SECTION-END` without a matching `START` → severity: major (orphaned end marker)
    - Mismatched labels between `START` and `END` in the same pair → severity: critical (wrong content may be preserved or lost)
+   - A `PROJECT-SECTION-REMOVED` line stands alone and is never paired: one with no target, a `replaces` or removal whose target isn't one § Target Grammar allows (a heading, a key path, `key[field=value]`, or `*`, quoted in backticks), a target named twice in one file, one inside another mark's target, or any mark inside a `*` replacement → severity: major (migration can't tell what to leave out). Knowledge YAMLs' marks count here too (`[sdlc-root]/process/project-section-markers.md` § The Three Kinds of Change)
 4. **Validate `BUNDLE-SECTION` markers** (same scan, including `.claude/skills/` and `.claude/agents/`; pairing and label-match rules identical to steps 2–3). Additionally, against `.sdlc-manifest.json`:
    - A `BUNDLE-SECTION` block whose label's `bundle/` prefix is not in `installed_bundles` → severity: major (orphaned bundle content — bundle removed or never recorded)
    - An entry in `bundle_fragments` whose target file lacks the corresponding block → severity: major (partial install — re-running migration repairs it)

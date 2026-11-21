@@ -162,7 +162,8 @@ Organize extracted rules into structured YAML files following the conventions of
 **File organization:**
 - Group rules by theme/category into files. Each file should be a coherent topic (e.g., `visual-design-rules.yaml`, `interaction-animation-patterns.yaml`).
 - If the target discipline already has YAML files, add rules to existing files where they fit. Only create new files for genuinely new categories.
-- Continue existing rule ID sequences (e.g., if `visual-design-rules.yaml` ends at V16, new rules start at V17).
+- Continue existing rule ID sequences (e.g., if `visual-design-rules.yaml` ends at V16, new rules start at V17) in a file the project owns. In a file the framework shipped, give a new rule a project prefix (`P-V1`), so upstream's own next id never collides with it (`[sdlc-root]/process/project-section-markers.md` § Target Grammar).
+- A new rule needs no mark. Rewriting or removing one the framework shipped is a change to a framework file: mark it (`[sdlc-root]/process/project-section-markers.md` § The Three Kinds of Change), or the next migration takes upstream's back. In a file the project replaced as a whole (`` `*` ``), nothing is marked: it's the project's.
 
 **Rule format (follow existing conventions in the target knowledge store):**
 Each rule should include:

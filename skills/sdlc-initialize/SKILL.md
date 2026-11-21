@@ -371,6 +371,7 @@ When no adapter is found, behavior is identical to before this protocol existed.
   "bundle_fragments": {},
   "last_applied_contract_id": "<newest id in skeleton/contract_changes.yaml at install time>",
   "adapter": null,
+  "declined_files": {},
   "installed_files": {
     "ops/sdlc/process/overview.md":      { "sha256": "<hash>", "size": <bytes>, "installed_at": "<ISO timestamp>" },
     "ops/sdlc/knowledge/architecture/agent-communication-protocol.yaml": { "sha256": "<hash>", "size": <bytes>, "installed_at": "<ISO timestamp>" },
@@ -400,6 +401,8 @@ When no adapter is found, behavior is identical to before this protocol existed.
 ```
 
 See `[sdlc-root]/process/adapter-lifecycle-protocol.md` for field semantics, discovery logic, and the `adapter.json` schema.
+
+**`declined_files`:** Framework files the project doesn't want: installed path → `{"why": ..., "decided": "CD, <date>"}`. Empty at install, until 6a removes a knowledge file. `sdlc-migrate` never copies one back or asks about it (`ops/sdlc/process/project-section-markers.md` § Deleted Files).
 
 **Hash generation:** SHA-256 of the file's content as written to disk.
 
@@ -498,7 +501,7 @@ CC writes CLAUDE.md directly (agents don't exist yet). Use the spec as the sourc
 3. **Technology stack** — per-package if monorepo (from spec)
 4. **Coding standards** — per-language conventions
    - If multi-language: document the boundary conventions (e.g., snake_case API, camelCase frontend)
-5. **SDLC process section** — read `CLAUDE-SDLC.md` from z-sdlc source and merge the full content into this section, adapted for this project
+5. **SDLC process section** — read `CLAUDE-SDLC.md` from z-sdlc source and write its full content into this section word for word, between a `<!-- SDLC-START -->` line and a `<!-- SDLC-END -->` line, so migration knows the region. Fill only the values the framework leaves the project to set (the SDLC root, placeholders); any other adaptation is a marked change (`ops/sdlc/process/project-section-markers.md`), or the first migration asks about it
 6. **Verification policy** — zero-assumption rule, Context7 for external libs, read code before asserting
 7. **Agent dispatch conventions** — agent-first under the Manager Rule (dispatch by default; self-apply only under its Delegation Economics Exception, and review every self-applied change)
 
@@ -689,8 +692,8 @@ Use `AskUserQuestion` to let CD confirm. CD may override any classification (e.g
 
 **Actions after CD confirms:**
 - **Keep** files: no changes needed
-- **Customize** files: note them for Phase 6c (agent will rewrite content for the project's stack)
-- **Remove** files: delete them from `ops/sdlc/knowledge/` and remove their entries from `agent-context-map.yaml`
+- **Customize** files: note them for Phase 6c (agent will rewrite content for the project's stack). The rewrite is marked as a replacement of the whole file, so migration keeps it and shows upstream's later changes to the file for review (`ops/sdlc/process/project-section-markers.md` § Target Grammar): `` # PROJECT-SECTION-START: init-YYYY-MM-DD-<stack> replaces `*` `` as its first line and `# PROJECT-SECTION-END: init-YYYY-MM-DD-<stack>` as its last
+- **Remove** files: delete them from `ops/sdlc/knowledge/`, remove their entries from `agent-context-map.yaml`, and record each in `.sdlc-manifest.json` → `declined_files` with CD's reason (`{"why": "<the relevance assessment's reason>", "decided": "CD, <date>"}`), dropping its `installed_files` entry, so migration never copies it back
 
 **6b. Identify stack-specific knowledge gaps.**
 
@@ -702,7 +705,7 @@ For each major technology in the spec's stack, ask: "What would an agent need to
 
 **6c. Create stack-specific knowledge files.**
 
-Dispatch the `software-architect` agent (or nearest equivalent) to draft knowledge YAML files for the project's stack-specific technologies. Each file follows the z-sdlc knowledge format:
+Dispatch the `software-architect` agent (or nearest equivalent) to draft knowledge YAML files for the project's stack-specific technologies, and to rewrite each Customize file from 6a in place for the stack, wrapped in the whole-file replacement mark 6a gives. Each file follows the z-sdlc knowledge format:
 
 ```yaml
 id: technology-patterns

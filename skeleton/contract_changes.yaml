@@ -431,3 +431,49 @@ changes:
       they are, render re-renders its workflows, and its own extra files
       (a production tier, host scripts) are left alone. Requires sdlc_root
       ops/sdlc.
+
+  - id: "0021"
+    date: "2026-11-20"
+    title: "Migration follows the project's marks: replacements and removals"
+    type: other
+    changelog_ref: "2026-11-20: Migration follows the project's marks: a deliberate change to a framework file is marked [contract-change]"
+    notes: >
+      process/project-section-markers.md adds two marks beside the PROJECT-SECTION
+      addition: a replacement (PROJECT-SECTION-START: <label> replaces `<target>`)
+      and a removal (PROJECT-SECTION-REMOVED: <label> `<target>` — <why>), with a
+      target grammar for Markdown sections, YAML key paths and list items, and
+      `*` for the whole file. sdlc-migrate follows them and lets upstream win
+      everywhere else: knowledge YAMLs merge key by key and item by item, and
+      dual-audience skills merge by their marks instead of additive-only.
+      Deviation detection and the mark review run in Phase 1 and ask before any
+      unmarked project change is replaced, so the first migration under these
+      rules asks about each unmarked change in a file upstream changed, once.
+      The first migration to this release runs the project's installed
+      sdlc-migrate, which still adds back removed top-level knowledge keys:
+      tell that session to follow the release's sdlc-migrate and process docs,
+      read from the z-sdlc source at the tag (the changelog entry says so). From this release on, migrate follows the release's own
+      copy (Pre-Flight 1c). Adapter action: content-merge audits must treat a
+      marked replacement's or removal's target as a preservation boundary, and
+      count removal lines with the blocks (neuroloom-sdlc-plugin's
+      references/content-merge-audits.md has the paired change). A backend that
+      replaces §2.1b (knowledge-update) keeps its own merge, and skips the
+      knowledge files the project declined (contract 0022). A deleted file
+      can't hold a mark: contract 0022 records it in the manifest.
+
+  - id: "0022"
+    date: "2026-11-20"
+    title: "Record the framework files a project declines"
+    type: manifest_field_added
+    file: .sdlc-manifest.json
+    field: declined_files
+    default: {}
+    changelog_ref: "2026-11-20: Migration follows the project's marks: a deliberate change to a framework file is marked [contract-change]"
+    notes: >
+      Maps the installed path of each framework file the project doesn't want
+      to {why, decided}. sdlc-initialize writes it when CD removes a knowledge
+      file (6a); sdlc-migrate writes it when CD keeps a deleted file deleted
+      (§2.1c), never copies a declined file back or asks about it, and moves or
+      drops the record when upstream moves or deletes the file. Back-filled
+      empty: a framework file a project deleted before this is asked about
+      once, at its next migration (keep it removed, recorded, or restore it). An adapter that
+      seeds knowledge itself skips a declined path too.

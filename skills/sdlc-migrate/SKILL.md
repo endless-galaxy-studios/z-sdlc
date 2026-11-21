@@ -12,7 +12,7 @@ description: >
 
 # SDLC Migrate
 
-Apply z-sdlc upstream updates to a project while preserving project-specific customizations. Unlike the initial installation (which copies files and skips modified ones), this skill is **content-aware** — it understands which sections are framework-level vs project-customized and updates them independently.
+Apply z-sdlc upstream updates to a project while keeping the changes the project marked (and asking about any it didn't). Unlike the initial installation (which copies files and skips modified ones), this skill is **content-aware** — it understands which sections are framework-level vs project-customized and updates them independently.
 
 **Argument:** `$ARGUMENTS` (optional — local path to a z-sdlc clone. If omitted, resolve via `.sdlc-manifest.json` → `source_repo`, or ask user.)
 
@@ -24,7 +24,7 @@ Apply z-sdlc upstream updates to a project while preserving project-specific cus
 
 **All reads from z-sdlc MUST use git commands** (`git -C [z-sdlc-path] show [target_tag]:<path>`), never filesystem reads. **Never use shell redirection** (`git show > file`) — it silently destroys targets on failure. Full rules and safe extraction patterns: see `[sdlc-root]/process/source-repo-safety.md`.
 
-**`[target_tag]`** is the latest semver release tag in the z-sdlc source repo (e.g., `v1.4.0`). Resolved once during Pre-Flight and used as the git ref for every source read. Never use bare `HEAD` — it may point past the latest release if the source repo has unreleased commits.
+**`[target_tag]`** is the latest semver release tag in the z-sdlc source repo (e.g., `v1.4.0`). Resolved once during Pre-Flight and used as the git ref for every source read. Never use bare `HEAD` while the source has a release tag — it may point past the latest release if the source repo has unreleased commits. Only a source with no release tags at all falls back to `HEAD` (Pre-Flight 1b), and the report says the run targeted unreleased commits.
 
 ## Transaction Log
 
@@ -34,9 +34,12 @@ Every phase start/end, gate decision, mutation, and failure writes an append-onl
 
 **Migrate-specific events to log:**
 - `drift_detected` — when §1.2a finds a drifted file (one entry per file)
-- `drift_decision` — CD's choice at the drift gate (`overwrite`/`keep`/`extract_markers`)
+- `drift_decision` — CD's choice at the drift gate (`overwrite`/`keep`/`extract_markers`; `extract_markers` means mark the edits, in any of the three kinds)
 - `deviation_detected` — when §2.1c finds non-marker project customizations
-- `marker_preserved` — when a PROJECT-SECTION block is re-injected during §2.1d
+- `deviation_decision` — CD's choice for a file's deviations (`mark`/`overwrite`/`skip`), or for a missing framework file (`keep_removed` with CD's why / `restore`), logged in Phase 1
+- `marker_review_decision` — CD's choice for a §2.1d finding (`keep`/`update`/`remove`/`merge`), logged in Phase 1
+- `marker_preserved` — when a PROJECT-SECTION block or removal line is kept by §2.1 step 4 (or §2.2–§2.4)
+- `marker_dropped` — when a mark is dropped: quietly, as one on a unit upstream never had (§2.1b), or by CD's review decision
 - `phase_skip` — when an entire phase is skipped (e.g., no skills changed in §1.3)
 
 **Recovery from migrate crash:**
@@ -72,9 +75,9 @@ If the count is above 0, tell CD how many commits the branch is behind `origin/<
 1. `$ARGUMENTS` — if the user passed a local clone path, verify with `git -C [path] rev-parse HEAD`
 2. `.sdlc-manifest.json` → `source_repo` field (git remote URL) — **clone it immediately:**
    ```bash
-   git clone --depth=1 [source_repo] /tmp/z-sdlc-migrate
+   git clone --filter=blob:none [source_repo] /tmp/z-sdlc-migrate
    ```
-   This is safe and expected — it's a shallow clone of the user's own repo. Use `/tmp/z-sdlc-migrate` as `[z-sdlc-path]` for all subsequent phases. Clean up with `rm -rf /tmp/z-sdlc-migrate` after migration completes.
+   This is safe and expected — it's a clone of the user's own repo, with its tags and history (file contents arrive as they're read), since deviation detection reads every file at `source_version` as well as at the release. Use `/tmp/z-sdlc-migrate` as `[z-sdlc-path]` for all subsequent phases. Clean up with `rm -rf /tmp/z-sdlc-migrate` after migration completes.
 3. If neither is available, ask the user.
 
 **1b. Resolve `[target_tag]`** — the latest semver release tag in the z-sdlc source repo:
@@ -95,6 +98,8 @@ fi
 ```
 
 Use `[target_tag]` (the resolved tag, e.g., `v1.4.0`) as the git ref for **every** source read in subsequent phases. This ensures the migration targets a stable release, not unreleased commits.
+
+**1c. Follow the release's own rules.** This installed copy runs the migration, so a release's new merge rules would otherwise apply only from the migration after it. Compare this skill, with any marks the project made in it set aside, with the release's: `git -C [z-sdlc-path] show [target_tag]:skills/sdlc-migrate/SKILL.md`. If they differ, read the release's `SKILL.md` and its `references/` from `[target_tag]` (git reads only, as everywhere), and follow them for the rest of this run instead of this copy; Phase 2 still installs them as usual. Whichever copy runs, read every `[sdlc-root]/process/` doc it says to follow (`project-section-markers.md`, `path-mappings.md`, `headless-mode.md`, `source-repo-safety.md` and the rest) from `[target_tag]:process/<name>`, never the project's copy, which is still the old one until Phase 2. Log `MIGRATE RULES: following [target_tag]'s sdlc-migrate` (or `this copy`) in the migration report. A copy installed before this step existed can't take it: to migrate to the release that introduced it, tell the migrating session to follow that release's `sdlc-migrate` and process docs, read from the z-sdlc source at its tag, instead of the installed copy (that release's changelog entry says so).
 
 **Step 2 — Detect project structure:**
 
@@ -171,7 +176,7 @@ Read the project's `.sdlc-manifest.json` to get:
 | `source_version` value | Interpretation | Diff base |
 |------------------------|----------------|-----------|
 | Semver tag (e.g., `v1.2.0`) | Normal — project tracks releases | `v1.2.0` |
-| 40-char hex SHA (legacy) | Pre-tag manifest — resolve to nearest tag | `git -C [z-sdlc-path] describe --tags --abbrev=0 [SHA]` (falls back to SHA if no tag contains it) |
+| 40-char hex SHA (legacy) | Pre-tag manifest — resolve to nearest tag | `git -C [z-sdlc-path] describe --tags --abbrev=0 [SHA]` (falls back to SHA if no tag contains it) for the changelog and change list. The baseline for deviation detection (§2.1c) and the mark review (§2.1d) is the install itself: `source_version_sha` if the manifest has it, else this SHA. If `git cat-file -e [ref]` fails, there's no baseline (§2.1c § No baseline), and the report says so |
 | `"unknown"` or missing | First migration after legacy install | Full migration — compare all files |
 
 **Already up to date?** If `source_version` equals `[target_tag]`, the project is already on the latest release. Report "Already on [target_tag] — nothing to migrate" and stop.
@@ -183,13 +188,13 @@ git -C [z-sdlc-path] log --oneline [source_version]..[target_tag]
 git -C [z-sdlc-path] diff --name-only [source_version]..[target_tag]
 ```
 
-If `source_version` is `"unknown"` or missing, treat this as a **full migration** — compare all framework files against the project. Do not stop or ask the user — a full migration is the correct fallback.
+If `source_version` is `"unknown"` or missing, treat this as a **full migration** — compare all framework files against the project. Don't stop here: a full migration is the correct fallback. With no baseline, deviation detection can't tell a project change from an upstream one and asks about each difference (§2.1c § No baseline), so a headless run ends at the change plan's `awaiting-approval` stop (§1.2a).
 
 ### 1.2 Changelog Review Gate
 
 **Before categorizing or applying anything**, read the changelog entries since the project's source version.
 
-Read `process/sdlc_changelog.md` from the z-sdlc source repo (via `git -C [z-sdlc-path] show [target_tag]:process/sdlc_changelog.md`), stopping when you reach entries older than the project's `source_version` date. When the project's version is older than the file's oldest entry, keep reading in `process/changelog-archive/` at the same tag, newest quarter first (`git -C [z-sdlc-path] ls-tree --name-only [target_tag] process/changelog-archive/`, then `git show` each `YYYY-Qn.md`). A tag from before archiving has no archive; its changelog holds everything. This is the migration's release notes — it surfaces:
+Read the changelog entries this release adds: those whose `## ` heading is in `process/sdlc_changelog.md` at `[target_tag]` but in neither the changelog nor its archive at `source_version` (`git -C [z-sdlc-path] show <ref>:process/sdlc_changelog.md`, and each `process/changelog-archive/YYYY-Qn.md` from `git -C [z-sdlc-path] ls-tree --name-only <ref> process/changelog-archive/`). Compare headings, not dates: several releases can share a date. Entries archived since `source_version` are found in `[target_tag]`'s archive the same way. A tag from before archiving has no archive; its changelog holds everything. With no baseline, read the entries dated on or after the manifest's `install_date`. This is the migration's release notes — it surfaces:
 
 - **Breaking changes** — renamed concepts, moved files, added structural markers, changed conventions
 - **New capabilities** — new knowledge files, new disciplines, new agent roles the project may want
@@ -197,7 +202,7 @@ Read `process/sdlc_changelog.md` from the z-sdlc source repo (via `git -C [z-sdl
 
 **Gate rule:** If any changelog entry describes a breaking change or convention rename, note it for the CLAUDE-SDLC.md compatibility check in §4.3a. If any entry describes a new capability that requires project-team input (new agent roles, new discipline areas), flag it for user review before applying.
 
-Present a brief migration summary to the user via `AskUserQuestion`:
+Prepare a brief migration summary. It's asked at the Phase 1 decision point (end of §1.2a), with every drift, deviation and mark question, so CD sees what the migration will ask and change before saying proceed:
 
 ```
 Migration summary: [source_version] → [target_tag]
@@ -208,7 +213,7 @@ Migration summary: [source_version] → [target_tag]
 Proceed with migration?
 ```
 
-**Gate:** Wait for user confirmation before continuing to Phase 2.
+**Gate:** Wait for CD's confirmation, given at the Phase 1 decision point, before continuing to Phase 2. Interactive and headless runs share that one point: interactive asks it with `AskUserQuestion`; headless treats it as the approval gate of migrate's change plan (`[sdlc-root]/process/headless-mode.md`): it stops with `awaiting-approval`, the change plan in the result in full, and the next run executes exactly what was approved.
 
 ### 1.2a Operational Drift Detection
 
@@ -227,13 +232,17 @@ if current_hash != installed_hash:
     - DRIFTED-ORPHAN:   project edited, file removed/moved in upstream
 ```
 
+**A file identical to `[target_tag]`'s is not drift either:** whatever its hash, there's nothing to decide, and Phase 2 records its new hash.
+
+**A declined file is never drift and never written** (`.sdlc-manifest.json` → `declined_files`, `[sdlc-root]/process/project-section-markers.md` § Deleted Files): leave it out of every Phase 1 and Phase 2 step. A declined path that exists on disk again is asked about with the Phase 1 pass: take it back (drop its record; the file merges as usual) or keep it declined (the file is left as it is, unmanaged, and the report says so).
+
 **Project-owned files are not drift.** Skip every file on the never-overwrite list (`[sdlc-root]/process/path-mappings.md` § Project-Specific Files): the project edits them by design, and migration never overwrites them, so a changed hash there needs no decision.
 
 **Drift categories and defaults:**
 
 | Category | Meaning | Gate Action |
 |----------|---------|-------------|
-| `DRIFTED-CLEAN` | Project edited, upstream unchanged | Prompt: overwrite with upstream / keep project version / extract project edits into PROJECT-SECTION markers |
+| `DRIFTED-CLEAN` | Project edited, upstream unchanged | Prompt: overwrite with upstream / keep project version / mark the project's edits (`PROJECT-SECTION` blocks, with `replaces <target>` where they stand in for upstream's, or `PROJECT-SECTION-REMOVED` lines) |
 | `DRIFTED-CONFLICT` | Project edited AND upstream changed | Hard prompt: show both diffs, require three-way decision |
 | `DRIFTED-ORPHAN` | Project edited, file removed upstream | Prompt: keep as project-owned / move to legacy / delete |
 
@@ -243,11 +252,13 @@ if current_hash != installed_hash:
 - **Untouched** — upstream didn't change that region: re-apply the hunk to the new upstream text.
 - **Combined** — both sides changed the region: merge them, showing CD both.
 
-A `DRIFTED-CONFLICT` file with many conflicts can be all subsumed, and one with a single conflict can hide a combined hunk, so the gate shows the classes per hunk. An untouched or combined hunk that fixes framework text rather than adding project content is also an upstream candidate (§2.1c). The gate's "extract into PROJECT-SECTION markers" option doesn't apply to an edit markers can't hold (§2.1c): offer re-applying it instead.
+A `DRIFTED-CONFLICT` file with many conflicts can be all subsumed, and one with a single conflict can hide a combined hunk, so the gate shows the classes per hunk. An untouched or combined hunk that fixes framework text rather than adding project content is also an upstream candidate (§2.1c). The gate's "mark the project's edits" option doesn't apply to an edit markers can't hold (frontmatter, §2.1c): offer re-applying it instead.
 
 Surface drifted files in the §1.3 change manifest with a `⚠ DRIFT` marker so CD sees them before any mutation. Phase 2's direct-copy operations (§2.1) and content-merges (§2.2+) must consult drift status before acting — if a file is drifted, the Phase 2 default action is overridden by the drift gate decision.
 
 **Why this matters:** Without drift detection, migration silently overwrites manual edits to framework files. With it, every unexpected edit gets surfaced and consented before being touched.
+
+**Deviations and marks are decided here too, before anything is written.** After the drift gate, run deviation detection (§2.1c) and the mark review (§2.1d), reading only, over the files Phase 2 will write, which §2.1 defines from the §1.1 change list: those upstream changed since `source_version`, those upstream added, every framework file in a full migration, and a plugin guide that differs from the release's. Add every framework file the project lacks that isn't declined (§2.1c § A framework file the project lacks). Phase 2 writes nothing else, so a file it won't write isn't asked about; its unmarked changes come up when a release next changes it. Ask once per file: a drifted file's `drift_decision` is its deviation decision, a re-applied hunk is written as a mark (an addition or a replacement), never left bare, and a file kept unmarked by an earlier migration's rules (its hash is clean, its content differs from upstream at `source_version`) is asked about as a deviation. **The Phase 1 decision point:** put the §1.2 summary, its "Proceed with migration?", and every question this pass found to CD together, as one message: the summary first; then, per file, each question with its options and a proposed answer (a proposed mark's label, target and why written out, so CD can edit it in place); then Proceed / Stop. Interactive runs ask the file questions with `AskUserQuestion` (one question per file, an option per answer, CD's edits in its free-text field). Log each answer with what Phase 2 needs to act on it (`gate` for proceed; `deviation_decision` with each mark's label, target and why; `marker_review_decision`). Phase 2 writes the marks and applies the decisions, and asks nothing. **Headless:** ask nothing: the decision point is the approval gate of migrate's change plan (`[sdlc-root]/process/headless-mode.md`, the Approval gate row). Put the plan in the result in full: the §1.2 summary, and every drift, deviation, mark and missing-file question with its proposed answer (each mark's label, target and why). Stop with `awaiting-approval`, nothing written to the project's files. The next run executes exactly what CD approved, and stops again if the project changed since.
 
 **Back-fill path (projects initialized before `installed_files` was introduced):**
 
@@ -262,30 +273,34 @@ Group the changed z-sdlc files by migration strategy:
 
 | File Type | Location | Strategy |
 |-----------|----------|----------|
-| **Skills** | `skills/*/SKILL.md` | Content-merge: update framework sections, preserve project customizations |
+| **Skills** | `skills/*/SKILL.md` listed in `skeleton/manifest.json` (`sdlc-initialize` is the installer, never installed) | Content-merge: update framework sections, keeping the project's marks (§2.2) |
 | **Skill scripts** | `skills/*/scripts/*` (manifest-listed) | Direct copy to `.claude/skills/*/scripts/`; never content-merged |
-| **Skill references** | `skills/*/references/*` (manifest-listed) | Direct copy to `.claude/skills/*/references/`, except a dual-audience skill's (§2.2 Step 0), which merge additively; `sdlc-audit`'s follow §2.4 |
+| **Skill references** | `skills/*/references/*` (manifest-listed) | Direct copy to `.claude/skills/*/references/`, with the project's marks kept (§2.1); a dual-audience skill's merge by their marks (§2.2 Step 0); `sdlc-audit`'s follow §2.4 |
 | **Agent template** | `templates/agent-template.md` | Direct copy to `[sdlc-root]/templates/` (no project customizations) |
 | **Audit skill** | `skills/sdlc-audit/SKILL.md` + `references/` | Content-merge: update audit methodology, preserve project-specific additions |
-| **Knowledge YAMLs** | `knowledge/**/*.yaml` | Key-level merge: add new upstream keys, preserve project additions (§2.1b). Check for moved/deleted files (§2.1a) |
+| **Knowledge YAMLs** | `knowledge/**/*.yaml` | Marked merge, key by key and item by item: upstream's version unless the project marked a replacement or removal; the project's own keys kept (§2.1b). Check for moved/deleted files (§2.1a) |
 | **Process docs** | `process/*.md` | Direct copy (framework-level), except the changelog (next row) |
 | **Process changelog** | `process/sdlc_changelog.md` | Never overwrite — the project's record of its own process changes. Migration prepends one entry for itself (§4.5b) |
 | **Changelog archive** | `process/changelog-archive/` | Not installed: z-sdlc's archive is its own history (§1.2 reads it). The project's archive is never overwritten; §4.5c adds to it |
-| **Disciplines** | `disciplines/*.md` | Content-merge: update framework guidance, preserve project parking lot entries |
+| **Disciplines** | `disciplines/*.md` | Content-merge (§2.3): framework sections follow the marks; project data (parking-lot entries, `## Project Context`, `## Active Questions`, the tracker) kept whole |
 | **Context map** | `knowledge/agent-context-map.yaml` | Never overwrite — project has its own agent names. Update paths for moved/deleted files (§3.3) |
 | **Provenance log** | `knowledge/provenance_log.md` | Never overwrite — project's append-only ingestion/research records |
 | **Project agents** | Project `.claude/agents/*.md` | Targeted section updates (see Phase 3) |
 | **CLAUDE-SDLC.md** | `CLAUDE-SDLC.md` | Content-merge into project's `CLAUDE.md` (§2.1e). No separate file. |
 | **Templates** | `templates/*` (all manifest-listed files, incl. `.html` and `.sh.template`) | Direct copy (framework-level). Skip `templates/optional/` (source-only). Never copy a `*.sh.template` to the executable wrapper path — projects enable wrappers themselves. |
 | **Plugin guides** | `plugins/*.md` | Direct copy to `[sdlc-root]/plugins/` (framework-level; §4.4b's readiness check lives there) |
+| **Framework agents** | `agents/sdlc-reviewer.md`, `agents/sdlc-compliance-auditor.md` | Direct copy to `.claude/agents/`, keeping the project's marks (§2.1). Phase 3 updates the project's own agents |
+| **Playbooks, examples, READMEs** | `playbooks/*.md`, `examples/*.md`, `README.md`, `knowledge/README.md`, `knowledge/**/README.md` | Direct copy, keeping the project's marks; a playbook upstream never had is the project's (§2.1) |
+| **Bundle files** | An installed bundle's `skills`, `process`, `tree`, `seed` and `fragments` (`skeleton/manifest.json` → `bundles`) | Skills and process docs as their type above; `tree` files direct copy, refreshed; `seed` files never overwritten; fragments re-injected fresh (`BUNDLE-SECTION`, §2.1 step 7). A bundle not installed is left alone |
+| **Declined files** | Any path in `.sdlc-manifest.json` → `declined_files` | Never copied or asked about; upstream's changes to one are reported (`[sdlc-root]/process/project-section-markers.md` § Deleted Files) |
 
 ---
 
 ## PROJECT-SECTION Marker Convention
 
-Read and follow `[sdlc-root]/process/project-section-markers.md` — the canonical definition of the marker convention. It defines the syntax (Markdown and YAML), label format, rules, and validation. Producing skills that add markers to process/skill files (`sdlc-develop-agent`, `sdlc-develop-skill`, `sdlc-audit` improvement mode) reference that document. Note: markers are only for process docs and skill files — knowledge files, discipline files, and agent-context-map are project-specific and don't need markers.
+Read and follow `[sdlc-root]/process/project-section-markers.md` — the canonical definition of the marker convention. It defines the syntax (Markdown and YAML), the three kinds of change (an addition, a replacement with `replaces <target>`, a removal with `PROJECT-SECTION-REMOVED`), label format, rules, and validation. Producing skills (`sdlc-develop-agent`, `sdlc-develop-skill`, `sdlc-audit`, `sdlc-ingest`, the factory's code stages) reference that document. Markers cover process docs, skills and their references, knowledge YAMLs' upstream entries, and `CLAUDE.md`'s SDLC sections; discipline files and agent-context-map are project data and don't need them.
 
-This migration skill is responsible for **consuming** markers: extracting, preserving, and re-injecting marked blocks during framework updates. Existing project content that lacks markers is detected by the deviation detection step (§2.1c).
+This migration skill is responsible for **consuming** markers: extracting, preserving, and re-injecting marked blocks, and leaving out what a replacement or removal names, during framework updates. **The marks decide** (CD, 2026-11-20): a project's deliberate change is the one it marked, and everything unmarked follows upstream. A diff never decides: it finds a change but can't say it was meant, and without a baseline a key the project deleted looks exactly like one upstream added. Existing project content that differs from upstream without a mark is found by deviation detection (§2.1c), which asks before anything is overwritten.
 
 ---
 
@@ -293,13 +308,14 @@ This migration skill is responsible for **consuming** markers: extracting, prese
 
 > ## ⚠ POINT OF NO RETURN
 >
-> **Phase 1 was read-only** — source version identification, changelog review, and change categorization. All three completed without touching workspace state. Cancellation at any Phase 1 point left no trace.
+> **Phase 1 was read-only** — source version identification, changelog review, drift, deviation and mark decisions, and change categorization. All completed without touching the project's files: only the transaction log and fetched remote refs (Pre-Flight Step 0's in the project, the source clone's) were written. Cancellation at any Phase 1 point left no trace.
 >
 > **Phase 2 is the first phase that commits mutations.** The first file write in §2.1 overwrites on disk. Once that has run, **cancellation leaves partial state**. The good news: migrations are designed to be resumable — re-running `/sdlc-migrate` from a crash point will complete via PROJECT-SECTION marker re-extraction and idempotent copy. The bad news: the workspace `source_version` will be in an intermediate state until the re-run completes.
 >
 > Before proceeding, verify:
 > - §1.2 changelog review gate returned `approved`
 > - If drift was detected in §1.2a, every drifted file has a `drift_decision` logged
+> - Every file with deviations (§2.1c) has a `deviation_decision` logged, and every non-`OK` mark finding (§2.1d) a `marker_review_decision`
 > - Transaction log has the corresponding `gate` events with `approved` results
 >
 > Log a `checkpoint: point_of_no_return` event to the transaction log immediately before the first file write.
@@ -369,18 +385,18 @@ Before any file copying, compute the **effective install set** for this project 
 
 **Step 0 — Load exclusion list before any writes.** Read `[sdlc-root]/process/path-mappings.md` § "Project-Specific Files (Never Overwrite)". For every file about to be written in this phase, confirm it does NOT appear on that list. If it does, skip it — no exceptions, no "I'll just update the header" rationalizations. Current exclusions: `agent-selection.yaml`, `agent-context-map.yaml`, `provenance_log.md`, `sdlc_changelog.md`, `process/changelog-archive/`, and the project's `.claude/skills/verify/`.
 
-For files with no project customizations, copy directly from z-sdlc to the project's `[sdlc-root]/` directory:
+**Which files are written:** only the set the Phase 1 pass checked (§1.2a), never a declined one (`declined_files`): a file upstream changed since `source_version`, one upstream added that the project lacks, one CD chose to restore, every framework file in a full migration, and a plugin guide that differs from `[target_tag]`'s with its marks set aside. A file outside that set isn't touched, even when it differs from upstream: its unmarked changes are asked about when a release next changes it, and the audit (§4.4, 7c) reports them meanwhile. Within the set, copy each one directly from z-sdlc to the project's `[sdlc-root]/` directory, applying its Phase 1 decision and keeping its marks:
 
 - `process/*.md`, top level only (excluding `agent-selection.yaml` and `sdlc_changelog.md` — project-specific, protected by Step 0). Never copy `process/changelog-archive/`: it's z-sdlc's history
 - `skills/*/scripts/*` (manifest-listed) → `.claude/skills/*/scripts/`
-- `skills/*/references/*` (manifest-listed) → `.claude/skills/*/references/`, except a dual-audience skill's (§2.2 Step 0), which merge additively; `sdlc-audit`'s follow §2.4
-- `knowledge/**/*.yaml` (but NOT `agent-context-map.yaml`)
-- `knowledge/README.md` (to `[sdlc-root]/knowledge/`) — NOT `knowledge/provenance_log.md`; that's project-specific (see "Project-Specific Files")
-- `plugins/*.md` (to `[sdlc-root]/plugins/`): the plugin guides and their readiness check (§4.4b). Copy each one that differs from `[target_tag]`'s, whether or not this release changed it: no migration copied them before, so a project's are as old as its install
+- `skills/*/references/*` (manifest-listed) → `.claude/skills/*/references/`, with the project's marks kept; a dual-audience skill's merge by their marks (§2.2 Step 0); `sdlc-audit`'s follow §2.4
+- `knowledge/**/*.yaml` the project doesn't have yet (but NOT `agent-context-map.yaml`); an existing one merges by its marks (§2.1b)
+- `knowledge/README.md` and each `knowledge/**/README.md` (to `[sdlc-root]/knowledge/`) — NOT `knowledge/provenance_log.md`; that's project-specific (see "Project-Specific Files")
+- `plugins/*.md` (to `[sdlc-root]/plugins/`): the plugin guides and their readiness check (§4.4b). Copy each one that differs from `[target_tag]`'s once its marks, and blank lines beside them, are set aside, whether or not this release changed it: migrations before v2.7.0 never copied them, so an older project's are as old as its install
 - `README.md` (to `[sdlc-root]/`)
 - `templates/agent-template.md` → `[sdlc-root]/templates/` (agent template moved from agents/ to templates/)
 - `agents/sdlc-reviewer.md`, `agents/sdlc-compliance-auditor.md` → `.claude/agents/` (framework subagents must be in `.claude/agents/` for Claude Code to dispatch them, not just `[sdlc-root]/agents/`)
-- `playbooks/*.md` (unless the project has written its own playbooks — check git blame)
+- `playbooks/*.md` (a project's own playbook, one upstream never had, is the project's and stays; a changed upstream one is a deviation, §2.1c)
 - `examples/*.md`
 - `templates/*` (to `[sdlc-root]/templates/` — all manifest-listed files, including `.html` and `.sh.template`; never overwrite a project's enabled `[sdlc-root]/external-review*.sh` wrappers, which are project-authored)
 
@@ -393,19 +409,21 @@ For files with no project customizations, copy directly from z-sdlc to the proje
 **PROJECT-SECTION preservation with content review (mandatory for all direct-copy files):**
 
 Before overwriting any file:
-1. Scan the project's current version for `PROJECT-SECTION-START` / `PROJECT-SECTION-END` marker pairs
-2. Extract each marked block along with its label and the heading it appears under (nearest `#`/`##`/`###` above)
-3. **Review each marked block against upstream changes** (see §2.1d below)
-4. After copying the upstream file, re-inject each block at its original heading position (unless user chose to update/remove during review)
-5. If the heading no longer exists in the upstream file, append the block at the end of the file with a warning comment: `<!-- MIGRATION WARNING: heading "[heading]" no longer exists in upstream — block preserved at end of file -->`
+1. Scan the project's current version for `PROJECT-SECTION-START` / `PROJECT-SECTION-END` marker pairs and `PROJECT-SECTION-REMOVED` lines: whole-line marks outside code fences only (a mark quoted in prose or fenced is an example; `[sdlc-root]/process/project-section-markers.md` rule 8)
+2. Extract each marked block along with its label, its `replaces` target if it has one, and the heading it appears under (nearest `#`/`##`/`###` above); extract each removal line with its target
+3. **Review each marked block and removal against upstream changes** (see §2.1d below)
+4. After copying the upstream file, leave out of it every section a replacement or a removal names (the heading through the next heading at its level or above). Re-inject each replacement in its target's place, each addition at its original heading position (after the same upstream line it followed, counting only non-blank lines, else at the end of that heading's section; a block of table rows after the same upstream row, else at the table's end), and each removal line where its target was (unless user chose to update/remove during review)
+5. If the heading no longer exists in the upstream file, append the block at the end of the file with a warning comment in the file's own syntax: `<!-- MIGRATION WARNING: heading "[heading]" no longer exists in upstream — block preserved at end of file -->`, or for YAML `# MIGRATION WARNING: key "[key]" no longer exists in upstream — block preserved at end of file`
 6. Log all re-injected blocks and review decisions in the migration report
 7. **Inject bundle fragments (`BUNDLE-SECTION`).** After PROJECT-SECTION re-injection: strip any `BUNDLE-SECTION` blocks remaining in the file, then for each installed bundle whose `fragments` map targets this file (alphabetical bundle order), append the fragment content **read from the z-sdlc source at `[target_tag]`** wrapped in `BUNDLE-SECTION-START/END: [bundle]/[fragment]` markers. No content review — these blocks are upstream-owned; hand-edits inside them are discarded by design. Injection counts as a file write for the adapter `post-file-write` callout. Log each injected fragment in the migration report.
 
 ### 2.1d PROJECT-SECTION Content Review
 
-Markers preserve project content, but that content can become stale, conflicting, or improvable as upstream evolves. Before blindly re-injecting, review each marked block against upstream changes.
+Markers preserve project content, but that content can become stale, conflicting, or improvable as upstream evolves. Before blindly re-injecting, review each marked block against upstream changes. **The review runs in Phase 1** with deviation detection (§1.2a); Phase 2 applies the logged decisions.
 
-**For each extracted `PROJECT-SECTION` block:**
+**For each extracted `PROJECT-SECTION` block and `PROJECT-SECTION-REMOVED` line:**
+
+0. **A replacement or a removal** is reviewed against its target, not its surroundings: compare the target (the section, key or item it names) at `source_version` with the same target at `[target_tag]`. Upstream changed it → `REVIEW`: show the change, since an upstream fix to something the project set aside would otherwise never reach it. Upstream no longer has it → `ORPHAN`: offer to drop the mark. Unchanged → `OK`.
 
 1. **Identify the surrounding context:**
    - Which section heading is it under?
@@ -428,7 +446,7 @@ Markers preserve project content, but that content can become stale, conflicting
 
 4. **Build the review findings list** — collect all non-`OK` findings across all files
 
-5. **Present findings to user via `AskUserQuestion`** — use the prompt format in `references/marker-review-findings.md`. User chooses per-finding: keep, update, remove, or merge. Apply decisions and log per that reference.
+5. **Ask at the Phase 1 decision point** (§1.2a), in the prompt format of `references/marker-review-findings.md`: CD chooses per finding — keep, update, remove, or merge. Phase 2 applies the logged decisions and logs per that reference.
 
    <!-- Prompt format, decision application, and logging format extracted to references/marker-review-findings.md -->
    <!-- Finding type detection rules (REVIEW, ORPHAN, OPPORTUNITY, CONFLICT thresholds) also in that reference -->
@@ -436,12 +454,13 @@ Markers preserve project content, but that content can become stale, conflicting
 **When to skip review:**
 
 - If `source_version` is unknown (first migration after legacy install), skip review — no baseline to compare against
-- If the block label starts with `deviation-` (wrapped by previous migration), always flag for review — these are temporary preservations that should be re-evaluated
-- If the block is < 7 days old (parse date from label), skip review — too recent to be stale
+- If an addition is < 7 days old (parse date from label), skip its review — too recent to be stale. A replacement or removal is always compared with its target (step 0), whatever its age: a fresh mark on a section upstream just fixed is the case the review exists for.
 
 **Why this matters:** Markers protect project content from being overwritten, but they don't protect it from becoming stale. A discipline capture from 6 months ago may reference patterns that upstream has since improved. An agent wiring entry may use outdated dispatcher logic. Blind re-injection preserves content but also preserves technical debt. This review step ensures markers serve their purpose (preserving project work) without becoming a mechanism for accumulating outdated customizations.
 
-**Ensure `.claude/agent-memory/` is gitignored.** Agent memories are not source-controlled — check the project's `.gitignore` for the entry. If missing, append:
+### 2.1f Agent Memory Gitignore (Phase 2)
+
+**Ensure `.claude/agent-memory/` is gitignored.** This is a Phase 2 write, made with §2.1's copies, not during the Phase 1 review above. Agent memories are not source-controlled — check the project's `.gitignore` for the entry. If missing, append:
 
 ```
 # Agent memory — private scratchpad, not source-controlled
@@ -478,9 +497,9 @@ Check the z-sdlc changelog for files that were **deleted, moved, or renamed** si
 
    Ignore paths under `process/changelog-archive/`: z-sdlc's archive is never installed, so nothing of it is in the project to remove or move.
 
-2. For each deleted file: remove it from the downstream project's `[sdlc-root]/` directory.
+2. For each deleted file: remove it from the downstream project's `[sdlc-root]/` directory. A declined one (`declined_files`) isn't there: drop its record, and log it.
 
-3. For each moved/renamed file: the new location was already copied in §2.1. Remove the old location. Then check whether the project's `agent-context-map.yaml` references the old path — if so, update the path (see §3.3).
+3. For each moved/renamed file: the new location was already copied in §2.1. Remove the old location. A declined one stays declined: move its record to the new path, and don't copy the new location. Then check whether the project's `agent-context-map.yaml` references the old path — if so, update the path (see §3.3).
 
 4. **Scan agent memory files for stale paths (if they exist locally).** Agent memory files (`.claude/agent-memory/*.md`) are not git-tracked but may exist locally and contain hardcoded knowledge file paths that bypass the context map. For each deleted or moved file path, grep agent memories:
    ```bash
@@ -504,32 +523,34 @@ Check the z-sdlc changelog for files that were **deleted, moved, or renamed** si
 
 ### 2.1b Knowledge YAML Key-Level Merge
 
-**Adapter delegation:** If the adapter declares a `knowledge-update` phase (H2 section exists in handler doc), skip this entire subsection. Execute the adapter's `knowledge-update` instructions instead — the adapter handles knowledge updates via its backend's native diff/upsert semantics. Resume at §2.1c after the adapter's phase completes (or halts on failure).
+**Adapter delegation:** If the adapter declares a `knowledge-update` phase (H2 section exists in handler doc), skip this entire subsection. Execute the adapter's `knowledge-update` instructions instead — the adapter handles knowledge updates via its backend's native diff/upsert semantics. Continue with §2.1e after the adapter's phase completes (or halts on failure); §2.1c already ran in Phase 1 and left the adapter's knowledge files to it.
 
 ---
 
-Knowledge YAML files contain domain patterns that projects naturally extend with project-specific additions. Unlike framework logic files, knowledge is additive — projects add their own patterns alongside upstream patterns. Direct-copy would destroy these additions.
+Knowledge YAML files hold upstream's entries and the project's own. Upstream's entries follow upstream, so an upstream fix reaches the project, unless the project marked its own change to one (`[sdlc-root]/process/project-section-markers.md`). The project's own entries stay.
 
-**Merge strategy:**
+**The unit** is a top-level key, and, in a top-level key whose value is a list of mappings with a unique field, each item, named `key[field=value]`. Inside a unit the same rules hold at every level, so the merge recurses: a nested key or list item upstream never had is the project's and stays without a mark, and one upstream has follows upstream unless a mark names it (a nested key path, an item of a nested list). Targets, what text a unit holds, order, comments and `last_updated` follow `[sdlc-root]/process/project-section-markers.md` § Target Grammar. A whole file the project replaced (`` `*` ``) is one unit: the project's.
 
-- **New upstream keys** → add to project file
-- **Existing project keys** → preserve project version (may be intentionally customized)
-- **Project-only keys** → preserved automatically (no markers needed)
-- **`spec_relevant` field** → special handling (see below)
+**Merge strategy, at each unit** (read the rows top down; the first that fits applies):
+
+| The unit | Result |
+|---|---|
+| Named by a `PROJECT-SECTION-REMOVED` line | Left out; the line stays where it was |
+| Inside a `PROJECT-SECTION` block that `replaces` it | The project's block, in its place |
+| Inside a `PROJECT-SECTION` block with no `replaces` | The project's block, as an addition |
+| Upstream's, with no mark | Upstream's version at `[target_tag]`: added if new, updated if upstream changed it |
+| Upstream had it at `source_version` and dropped it since, with no mark | Dropped, as upstream did. A project change to it with no mark is a deviation (§2.1c) |
+| Never upstream's (not at `source_version`, not at `[target_tag]`) | The project's: kept, marked or not. A removal or replacement mark naming one is dropped quietly and logged |
+| New upstream since `source_version`, and the project has its own unit of that name | A `CONFLICT` (§2.1d): show both and ask; never pick one silently |
+| `spec_relevant` and other values the file leaves for the project to set | The project's: special handling below |
 
 **Process for each knowledge YAML:**
 
-1. **New file (doesn't exist in project):** Copy from upstream as-is.
+1. **A file the project doesn't have:** if it's in `declined_files`, leave it out. Otherwise, if upstream added it since `source_version`, copy it as-is. If upstream had it at `source_version`, the project removed it without recording it (or never installed it): asked about once in Phase 1 (§2.1c § A framework file the project lacks), never copied back silently. With no baseline, ask the same.
 
-2. **Existing file:** Perform key-level merge:
-   ```
-   For each top-level key in upstream:
-     If key doesn't exist in project → add it
-     If key exists in project → keep project version, flag if upstream differs
-   Project-only keys → keep (these are project additions)
-   ```
+2. **Existing file:** apply the deviation decisions logged in Phase 1 (§2.1c, which covers knowledge YAMLs: every unit where the project's version differs from upstream's at `source_version` without a mark was asked about, batched per file). Then merge unit by unit per the table, as a text edit: never through a YAML parser and dumper, which drops the comments the marks are. With no baseline (`source_version` unknown), the rows that need it fall back as §2.1c § No baseline says.
 
-3. **`spec_relevant` handling:**
+3. **`spec_relevant` handling** (a project-owned field):
    - Project `true` + upstream `false` → keep project's `true` (project override)
    - Project `false` + upstream `true` → keep project's `false`, flag for review:
      ```
@@ -537,31 +558,32 @@ Knowledge YAML files contain domain patterns that projects naturally extend with
      ```
    - Missing in project → copy from upstream
 
-4. **Flag merge conflicts** in migration report when upstream updated a key the project also has:
+4. **Report** every replaced or removed unit whose upstream version changed since `source_version` (§2.1d `REVIEW`), so CD sees upstream improvements to entries the project set aside:
    ```
-   Knowledge merge conflicts (review recommended):
-   - [file]: upstream updated `[key]`, project version kept
+   Knowledge marks to review:
+   - [file]: upstream changed `[unit]`, which the project [replaced | removed] ([label])
    ```
-   This ensures projects are aware of upstream improvements without silently overwriting their customizations.
+
+**First migration under marked merges:** a project whose knowledge files predate this rule has changed upstream entries without marks: edits, and entries removed in a sweep. Deviation detection finds each one and asks before upstream's version replaces it. That migration asks more than the ones after it; a project that wants fewer questions marks its changes first.
 
 **First migration introducing `spec_relevant`:** If no knowledge file in the project has `spec_relevant` at all (the field didn't exist before this migration), all files will receive `spec_relevant: false` from upstream. After Phase 4 completes, read `[sdlc-root]/knowledge/README.md` § "Tagging a project's stores" (the copy this migration wrote) and walk CD through it. If CD skips it, every store stays `false` and `sdlc-plan`'s filtering stays off, as before.
 
-**Why merge-only:** Knowledge YAMLs capture domain patterns — both framework patterns (upstream) and project-specific patterns (local additions like custom enum mappings, project conventions, incident learnings). Direct-copy destroys project knowledge; key-level merge preserves both sources.
+**Why marked merges:** Knowledge YAMLs capture domain patterns — both framework patterns (upstream) and project-specific patterns (local additions like custom enum mappings, project conventions, incident learnings). Direct-copy destroys project knowledge; keeping every project version of an upstream key kept upstream's fixes out, and adding back every upstream key restored entries a project had removed on purpose. Marks say which is which.
 
 ### 2.1c Deviation Detection
 
-Before direct-copying any file, detect whether the project has made custom changes outside existing `PROJECT-SECTION` markers:
+**Runs in Phase 1** (§1.2a), before the point of no return, over every file Phase 2 will write, copy or merge (process docs, skills and their references and scripts, dual-audience skills included, templates, playbooks, plugin guides, the framework agents, knowledge YAMLs, and `CLAUDE.md`'s SDLC sections): detect whether the project has made custom changes outside existing marks. Phase 2 applies the logged decision. For a knowledge YAML, compare unit by unit (§2.1b), and batch the questions per file. A knowledge YAML an adapter's `knowledge-update` phase handles (§2.1b) is the adapter's, and isn't checked here.
 
 **Process:**
 
 1. Read the project's current version of the file
 2. Read the previous upstream version (at `source_version` commit): `git -C [z-sdlc-path] show [source_version]:<path>`
-3. Diff the project's version against the previous upstream version
+3. Diff the project's version against the previous upstream version, after setting aside what isn't a project change: the values the framework leaves the project to set (`[sdlc-root]/process/project-section-markers.md` § When Markers Are Needed: filled placeholders, agent names, resolved guards, the SDLC root, `spec_relevant`, `last_updated`), `BUNDLE-SECTION` blocks (upstream's), what existing marks cover, separators and blank lines (between sections, and beside marks within one: they follow upstream; § Target Grammar), a discipline file's project-data sections (§2.3), and, in an adapter-backed project, the adapter's own transforms (run its `post-file-write` transform on the baseline copy before diffing)
 4. Identify changes that are:
    - **Inside markers** — already protected, will be preserved automatically (§2.1 marker preservation)
    - **Outside markers** — project customizations that will be lost on overwrite
 
-5. If the project modified content outside existing markers, present the customizations via `AskUserQuestion`:
+5. If the project modified content outside existing markers, put the customizations to CD at the Phase 1 decision point (§1.2a):
 
 ```
 DEVIATION DETECTED: [file path]
@@ -573,17 +595,39 @@ Customized sections:
   [heading or line range]: [brief description of what changed]
   [heading or line range]: [brief description of what changed]
 
-Options:
-1. Wrap customizations in markers — preserve this and future migrations
-2. Overwrite — accept upstream version, discard customizations
-3. Skip — don't update this file
+Options, answered per customized section (or once for all of them):
+1. Mark it — as an addition, a replacement (``replaces `<target>` ``) or a removal (`PROJECT-SECTION-REMOVED`): kept in this and future migrations. A moved line or reordered list is marked by replacing its section
+2. Overwrite — accept upstream's version, discard the customization
+3. Skip — don't update this file (the whole file)
+
+For each section marked, propose the mark: its label, target and why
+  [section]: PROJECT-SECTION-START: deviation-YYYY-MM-DD-<topic> replaces `[heading]` — [why]
+Confirm or edit each.
 ```
 
-6. If the user chooses option 1: wrap each customized section in `<!-- PROJECT-SECTION-START: deviation-YYYY-MM-DD-label -->` markers before applying the upstream copy, then proceed with marker-preserving copy
-7. If option 2: direct copy as normal
-8. If option 3: skip this file, log in migration report
+A removal is shown as one: "the project removed `[target]`, which upstream still has". Marking it keeps it removed.
 
-**Some customizations can't be wrapped** (`[sdlc-root]/process/project-section-markers.md` § What Markers Can't Hold): an edit that replaces upstream text, anything in YAML frontmatter, and table rows. For those, drop option 1 and offer, in its place, re-applying the edit by hand to the new upstream copy, where it shows as drift at the next migration. When the edit fixes framework text rather than adding project content, list it under **Upstream Candidates** in the report (§4.6) whichever option CD picks: upstream is its only durable home.
+**A framework file the project lacks** (any file in `skeleton/manifest.json` → `source_files` at `[target_tag]`, at its installed path per `[sdlc-root]/process/path-mappings.md`, that isn't on disk and isn't in `declined_files`, whether or not this release changed it) is asked about once:
+
+```
+MISSING: [installed path] (upstream: [source path])
+1. Keep it removed — recorded in declined_files. Why: [proposed from the commit that deleted it, if one did; else ask]
+2. Restore it — Phase 2 copies upstream's and records its hash
+```
+
+§4.5 writes a kept removal with CD's why and the date CD answered (headless: the date CD approved the change plan). `declined_files` absent from the manifest reads as empty. This is also how a file comes back: CD removes its record, and the next migration asks. A bundle file the project lacks is copied back: a bundle is declined whole.
+
+**Headless run:** ask nothing and take no default: the Phase 1 pass (§1.2a) puts every deviation, with its options and a proposed answer, into the change plan's `awaiting-approval` stop. A deviation is CD's to decide.
+
+**No baseline** (`source_version` unknown, a legacy install): a project change can't be told from an upstream one, so every unmarked difference from `[target_tag]` is shown as a possible deviation, and an upstream unit the project lacks as a possible removal. §2.1b's rows that need `source_version` (dropped upstream, never upstream's) can't be told apart either: a project unit upstream lacks is asked about as one, never dropped. A headless run ends at the change plan's `awaiting-approval` stop (§1.2a).
+
+6. If the user chooses option 1: migration proposes each mark (label `deviation-YYYY-MM-DD-<topic>`, its target, and a why from what the change does), CD confirms or edits it, and the decision is logged. Phase 2 then writes them before applying the upstream copy, in the file's own comment syntax: each customized section wrapped in a `PROJECT-SECTION-START` / `-END` pair (with ``replaces `<target>` `` when it stands in for upstream's section, key or item), and each removal as one line, ``PROJECT-SECTION-REMOVED: deviation-YYYY-MM-DD-<topic> `<target>` — <why>; CD, <date>``. Then it proceeds with marker-preserving copy
+7. If option 2: direct copy as normal
+8. If option 3: skip this file, log in migration report. Its differences show again at the next migration, some of them upstream's own older changes, since `source_version` moves past them: the report says so.
+
+**Some customizations can't be marked** (`[sdlc-root]/process/project-section-markers.md` § What Markers Can't Hold): anything in YAML frontmatter. A table row the project added is a block of rows inside the table; a changed or removed upstream row, like a sentence, is marked by replacing its section. For frontmatter, drop option 1 and offer, in its place, re-applying the edit by hand to the new upstream copy, where it shows as drift at the next migration.
+
+Any deviation that fixes framework text rather than adding project content, markable or not, is also listed under **Upstream Candidates** in the report (§4.6) whichever option CD picks: a mark keeps it for this project, and upstream is where it helps every project.
 
 **Why this matters:** Without deviation detection, `sdlc-migrate` silently destroys intentional project-specific changes. Users invest time customizing business suite content, discipline captures, and agent wiring — a migration that discards that work without warning erodes trust in the framework.
 
@@ -599,13 +643,14 @@ Options:
    ```
 
 2. **Identify the SDLC section boundaries** in the project's `CLAUDE.md`:
-   - Look for markers like `# Z-SDLC` or the characteristic SDLC headings (`## SDLC Skills`, `## Knowledge Stores`, etc.)
-   - If the project uses `<!-- SDLC-START -->` / `<!-- SDLC-END -->` markers, use those as boundaries
+   - If it has `<!-- SDLC-START -->` / `<!-- SDLC-END -->` lines (the installer writes them), the region between them is the SDLC content.
+   - Otherwise, an SDLC section is a `##` section (with its `###` subsections, up to the next `##`) whose heading is a `##` heading of `CLAUDE-SDLC.md` at `[target_tag]` or at `source_version`, so a section upstream renamed is still found. A `##` section matching neither is the project's own, outside the SDLC region: kept whole, with no mark needed. Phase 2 then writes the two lines around the SDLC sections it found, so later migrations needn't match headings: `SDLC-START` before the first, `SDLC-END` after the last, with any adapter-written lines at the end of that section inside it (they're the adapter's, § When Markers Are Needed).
+   - A `##` section upstream added goes after the SDLC section it follows upstream.
 
 3. **Compare and update:**
    - Diff the project's SDLC sections against the upstream CLAUDE-SDLC.md
    - Apply framework updates (new skills, changed workflow rules, updated paths)
-   - Preserve project-specific customizations within the SDLC sections (custom agent names, project-specific instructions)
+   - Preserve the project's marked changes within the SDLC sections (`PROJECT-SECTION` additions and replacements, `PROJECT-SECTION-REMOVED` lines); an unmarked difference from upstream is a deviation (§2.1c), asked about before upstream's text replaces it
 
 4. **Clean up stale separate file:** If `[sdlc-root]/CLAUDE-SDLC.md` exists as a separate file (legacy from older installations), delete it after verifying its content is already in `CLAUDE.md`:
    ```bash
@@ -616,7 +661,7 @@ Options:
 
 ### 2.2 Content-Merge: Skills
 
-**Step 0 — Dual-audience skill detection.** Before content-merging any skill, check whether z-sdlc source has a framework-dev counterpart at `.claude/skills/zsdlc-{name}/` (e.g., `zsdlc-ingest` exists alongside `skills/sdlc-ingest/`). If a `zsdlc-*` counterpart exists, the installed skill is **dual-audience** — its source version is a generic template that projects customize heavily after installation. Dual-audience skills use **additive-only merge**: propagate genuinely new framework sections (sections that exist in upstream but not in the project at all) but never overwrite or content-merge existing sections. This prevents replacing a project's customized methodology with the generic template version.
+**Step 0 — Dual-audience skill detection.** Before content-merging any skill, check whether z-sdlc source has a framework-dev counterpart at `.claude/skills/zsdlc-{name}/` (e.g., `zsdlc-ingest` exists alongside `skills/sdlc-ingest/`). If a `zsdlc-*` counterpart exists, the installed skill is **dual-audience** — its source version is a generic template that projects customize heavily after installation. Dual-audience skills merge **by their marks**, as every other skill does: a project's customized section is a marked replacement or addition, and is kept; everything unmarked follows upstream, so upstream's fixes to existing sections land (an additive-only merge skipped them). Their references merge the same way. A dual-audience skill customized before this rule has unmarked customizations: deviation detection (§2.1c) shows each and asks before upstream's text replaces it, so the first migration under this rule marks them once.
 
 Current dual-audience skills: `sdlc-audit`, `sdlc-ingest`, `sdlc-develop-skill` (its counterpart is `zsdlc-create-skill`), `sdlc-research`.
 
@@ -629,48 +674,48 @@ Skills have two layers:
 1. Read the z-sdlc source version of the skill
 2. Read the project's version of the skill
 3. Identify framework-level changes (new sections, updated dispatch logic, added/removed gates)
-4. Apply those changes while preserving:
-   - Project-specific build commands (e.g., `pnpm build` vs `[build command]`)
-   - Project-specific agent names in tables and examples
-   - Project-specific examples and terminology
-   - Project-specific health check URLs and test commands
+4. Apply those changes while preserving the project's marked changes (additions, replacements and removals, §2.1) and the values the framework leaves for it to set (`[sdlc-root]/process/project-section-markers.md` § When Markers Are Needed):
+   - A filled `[build command]`-style placeholder: a build, test or start command, a health-check URL (e.g., `pnpm build` vs `[build command]`)
+   - The project's agent names where the framework names a canonical agent (dispatch tables, examples)
    - `[PLUGIN: ...]` guards that have been resolved to direct invocations
 
-**Verbatim rule:** Framework content must be copied verbatim from the z-sdlc source — do not summarize, rephrase, condense, or rewrite in your own words. The source text is the canonical version. When merging, replace the project's framework sections with the exact z-sdlc text, then re-apply project-specific values (build commands, agent names, etc.) into the appropriate placeholders. If a framework section contains `[build command]` or similar placeholders, substitute the project's actual values — but do not rephrase the surrounding framework text.
+   Anything else that differs from upstream (examples, terminology, rewritten steps) is a deviation, decided in Phase 1 (§2.1c): marked, or upstream's.
 
-**Key rule:** If a section exists in z-sdlc but not in the project, add it. If a section was removed from z-sdlc, remove it from the project. If a section was modified in z-sdlc, update the framework logic while keeping project-specific values.
+**Verbatim rule:** Framework content must be copied verbatim from the z-sdlc source — do not summarize, rephrase, condense, or rewrite in your own words. The source text is the canonical version. When merging, replace the project's framework sections with the exact z-sdlc text, then re-apply the project-set values step 4 lists (build commands, agent names, resolved guards) into the appropriate placeholders. If a framework section contains `[build command]` or similar placeholders, substitute the project's actual values — but do not rephrase the surrounding framework text.
 
-**PROJECT-SECTION preservation with review:** If `PROJECT-SECTION` blocks exist within a skill being content-merged, apply the §2.1d content review process. Present findings to user before re-injection. These blocks contain project-specific content (e.g., dispatcher table entries added by `sdlc-develop-agent`, custom modifications from `sdlc-develop-skill`) that survive migration — but may need updating if upstream changed the surrounding framework patterns.
+**Key rule:** If a section exists in z-sdlc but not in the project, add it, unless a `PROJECT-SECTION-REMOVED` line names it. If a section was removed from z-sdlc, remove it from the project. If a section was modified in z-sdlc, update the framework logic while keeping project-specific values, unless a marked replacement stands in for it (then show the upstream change for review, §2.1d). Any other difference from upstream is a deviation (§2.1c).
+
+**PROJECT-SECTION preservation with review:** If `PROJECT-SECTION` blocks exist within a skill being content-merged, apply the §2.1d content review's logged decisions (asked in Phase 1) before re-injection. These blocks contain project-specific content (e.g., dispatcher table entries added by `sdlc-develop-agent`, custom modifications from `sdlc-develop-skill`) that survive migration — but may need updating if upstream changed the surrounding framework patterns.
 
 **BUNDLE-SECTION fragment injection (applies to every content-merged framework file, §2.2–§2.4 alike):** after the merge (and any PROJECT-SECTION re-injection) completes for a file, run the same fragment pass as §2.1 step 7 — strip any remaining `BUNDLE-SECTION` blocks, then for each installed bundle whose `fragments` map targets this file, append the current fragment from the z-sdlc source at `[target_tag]`. Most fragment targets are content-merged skills, so skipping this pass here would leave their bundle hooks stale or stripped while only direct-copied targets refresh.
 
 ### 2.3 Content-Merge: Disciplines
 
 Discipline files have:
-1. **Framework structure** — status line, knowledge store reference, summary, mutation verification rules, level definitions (in process-improvement.md only)
+1. **Framework structure** — knowledge store reference, summary, mutation verification rules, level definitions (in process-improvement.md only), each `## Parking Lot` heading with its italic instruction line, and the tracker's heading
 2. **Project additions** — parking lot entries (with triage markers), active questions, project context sections
-3. **Project-assessed data** — the Process Maturity Tracker in `process-improvement.md` (levels reflect the downstream project's state, not the source repo's)
+3. **Project-assessed data** — the status line, which the project assesses for itself, and the Process Maturity Tracker in `process-improvement.md` (between its `PROJECT-TRACKER` lines; levels reflect the downstream project's state, not the source repo's). A parking lot's data runs from after its heading and instruction line to the next `##`, in every `## Parking Lot` a file has
 
 **Migration process:**
-1. Update framework sections to match z-sdlc — **verbatim, not rephrased**
+1. Update framework sections to match z-sdlc — **verbatim, not rephrased** — keeping the project's marks in them (§2.1)
 2. Preserve all parking lot entries with their triage markers (these are project-specific knowledge)
 3. Preserve active questions
 4. Preserve project context sections (added by `sdlc-initialize` Phase 7)
-5. Add any new seeded insights from z-sdlc that the project doesn't have — but do NOT overwrite triage markers on existing entries (the project may have triaged differently than the source repo)
-6. **Preserve project parking lot entries.** Discipline parking lot entries are project-specific — they don't have PROJECT-SECTION markers because discipline files are not overwritten during migration. Simply preserve all entries with their triage markers.
+5. Add the seeded insights upstream added since `source_version` (absent from its file then) — but do NOT overwrite triage markers on existing entries (the project may have triaged differently than the source repo). A seeded entry upstream had at `source_version` that the project lacks was removed by the project: leave it out
+6. **Preserve project parking lot entries.** Discipline parking lot entries are project data — they need no PROJECT-SECTION markers, since this step keeps the project-data sections whole (`## Parking Lot`'s entries and triage markers, `## Project Context`, `## Active Questions`, the tracker). The framework sections around them follow the marks like any framework file: a project's change to one is marked, and an unmarked one is a deviation (§2.1c).
 7. **Preserve the Process Maturity Tracker table as-is.** The tracker is delimited by `<!-- PROJECT-TRACKER-START -->` and `<!-- PROJECT-TRACKER-END -->` markers. Everything between these markers (including the table and last-updated note) reflects the project's assessed levels — never overwrite it. Update the framework sections *outside* the markers (level definitions, assessment procedure) to match z-sdlc. If the downstream file lacks these markers, treat the entire `### Process Maturity Tracker` section through the next heading as project data and preserve it.
 
 ### 2.4 Content-Merge: Audit Skill
 
 `sdlc-audit` is a **dual-audience skill** (see §2.2 Step 0). Its reference docs (`compliance-methodology.md`, `improvement-methodology.md`) are heavily customized by projects to match their audit scope (deliverable catalogs, artifact chains, project-specific dimensions). The z-sdlc source version audits the framework source repo itself — a fundamentally different audience.
 
-**Additive-only merge for dual-audience reference docs:**
+**Marked merge for the skill and its reference docs** (as every dual-audience skill, §2.2 Step 0):
 
 1. Read the z-sdlc source versions of all audit skill files
 2. Read the project's versions
-3. For `SKILL.md`: update only the skill's frontmatter (description, triggers) and add any genuinely new sections not present in the project. Do NOT overwrite existing workflow, modes, or dispatch logic that the project has customized.
-4. For `references/*.md`: add new reference files that don't exist in the project. For existing reference files, add only new sections (identified by H2/H3 headings not present in the project version). Never overwrite existing sections — the project's audit dimensions and methodology reflect its own structure.
-5. Preserve all project-specific audit dimensions, improvement categories, and report formats.
+3. Run deviation detection (§2.1c) on each: a project's audit dimension, improvement category or report format that differs from upstream without a mark was asked about in Phase 1, and is marked when CD kept it (usually as a replacement of upstream's section).
+4. Update `SKILL.md` and each `references/*.md` from upstream, keeping the project's marked additions and replacements and leaving out what its removals name. Add new reference files that don't exist in the project.
+5. Show, for review (§2.1d), every upstream change to a section the project replaced or removed.
 
 **Auditor agent:** `sdlc-audit` dispatches the `sdlc-compliance-auditor` subagent, so the project needs its current version in `.claude/agents/`. Update an old copy, and re-install it if a prior migration removed it.
 
@@ -691,7 +736,7 @@ Discipline files have:
    - New seeded insights from z-sdlc were added without disturbing existing entries
 
 3. **Skill customization preservation** — spot-check 1 skill:
-   - Project-specific build commands, agent names, and examples are intact
+   - The project's marked changes and project-set values (build commands, agent names) are intact
    - Framework sections were updated (compare against z-sdlc source)
 
 4. **Audit skill** — verify all reference files were updated and any project-specific audit dimensions preserved
@@ -726,7 +771,7 @@ For each agent in `.claude/agents/`:
 
 ### 3.3 Update Agent-Context-Map (if needed)
 
-The agent-context-map is **never overwritten** because projects have their own agent names. But it must be updated for four scenarios:
+The agent-context-map is **never overwritten** because projects have their own agent names. But it must be updated for four scenarios. A declined knowledge file (`declined_files`) is never wired in, under any of them:
 
 **New knowledge files added to existing roles:** If z-sdlc added new YAML files that are relevant to existing agents:
 1. Read the project's `agent-context-map.yaml`
@@ -920,7 +965,7 @@ The project's `CLAUDE.md` contains CLAUDE-SDLC.md content — skill names, proce
 **Dispatch prompt for the subagent:**
 
 > Run a compliance audit focused on migration integrity. Check all 9 dimensions, with special attention to:
-> - Dimension 7 (Migration Integrity): All framework files match the z-sdlc source at [target_tag]
+> - Dimension 7 (Migration Integrity): All framework files match the z-sdlc source at [target_tag], except where this run's decisions say otherwise: files CD skipped, drift CD kept, marked replacements and removals, values the project sets, and adapter-transformed text. Those differences are expected; pass the list: [decisions from the transaction log]
 > - No orphaned files from previous versions remain
 > - Agent-context-map paths all resolve
 > - Content-merge preserved project data (tracker levels, parking lot entries, skill customizations)
@@ -962,6 +1007,7 @@ After migration, update `.sdlc-manifest.json`:
 3. **Refresh `installed_files` hashes.** For every file the migration just touched — direct copies, content-merges, drift resolutions — recompute SHA-256 of the final on-disk content and update the corresponding entry. For drift cases where CD chose "keep mine", record the current hash so the next migration sees a clean baseline. For files CD chose to overwrite with upstream, the new hash reflects the upstream content. This keeps drift detection accurate for the next migration.
 4. **Update `installed_bundles`** to include any bundles CD accepted in §4.7.
 4a. **Update `bundle_fragments`** to reflect every `BUNDLE-SECTION` fragment injected this run (§2.1 step 7 and §4.7 installs): label `bundle/fragment` → target path. Remove entries for fragments upstream no longer declares (their blocks were stripped by §2.1 step 7's strip pass and not re-added).
+4b. **Update `declined_files`** from the run's decisions: add each file CD kept removed (`{"why": ..., "decided": "CD, <date>"}`), drop each one CD took back or upstream deleted, and move each one upstream moved. A declined file has no `installed_files` entry: drop it there.
 5. **Update `last_applied_contract_id`** to the newest `id` in `contract_changes.yaml`. Do this only after §4.3a, §4.7, and every other pending-change consumer has run successfully — if any of them failed, leave the old id so the next migration retries.
 
 ```bash
@@ -1035,13 +1081,16 @@ This is automatic (contract 0017): don't ask CD. Exit 2 means the files didn't p
 ### Changes Applied
 - Agent memory gitignored: yes/already present
 - Previously tracked agent memories unstaged: yes/no/not applicable
-- Skills updated: N (framework sections merged, project customizations preserved)
+- Skills updated: N (framework sections merged, the project's marked changes kept)
+- Migrate rules: this copy / followed [target_tag]'s sdlc-migrate (§1c)
 - Knowledge files added: N [list new files from upstream]
-- Knowledge files merged: N (new upstream keys added, project additions preserved)
-- Knowledge merge conflicts: N [list files where upstream updated a key the project also has — review recommended]
+- Knowledge files merged: N (upstream's entries updated, the project's own entries and marked changes kept)
+- Knowledge marks to review: N [list each replaced or removed entry whose upstream version changed since source_version (§2.1b step 4)]
+- Knowledge conflicts: N [list units both upstream and the project added under one name (§2.1b)]
 - Knowledge spec_relevant overrides preserved: N [list files where project `true` was kept]
 - Knowledge spec_relevant upstream upgrades: N [list files where upstream is now `true` — review recommended]
 - Knowledge files removed (moved/deleted in source): N [list old paths]
+- Declined files (`declined_files`): N kept · upstream changed: [list — remove an entry to take one back] · recorded this run: [list] · taken back: [list]
 - New agent roles added to context-map: N [list roles]
 - Process docs updated: N (direct copy, excluding agent-selection.yaml)
 - Templates updated: N (direct copy, excluding templates/optional/)
@@ -1065,9 +1114,14 @@ This is automatic (contract 0017): don't ask CD. Exit 2 means the files didn't p
   - Removed: N (list labels)
   - Merged: N (list labels)
 - Blocks skipped (too recent or no baseline): N
+- Replacements and removals kept: N (list labels and targets)
+
+### Deviations (§2.1c)
+- Files with unmarked project changes: N
+- Marked: N (list files and labels) · Overwritten with upstream: N (list files) · Skipped: N (list files; their differences show again next time)
 
 ### Preserved
-- Project-specific skill customizations (build commands, agent names, examples)
+- The project's marked changes, and the values the framework leaves it to set (build commands, agent names, resolved guards)
 - Discipline parking lot entries and triage markers
 - Process Maturity Tracker (project-assessed levels, not source repo levels)
 - Agent-context-map agent names and project-specific mappings
@@ -1172,4 +1226,4 @@ Common anti-patterns and their corrections (direct-copy temptation, agent name a
 | Skills | Copies from z-sdlc | Merges framework changes into project-customized skills |
 | Context map | Wires generic roles to project agents | Adds new knowledge file mappings only |
 | Disciplines | Copies templates | Preserves parking lot entries, updates framework sections |
-| Destructive? | No (creates new) | No (merges, never overwrites project content) |
+| Destructive? | No (creates new) | No: merges, keeping marked project changes; an unmarked difference is replaced only after CD says so (§2.1c) |

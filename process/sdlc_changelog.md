@@ -37,6 +37,98 @@ Each entry contains:
 
 ---
 
+## 2026-11-20: Migration follows the project's marks: a deliberate change to a framework file is marked [contract-change]
+
+**Migrating to this release from an earlier one:** the installed `sdlc-migrate` runs the migration, and an installed copy from before this release still follows the old rules: it adds back every top-level upstream knowledge key the project lacks (so an entry removed on purpose returns), and it moves `source_version` past the change, so the next migration can't see it. Tell the migrating session to follow this release's `sdlc-migrate` (its `SKILL.md` and `references/`) and process docs, read from the z-sdlc source at this release's tag, instead of the installed copy. That leaves nothing on disk for drift detection to ask about. **A session reading this at its changelog gate while following an older installed copy:** stop following that copy now (Phase 1 has written nothing to the project), and start again from Pre-Flight with this release's `sdlc-migrate` and process docs, read from the z-sdlc source at this release's tag. From this release on, migration follows the release's own rules by itself (Pre-Flight 1c).
+
+**Origin:** CD directive: "the merge rules should be looking for project markers to see a project's deliberate change, meaning that projects making changes to framework files should be marking their changes as such."
+
+**What happened:** The merge rules guessed a project's intent from its files instead of reading it. Knowledge YAMLs merged key by key, keeping the project's version of every existing key (so upstream's fixes never landed) and adding back every upstream key the project lacked (so an entry removed on purpose came back: the pilot's Deep Verify sweep removed 29 upstream entries, 16 of them top-level keys in files upstream still has). Dual-audience skills merged additive-only, so upstream's fixes to their existing sections never landed either. And markers could only add: a replacement of upstream text, or a removal, had no form. A diff against the last release can find a change, but it can't say the change was meant. A mark does, once, for every migration after. A dry run on the pilot's real files shaped the target grammar.
+
+**Changes made:**
+
+1. **`process/project-section-markers.md`** — A project marks every deliberate change, and migration follows the marks. New § The Three Kinds of Change: an addition (the `PROJECT-SECTION` block), a replacement (``PROJECT-SECTION-START: <label> replaces `<target>` ``) and a removal (``PROJECT-SECTION-REMOVED: <label> `<target>` — <why>; <who>, <date>``). New § Target Grammar:
+   - Targets are quoted in backticks. A Markdown target is a heading's section, counting only headings outside code fences. A YAML target is a dotted key path, or `key[field=value]` for a list item, with any field unique in the list (writers prefer `id`, `rule_id`, `key`, `name`). `*` is the whole file.
+   - Targets don't overlap.
+   - What text a YAML unit holds: comments just above the next unit belong to it. Comments outside marks and Markdown separators follow upstream. Units are compared by parsed value, not order. A project's unit stays after the one it followed.
+   - `last_updated` takes the later date.
+   - A project's ids in an upstream list carry a project prefix.
+   - Marks inside code fences are examples.
+   
+   Knowledge YAMLs' upstream entries and `CLAUDE.md`'s SDLC sections now need marks. Project-set values need none: filled placeholders, the project's agent names, resolved guards, the SDLC root choice and `spec_relevant`. What Markers Can't Hold shrinks to frontmatter. New labels `demote`, `fix` and `init`. New rules:
+   - Rule 7: one mark per target.
+   - Rule 8: a live mark is a whole line outside code fences, so prose and tables can quote marks.
+   - Rule 9: inside a `*` replacement nothing more is marked.
+   
+   An ORPHAN is shown with its likely renamed target. A mark on a never-upstream unit is dropped quietly. The auditor's validation list follows the grammar.
+2. **`skills/sdlc-migrate/SKILL.md`** — The marks decide, everything unmarked follows upstream, and nothing unmarked is replaced before CD answers.
+   - Deviation detection (§2.1c) and the mark review (§2.1d) run in Phase 1, after the drift gate and before the point of no return. They cover the files Phase 2 will write. A drifted file's drift decision is its deviation decision, and a re-applied hunk is written as a mark.
+   - Answers are logged with what Phase 2 needs to write each mark (`deviation_decision`, `marker_review_decision`), and the point-of-no-return checks require them. A headless run collects every question into one `needs-input` stop, with nothing written. The agent-memory gitignore step moves to Phase 2 (§2.1f).
+   - Before diffing, §2.1c sets aside project-set values, `BUNDLE-SECTION` blocks, what marks cover, and an adapter's transforms.
+   - The source clone keeps history (`--filter=blob:none`, not `--depth=1`), since the baseline is now read for every file. A legacy SHA install's baseline is the SHA itself (or `source_version_sha`).
+   - §4.4's audit is told which differences this run's decisions expect.
+   - Phase 2 writes only the files the Phase 1 pass checked: upstream changed or added them, or (a plugin guide) they differ from the release's with marks set aside. A file outside that set keeps its unmarked changes until a release changes it, and the audit reports them meanwhile. The replay found that §2.1's unfiltered copy list would otherwise overwrite them unasked.
+   - Deviations are answered per section, with each proposed mark shown to confirm. Separators set aside before diffing. The headless §1.2 summary joins the one stop.
+   - §2.1c covers every merged file: knowledge YAMLs, dual-audience skills and their references, and `CLAUDE.md`'s sections. It shows removals as removals and asks about each difference when there is no baseline. A knowledge file an adapter handles is left to the adapter.
+   - §2.1 leaves out what a replacement or removal names. The orphan warning uses the file's own comment syntax.
+   - §2.1b is a marked merge, recursive, as a text edit, with a table read top down. An upstream file the project lacks, if upstream changed it, is asked about and never copied back silently. Playbooks lose their git-blame guess.
+   - §2.1d always compares a replacement or removal with its target, whatever its age, and no longer re-flags `deviation-` marks.
+   - §2.2 Step 0 and §2.4: dual-audience skills, `sdlc-audit` included, merge by their marks. §2.2's preserve list is cut to project-set values.
+   - The report gains Deviations, knowledge marks to review, knowledge conflicts, and which copy's rules ran.
+   - New red flags against guessing intent from a diff. New log events: `marker_dropped`, and a widened `marker_preserved`.
+   - New Pre-Flight 1c follows the release's own `sdlc-migrate`, and always reads the process docs it follows from the release. A file identical to the release's isn't drift.
+3. **`skills/sdlc-migrate/references/marker-review-findings.md`, `red-flags.md`** — Target findings: changed upstream is `REVIEW`, gone is `ORPHAN`, and a unit both sides added is `CONFLICT`. What keep, update, remove and merge mean for a replacement and for a removal. The 7-day skip applies only to additions.
+4. **`agents/sdlc-compliance-auditor.md`, `agents/sdlc-reviewer.md`, `skills/sdlc-audit/references/compliance-methodology.md`** — Validate `replaces` targets and `PROJECT-SECTION-REMOVED` lines (one target each, named once) across `[sdlc-root]/`, `.claude/skills/` and `CLAUDE.md`. 7c treats a marked target's absence as the project's choice.
+5. **`skills/sdlc-audit/references/deep-verify.md`, `improvement-methodology.md`** — A Deep Verify demotion leaves a removal mark. The payload and removal scripts address items (`key[field=value]`) and dotted paths. The payload names an item only by a unique field, and skips a file whose top level isn't a mapping. The removal script:
+   - writes the mark and keeps the next entry's banner;
+   - handles lists at their key's indent, trailing comments and wide dashes;
+   - warns when it empties a list;
+   - refuses an ambiguous target, or one inside a marked block;
+   - writes no mark inside a `*` replacement.
+   
+   Both scripts were tested on copies of two shipped knowledge files and on those edge cases. An improvement that corrects framework text marks it as a replacement until upstream has it.
+6. **`skills/sdlc-ingest/SKILL.md`, `skills/sdlc-develop-skill/SKILL.md`, `skills/sdlc-initialize/SKILL.md`** — Ingest marks a rewrite or removal of an upstream entry, and prefixes its ids in a shipped file. Modify mode's M3 offers a marked replacement or removal, with snippets. The installer marks a knowledge file it customizes for the stack as a replacement of `*` (6a), and 6c's agent is told to.
+7. **`process/factory.md` and its mirrors in `sdlc-implement`, `sdlc-revise` and `sdlc-reproduce`, and `bundles/factory/tree/templates/factory-implement.yml`** — A factory stage marks an existing knowledge entry it corrects or removes, unless the run added it.
+8. **`CLAUDE-SDLC.md`** — New § Marking Changes to Framework Files, so a session editing one outside any skill knows the rule.
+9. **`process/path-mappings.md`, `process/adapter-lifecycle-protocol.md`** — Dual-audience skills: marked merge, not additive-only. The `knowledge-update` phase's default is the marked merge.
+10. **`skeleton/contract_changes.yaml`** — Entry 0021 (`other`).
+11. **`.claude/skills/zsdlc-audit-adapter-installation/references/classification-framework.md`** — A section a replacement stands in for, or a removal names, is absent by the project's marked choice.
+
+**Rationale:** Intent belongs in writing, where the project put it. Upstream's fixes now reach every unmarked entry and section. A deliberate override survives every migration and still shows upstream's later changes to what it set aside. Nothing unmarked is lost silently, because deviation detection asks first. Each unmarked change is asked about once, at the first migration whose release changes its file. On the pilot, the unmarked changes are about 34 knowledge units across all its files (50 less 16 that were only `last_updated`, which no longer needs asking), 3 `CLAUDE.md` sections, and nothing in the dual-audience skills. A migration asks only about those in files its release changed, and writes no other file. Two read-only replays of the new Phase 1 on the pilot each ended at one decision point: the second held four questions (the summary, `CLAUDE.md`'s four sections, and the two execute skills' Integration line, which this release changes).
+
+**Then, at CD's direction:**
+
+- **Deleted files are recorded in the manifest** (CD: "deleted files should be maintained thru the manifest field"). `.sdlc-manifest.json` → `declined_files` maps a declined file's installed path to `{why, decided}` (contract 0022, `manifest_field_added`, default `{}`); `process/project-section-markers.md` § Deleted Files defines it.
+  - `sdlc-initialize` writes it when 6a removes a knowledge file.
+  - `sdlc-migrate` writes it when CD keeps a deleted file deleted (§2.1c, any file type). A declined file is never drift, never copied back, never asked about and never wired into the context map. The report lists upstream's changes to one. The record moves or goes when upstream moves or deletes the file (§2.1a, §3.3, §4.5 4b, §4.6).
+  - The auditor's file-completeness check treats a declined file as declined, not missing.
+- **Older gaps, fixed with this change:**
+  - Added table rows are an addition block inside the table (a renderer splits the table; agents read the source). The dateless `agent-wiring-<agent>` label is in the label table.
+  - Discipline files' framework sections follow the marks, while their project data (parking-lot entries, `## Project Context`, `## Active Questions`, the tracker) is kept whole and set aside before diffing (§2.3, §1.3, the markers table, `sdlc-execute`, `sdlc-lite-execute`, `improvement-methodology`). Before, the markers doc said those files were never overwritten while §2.3 updated their framework sections word for word.
+  - "Proceed with migration?" moves to the Phase 1 decision point, with every drift, deviation and mark question, for interactive and headless runs alike.
+  - The changelog gate reads the entries this release adds by comparing headings at the two refs (changelog and archive), not by date.
+  - "Never use bare `HEAD`" now holds while a release tag exists; only a source with no tags falls back to it, and says so.
+- **From the second replay:**
+  - Headless, the Phase 1 decision point is the approval gate `headless-mode.md` already names for migrate's change plan: `awaiting-approval`, with the plan in full, not a batched `needs-input`. `headless-mode.md` lists it.
+  - The decision point's message format is defined. Phase 2's leftover "ask" steps now apply logged decisions.
+  - Blank lines beside marks are set aside, and re-injection anchors count only non-blank lines.
+  - `SDLC-END` goes after adapter-written lines at the end of the last SDLC section.
+  - A framework file the project lacks (in `source_files`, not declined) is asked about once, whether or not the release changed it: keep it removed, recorded with CD's why (`keep_removed`), or restore it. That is also how a file CD un-declines comes back. A bundle file is copied back, since a bundle is declined whole. An absent field reads as empty. Keys are installed paths, mapped per `path-mappings.md`.
+  - §2.3: the status line is project-assessed, parking-lot data is bounded per `## Parking Lot`, and a seeded entry the project removed isn't re-added.
+  - Subdirectory knowledge READMEs are listed.
+  - §4.5's steps are in order.
+  - §1.3 gains rows for framework agents, playbooks, examples and READMEs, bundle files and declined files. Its Skills row is limited to the manifest's skills.
+  - `CLAUDE.md`'s SDLC region is bounded by `SDLC-START`/`SDLC-END` lines, which the installer now writes with the content word for word. Without them, a section counts as SDLC when its `##` heading matches `CLAUDE-SDLC.md` at either ref, and Phase 2 then writes the lines.
+
+**Adapter pairing:** neuroloom-sdlc-plugin makes the paired change:
+- Its content-merge audits read the new marks, so a marked replacement or removal isn't a structural regression, and the marker audit counts removal lines.
+- `knowledge-seed` and `knowledge-update` honour `declined_files`, and no longer re-seed a knowledge file a project removed from its workspace.
+- Its `adapter.json` supports 2.9.0.
+
+A seeded entry a project edits in the workspace is still protected only by the adapter's `sdlc:project-specific` tag, not by a mark.
+
+---
+
 ## 2026-11-20: The factory:needs-repro label fits GitHub's limit
 
 **Origin:** the pilot project's `bootstrap.py --apply` after migrating to v2.8.0. GitHub refused `factory:needs-repro` (HTTP 422): its description was 101 characters, one over the 100 GitHub allows.

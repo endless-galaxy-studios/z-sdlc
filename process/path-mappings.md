@@ -39,11 +39,11 @@ Some files in the z-sdlc source are **templates** that become project-specific a
 
 Framework files may contain canonical agent names (e.g., `frontend-developer`) in examples. These are illustrative — they don't affect dispatch behavior. The project's actual agents in `.claude/agents/` and `agent-context-map.yaml` define what gets dispatched.
 
-## Dual-Audience Skills (Additive-Only Merge)
+## Dual-Audience Skills (Marked Merge)
 
 Some skills in z-sdlc `skills/` have a framework-development counterpart in `.claude/skills/zsdlc-*/`. The `skills/` version is a generic template installed to projects; the `.claude/skills/zsdlc-*/` version is for maintaining z-sdlc itself. After installation, projects heavily customize these skills — their methodology, reference docs, and workflow diverge from the generic template.
 
-During migration, these skills use **additive-only merge**: propagate genuinely new sections that don't exist in the project, but never overwrite or content-merge existing sections. Detection: if `.claude/skills/zsdlc-{name}/` exists in z-sdlc source, `skills/sdlc-{name}/` is dual-audience.
+During migration, these skills merge **by the project's marks**, like every framework file (`[sdlc-root]/process/project-section-markers.md`): a project's customized section is a marked replacement or addition and is kept, and everything unmarked follows upstream, after deviation detection asks about any unmarked difference. Detection: if `.claude/skills/zsdlc-{name}/` exists in z-sdlc source, `skills/sdlc-{name}/` is dual-audience.
 
 | Installed Skill | Framework Counterpart | Why Dual-Audience |
 |-----------------|----------------------|-------------------|

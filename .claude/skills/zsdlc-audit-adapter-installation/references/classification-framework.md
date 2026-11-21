@@ -23,7 +23,7 @@ For each hunk, walk this in order and stop at the first match:
 <!-- PROJECT-SECTION-END: <label> -->
 ```
 
-If yes → **neither** (project-specific customization preserved by design). Don't look further.
+If yes → **neither** (project-specific customization preserved by design). Don't look further. The same holds for a section a `PROJECT-SECTION-START: <label> replaces <target>` block stands in for, and for a section, key or item a `PROJECT-SECTION-REMOVED: <label> <target>` line names: its absence from the target is the project's marked choice (`process/project-section-markers.md` § The Three Kinds of Change).
 
 ### 2. Is the hunk inside a preserved MCP section (project-authored MCP)?
 

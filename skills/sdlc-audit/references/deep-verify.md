@@ -54,7 +54,7 @@ Run the gate's steps 2–5 unchanged, with verdicts read as `KEEP|DEMOTE` instea
 
 ### 5. Route findings into step 11 — no parallel triage flow
 
-DEMOTE verdicts enter the existing interactive triage (compliance methodology step 11) as a third candidate source alongside §6c/6l promotion candidates and Dimension 8 memory patterns. Each candidate carries: the entry text, source location (`file.yaml::key`), both judges' verdicts and reasoning (plus tie-break reasoning if split), and the proposed action (demote to `[NEEDS VALIDATION]`).
+DEMOTE verdicts enter the existing interactive triage (compliance methodology step 11) as a third candidate source alongside §6c/6l promotion candidates and Dimension 8 memory patterns. Each candidate carries: the entry text, source location (`file.yaml::key` or `file.yaml::key[field=value]`), both judges' verdicts and reasoning (plus tie-break reasoning if split), and the proposed action (demote to `[NEEDS VALIDATION]`).
 
 Present grouped by discipline per step 11b. **Batch-level approval is acceptable** (per the §6c authority matrix demotion row): CD may approve a discipline's demotions as a batch rather than one-by-one — at scale, per-entry adjudication is exactly the failure mode the tie-break judge exists to prevent. Entries whose dissent alleges a specific checkable factual error, or whose verdict was split, are listed individually with reasoning; CD may pull any entry out of a batch.
 
@@ -63,6 +63,7 @@ Present grouped by discipline per step 11b. **Batch-level approval is acceptable
 For each approved demotion:
 
 1. **Remove the entry from the knowledge YAML** with the comment-preserving script below — never a `yaml.safe_load()`/`safe_dump()` round-trip, which destroys hand-authored `# =====` comment banners. Review the git diff after each removal.
+   - **The script leaves a removal mark where it was:** ``# PROJECT-SECTION-REMOVED: demote-YYYY-MM-DD-<slug> `<target>` — <why, in a few words>; CD, YYYY-MM-DD``. The target is the one the payload named: its top-level key (`error_design`), or `key[field=value]` for an item in a key's list (`gotchas[id=playwright-cli-open-url]`). Without it, the next migration takes the entry back from upstream, since an entry the project removed looks exactly like one upstream added (`[sdlc-root]/process/project-section-markers.md` § The Three Kinds of Change). An entry upstream never had needs the mark too: it costs nothing, and migration drops it quietly later. In a file the project replaced as a whole, nothing is marked (the script knows).
 2. **Restore a parking-lot entry** in the relevant `[sdlc-root]/disciplines/*.md` under `## Parking Lot`, marked `[NEEDS VALIDATION]`, with the demoting judges' reasoning appended inline (so the next triage pass sees why it came back).
 3. **Fix ledger forward-pointers:** grep the entry's key across `[sdlc-root]/disciplines/*.md` for `Promoted →` lines referencing it; update or remove them so the ledger doesn't point at a deleted entry.
 4. **Bump the knowledge file's `last_updated`** (or equivalent metadata field, if present).
@@ -73,56 +74,130 @@ Append one entry to `[sdlc-root]/knowledge/provenance_log.md` documenting the sw
 
 ## Reusable Scripts
 
-Materialize these to the session scratchpad at run time (they are not installed as executables). Both address entries as `file.yaml::top_level_key`.
+Materialize these to the session scratchpad at run time (they are not installed as executables). Both address entries by target, as a removal mark names them (`[sdlc-root]/process/project-section-markers.md` § Target Grammar): `file.yaml::top_level_key`, or `file.yaml::key[field=value]` for an item of a key's list.
 
 **Payload extraction** — `safe_load` is fine here because the payload is disposable; it is the store file that must never round-trip:
 
 ```python
 #!/usr/bin/env python3
-"""Emit a numbered, verdict-free judge payload from knowledge YAML files."""
+"""Emit a numbered, verdict-free judge payload from knowledge YAML files, one entry per target: a top-level key,
+or each item of a top-level key's list, named by a field whose value is unique there (file.yaml::key[field=value])."""
 import sys, yaml
 
-FILE_METADATA_KEYS = {"last_updated", "version", "description", "sources"}
+FILE_METADATA_KEYS = {"id", "name", "description", "pattern", "category", "spec_relevant", "project_applicability",
+                      "last_updated", "version", "sources"}
+ID_FIELDS = ("id", "rule_id", "key", "name")  # [sdlc-root]/process/project-section-markers.md § Target Grammar
+
+
+def naming_field(items):
+    """The first of ID_FIELDS, then any other scalar field, that every item has with a value only it has."""
+    others = sorted({f for i in items for f, v in i.items() if isinstance(v, (str, int))} - set(ID_FIELDS))
+    for f in (*ID_FIELDS, *others):
+        values = [str(i.get(f)) for i in items if isinstance(i.get(f), (str, int)) and "]" not in str(i.get(f))]
+        if len(values) == len(items) and len(set(values)) == len(values):
+            return f
+    return None
+
 
 n = 0
 for path in sys.argv[1:]:
-    data = yaml.safe_load(open(path)) or {}
+    data = yaml.safe_load(open(path))
+    if not isinstance(data, dict):
+        print(f"skipped {path}: not a mapping at the top", file=sys.stderr)
+        continue
     for key, val in data.items():
         if key in FILE_METADATA_KEYS:
             continue
-        n += 1
-        print(f"## {n}. {path}::{key}")
-        print(yaml.safe_dump({key: val}, sort_keys=False, width=100))
-        print("---")
+        field = None
+        if isinstance(val, list) and val and all(isinstance(i, dict) for i in val):
+            field = naming_field(val)
+        for target, body in ([(f"{key}[{field}={i[field]}]", i) for i in val] if field else [(key, {key: val})]):
+            n += 1
+            print(f"## {n}. {path}::{target}")
+            print(yaml.safe_dump(body, sort_keys=False, width=100))
+            print("---")
 ```
 
-**Comment-preserving entry removal** — line-based, so `# =====` banners and inline comments outside the removed block survive:
+**Comment-preserving entry removal** — line-based, so `# =====` banners and inline comments survive: the comment lines just above the next entry are that entry's, and stay. It writes the removal mark in the removed entry's place, at its indent, refuses a target that names no item or more than one, and refuses one inside a marked block. In a file the project replaced as a whole (`` `*` ``) it removes the entry and writes no mark, since that file is the project's:
 
 ```python
 #!/usr/bin/env python3
-"""Remove one top-level YAML entry without round-tripping the file.
-Usage: remove_entry.py <file.yaml> <top_level_key>
-Review the git diff after each run — blank lines inside the removed
-block are consumed; a comment banner for the NEXT entry is preserved."""
-import re, sys
+"""Remove one knowledge YAML entry without round-tripping the file, and leave its removal mark where it was.
+Usage: remove_entry.py <file.yaml> <target> <label> <why> [<who>]
+<target> is a key, as a dotted path from the top level (error_design, internal_doc_authoring.rules), optionally
+naming one item of that key's list by a field whose value only it has (gotchas[id=some-id]).
+Line-based, so comments survive: the comment lines and blank lines just above the next entry are that entry's, and
+stay. It refuses a target inside a marked block (edit the block instead); in a file the project replaced as a whole
+(`*`) it removes the entry and writes no mark, since the file is the project's. Review the git diff after each run."""
+import datetime, re, sys
 
-path, key = sys.argv[1], sys.argv[2]
+path, target, label, why = sys.argv[1:5]
+who = sys.argv[5] if len(sys.argv) > 5 else "CD"
+m = re.fullmatch(r"([A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*)(?:\[([A-Za-z0-9_]+)=([^\]]+)\])?", target)
+if not m:
+    sys.exit(f"not a target: {target}")
+keys, field, value = m.group(1).split("."), m.group(2), m.group(3)
 lines = open(path).readlines()
-out, skip, key_indent = [], False, 0
-for line in lines:
-    if skip:
-        stripped = line.strip()
-        cur_indent = len(line) - len(line.lstrip())
-        if stripped and cur_indent <= key_indent:
-            skip = False  # next sibling/banner — resume keeping lines
-        else:
-            continue
-    m = re.match(r"^(\s*)" + re.escape(key) + r":", line)
-    if m:
-        skip, key_indent = True, len(m.group(1))
-        continue
-    out.append(line)
-open(path, "w").writelines(out)
+indent = lambda line: len(line) - len(line.lstrip())
+content = lambda line: bool(line.strip()) and not line.lstrip().startswith("#")
+is_item = lambda line: line.lstrip().startswith("-") and line.lstrip()[1:2] in (" ", "\n", "")
+unquote = lambda v: re.sub(r"\s+#.*$", "", v).strip().strip("'\"")
+
+
+def block_end(first, level, limit):
+    """The line after the block that starts at `first`: the next content line at `level` or less (a key's own list
+    may sit at its indent), less the comment and blank lines just above it, which belong to what follows."""
+    key_block = not is_item(lines[first])
+    stop = next((j for j in range(first + 1, limit) if content(lines[j]) and indent(lines[j]) <= level
+                 and not (key_block and indent(lines[j]) == level and is_item(lines[j]))), limit)
+    while stop > first + 1 and not content(lines[stop - 1]):
+        stop -= 1
+    return stop
+
+
+# Whole-line marks ([sdlc-root]/process/project-section-markers.md rule 8): blocks the target must not sit in, and `*`.
+marks = [(i, re.match(r"\s*#\s*PROJECT-SECTION-(START|END):\s*(\S+)(.*)", l)) for i, l in enumerate(lines)]
+opened, blocks, whole = {}, [], False
+for i, mk in marks:
+    if mk and mk.group(1) == "START":
+        opened[mk.group(2)] = i
+        whole = whole or bool(re.search(r"replaces\s+`\*`", mk.group(3)))
+    elif mk and mk.group(2) in opened:
+        blocks.append((opened.pop(mk.group(2)), i))
+
+lo, hi, level = 0, len(lines), 0
+for key in keys:  # walk the dotted path, one mapping level at a time
+    start = next((i for i in range(lo, hi) if content(lines[i]) and indent(lines[i]) == level and not is_item(lines[i])
+                  and re.match(r"\s*" + re.escape(key) + r":(\s|$)", lines[i])), None)
+    if start is None:
+        sys.exit(f"no key {'.'.join(keys)} in {path}")
+    end = block_end(start, level, hi)
+    child = next((indent(lines[j]) for j in range(start + 1, end) if content(lines[j])), level + 2)
+    lo, hi, level, at = start + 1, end, child, indent(lines[start])
+if field:  # one item of the key's list: from its "- " line to the next line at its indent or less
+    items = [i for i in range(lo, hi) if content(lines[i]) and is_item(lines[i])]
+    dash = min((indent(lines[i]) for i in items), default=None)
+    found, siblings = [], 0
+    for i in (i for i in items if indent(lines[i]) == dash):
+        siblings += 1
+        stop = block_end(i, dash, hi)
+        col = len(lines[i]) - len(lines[i].lstrip(" -"))  # where the item's own keys start
+        for line in lines[i:stop]:
+            hit = re.fullmatch(r"[\s-]*" + re.escape(field) + r":\s*(.+?)\s*", line.rstrip("\n"))
+            if hit and len(line) - len(line.lstrip(" -")) == col and unquote(hit.group(1)) == value:
+                found.append((i, stop))
+                break
+    if len(found) != 1:
+        sys.exit(f"{target} names {len(found)} items in {path}, not one")
+    (start, end), at = found[0], dash
+    if siblings == 1:
+        print(f"warning: {target} was the list's only item; the key is left empty", file=sys.stderr)
+if any(a < start < b for a, b in blocks) and not whole:
+    sys.exit(f"{target} is inside a marked block: edit the block instead")
+mark = [] if whole else [" " * at + f"# PROJECT-SECTION-REMOVED: {label} `{target}` — {why}; {who}, "
+                                    f"{datetime.date.today().isoformat()}\n"]
+open(path, "w").writelines(lines[:start] + mark + lines[end:])
+print(f"removed {target} (lines {start + 1}-{end})" + ("" if whole else " and marked it"))
 ```
 
 ## Cadence

@@ -234,7 +234,7 @@ Determine whether the user's requested change targets:
 
 | Target | Classification | Action |
 |--------|---------------|--------|
-| Framework section (gates, workflow, dispatch protocol) | **Framework change** | Warn: "This section is framework-owned and will be overwritten on next migration. Consider proposing this upstream instead." |
+| Framework section (gates, workflow, dispatch protocol) | **Framework change** | Warn: "This section is framework-owned. A change that would serve every project belongs upstream." If the project wants it anyway, make it a marked replacement or removal (M3), so migration keeps it and shows upstream's later changes to that section (`[sdlc-root]/process/project-section-markers.md` § The Three Kinds of Change). Unmarked, migration asks about it as a deviation |
 | Project-specific addition (new phase, custom agent wiring, domain-specific step) | **Project addition** | Auto-wrap in `PROJECT-SECTION` markers |
 | Existing `PROJECT-SECTION` block | **Project update** | Edit within existing markers |
 | Inside a `MIRROR` block | **Source-doc change** | Do not edit the copy. A change to the block itself is an upstream change to its process doc: propose it to z-sdlc, where the block is edited once and re-copied into every skill. Project-specific wording goes in a `PROJECT-SECTION` outside the block. |
@@ -257,8 +257,20 @@ For **project additions** to framework skills:
 
 For **framework changes**: present the warning and offer alternatives:
 - Propose the change upstream (edit the z-sdlc source repo)
-- Apply anyway with markers (will be preserved but may conflict with upstream changes)
-- Apply without markers (will be overwritten on next migration — user accepts this)
+- Apply it as a marked replacement or removal: kept by every migration, which shows upstream's later changes to that section for review. A replacement wraps the whole section it stands in for, its heading written as upstream writes it, hashes included:
+
+```html
+<!-- PROJECT-SECTION-START: modify-YYYY-MM-DD-description replaces `### 3. The upstream heading` -->
+### 3. The upstream heading
+... the project's version of the section ...
+<!-- PROJECT-SECTION-END: modify-YYYY-MM-DD-description -->
+
+<!-- PROJECT-SECTION-REMOVED: modify-YYYY-MM-DD-description `### 4. Another upstream heading` — why; CD, YYYY-MM-DD -->
+```
+
+- Apply it unmarked: the next migration asks about it as a deviation, and takes upstream's back unless CD marks it then
+
+A change to the skill's frontmatter can't be marked (`[sdlc-root]/process/project-section-markers.md` § What Markers Can't Hold): propose it upstream, or re-apply it after each migration.
 
 ### M4. Quality Gate
 
