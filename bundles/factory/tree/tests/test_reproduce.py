@@ -148,6 +148,32 @@ class Comment(unittest.TestCase):
             self.assertIn("refused", r.stdout)
 
 
+class VideoFlag(unittest.TestCase):
+    def record(self, video):
+        return json.dumps({"files": [{"file": "a.png", "step": 1, "shows": "x", "bug": True, "kind": "screenshot"}],
+                           "dropped": [], "report": True, "video": video, "trace": False, "issue": 42, "run": 7})
+
+    def test_a_run_without_video_says_so(self):
+        self.assertIn("No video", " ".join(rr.video_flag("", "reproduced")))
+        self.assertIn("No video", " ".join(rr.video_flag(self.record(False), "not-reproduced")))
+        self.assertEqual(rr.video_flag(self.record(True), "reproduced"), [])
+        # A blocked run is exempt, and a record that can't be read is said by evidence_lines instead.
+        self.assertEqual(rr.video_flag("", "blocked"), [])
+        self.assertEqual(rr.video_flag("{not json", "reproduced"), [])
+
+    def test_the_comment_carries_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "r.json"
+            path.write_text(json.dumps(result()))
+            env = {k: v for k, v in os.environ.items() if not k.startswith("EVIDENCE_")}
+            r = subprocess.run([sys.executable, "-I", str(FACTORY / "reproduce_report.py"), str(path), "42", RUN,
+                                str(pathlib.Path(tmp) / "out")], capture_output=True, text=True, env=env)
+            self.assertEqual(r.returncode, 0, r.stdout)
+            text = (pathlib.Path(tmp) / "out" / "comment.md").read_text()
+            self.assertIn("### Browser evidence", text)
+            self.assertIn("**No video:**", text)
+
+
 class Schema(unittest.TestCase):
     def test_the_schema_and_the_writer_agree(self):
         schema = json.loads((FACTORY / "reproduce.schema.json").read_text())

@@ -37,6 +37,19 @@ Each entry contains:
 
 ---
 
+## 2026-11-20: The factory's video evidence: plain video, one per stage, switched on by the factory, written by the project's helper
+
+**Origin:** The review of the pilot project's evidence and video PR. It sent four notes, and CD chose all four as recommended.
+
+**Changes made:**
+
+1. **Plain video (`process/factory.md` D6 rule 7, and rule 5 in the `factory-browser` mirror and its copies in `sdlc-implement`, `sdlc-revise` and `sdlc-reproduce`)** — reproduce and verify runs record plain `recordVideo`, never annotated. Playwright's annotated video (`recordVideo.showActions`, in 1.61) waits before every input on its context, 500 ms by default. That can hide a race or break a short UI window, so a factory run would disagree with CI's run of the same spec. The trace already marks each action. Before, rule 7 preferred annotated video from 1.59.
+2. **One video per stage** — implement, execute and revise run the spec failing and then fixed, and keep the verifying run's video, the last. The failure shows in screenshots, and in the reproduce step's own video. Rule 7 allowed one video without saying which.
+3. **The factory turns video on** — `browser.py` writes `video=1` into `browser.conf` for the stages and `video=0` for smoke. `with-browser` exports it as `FACTORY_EVIDENCE_VIDEO`, so a project's evidence helper knows when to record. `reproduce_report.py` says "No video" in the issue comment when a reproduce run (not a blocked one) kept none. Before, nothing in the bundle switched video on, and a run without it passed every check. New tests in `test_browser.py` and `test_reproduce.py`.
+4. **The project's evidence helper writes the manifest** — rule 5 and `sdlc-reproduce` step 4: where the project has an evidence helper, it writes the files and the manifest, and the agent never writes a manifest by hand beside it, which would overwrite the helper's.
+
+---
+
 ## 2026-11-20: The factory warns when browser.stages lists implement without execute; with-browser defers to a project's helper
 
 **Origin:** The pilot project, before listing its browser stages. CD chose the warning and the comment fix.

@@ -136,6 +136,21 @@ def comment(result, issue, run_url, evidence=(), spec_text=True):
     return "\n".join(lines) + "\n"
 
 
+def video_flag(record, status):
+    """A reproduce run records video (process/factory.md D6 rules 5 and 7): said when this one kept none. A blocked
+    run is exempt, and a record evidence_lines can't read is said there already."""
+    if status == "blocked":
+        return []
+    try:
+        rec = guard.evidence_record(record) if (record or "").strip() else None
+    except (guard.Refused, TypeError, KeyError, AttributeError, ValueError, RecursionError):
+        return []
+    if rec and rec["video"]:
+        return []
+    return ["- **No video:** this reproduce run kept none (D6 rules 5 and 7), so its result rests on its screenshots "
+            "and trace, if any."]
+
+
 def main():
     import os
     result_path, issue, run_url, out_dir = sys.argv[1:5]
@@ -145,9 +160,11 @@ def main():
             raise Refused("bad issue number")
         result = json.loads(pathlib.Path(result_path).read_text())
         check(result)
-        evidence = guard.evidence_lines(os.environ.get("EVIDENCE_MANIFEST", ""),
+        record = os.environ.get("EVIDENCE_MANIFEST", "")
+        evidence = guard.evidence_lines(record,
                                         {k: os.environ.get(f"EVIDENCE_{k.upper()}", "") for k in ("report", "video", "trace")},
                                         run_url, issue, guard.evidence_archive())
+        evidence = video_flag(record, result["status"]) + list(evidence)
         body = comment(result, issue, run_url, evidence)
         if len(body.encode()) > guard.MAX_POST:
             # The spec is the one part that can be long: post the rest rather than lose the run.

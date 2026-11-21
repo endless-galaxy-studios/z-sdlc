@@ -155,7 +155,8 @@ class Route(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout)
         self.assertIn(f"{HOST}:3161", settings["sandbox"]["network"]["allowedDomains"])
         self.assertEqual(conf.read_text(),
-                         f"host={HOST}\nport=3161\nport_base=3100\nversion=1.61.1\nclient={(self.ws / 'web').resolve()}\nallow=\n")
+                         f"host={HOST}\nport=3161\nport_base=3100\nversion=1.61.1\nclient={(self.ws / 'web').resolve()}\nallow=\n"
+                         "video=1\n")
 
     def test_main_changes_nothing_when_off(self):
         r, settings, conf = self.run_main(self.factory(stages=[]), "revise")
@@ -171,6 +172,13 @@ class Route(unittest.TestCase):
         self.assertFalse(conf.exists())
         r, _, _ = self.run_main({"stack": {"node": "web"}}, "smoke")
         self.assertEqual(r.returncode, 0)
+
+    def test_smoke_records_no_video_and_the_stages_do(self):
+        r, _, conf = self.run_main(self.factory(), "smoke")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertTrue(conf.read_text().endswith("video=0\n"))
+        r, _, conf = self.run_main(self.factory(stages=["reproduce"]), "reproduce")
+        self.assertTrue(conf.read_text().endswith("video=1\n"))
 
     def test_main_refuses_an_unknown_stage(self):
         r, _, _ = self.run_main(self.factory(stages=["implement"]), "plan")
@@ -294,14 +302,14 @@ class WrapperRoute(unittest.TestCase):
             self.fake.close()
         self.tmp.cleanup()
 
-    def run_wrapper(self, conf_text, proxy=""):
+    def run_wrapper(self, conf_text, proxy="", show=None):
         conf = pathlib.Path(self.tmp.name) / "browser.conf"
         conf.write_text(conf_text)
         env = {k: v for k, v in os.environ.items() if k.lower() not in ("http_proxy", "https_proxy", "all_proxy", "no_proxy")}
         env["FACTORY_BROWSER_CONF"] = str(conf)
         if proxy:
             env["HTTP_PROXY"] = proxy
-        show = 'echo "$FACTORY_BROWSER_WS_ENDPOINT|$PW_TEST_CONNECT_WS_ENDPOINT|$FACTORY_BROWSER_CLIENT|$FACTORY_BROWSER_ALLOW|${NODE_USE_ENV_PROXY:-}"'
+        show = show or 'echo "$FACTORY_BROWSER_WS_ENDPOINT|$PW_TEST_CONNECT_WS_ENDPOINT|$FACTORY_BROWSER_CLIENT|$FACTORY_BROWSER_ALLOW|${NODE_USE_ENV_PROXY:-}"'
         return subprocess.run(["bash", str(FACTORY / "with-browser"), "sh", "-c", show], capture_output=True, text=True,
                               env=env, timeout=60)
 
@@ -323,6 +331,15 @@ class WrapperRoute(unittest.TestCase):
         connect = next(a for a in self.fake.asked if a.startswith("CONNECT "))
         self.assertTrue(connect.startswith(f"CONNECT 10.20.30.40:{port} "), connect)
         self.assertIn("proxy-authorization: basic " + base64.b64encode(b"srt.abc%3D%3D:secret").decode().lower(), connect.lower())
+
+    def test_the_stage_says_whether_to_record_video(self):
+        self.fake = FakeFrontEnd()
+        base = f"host=127.0.0.1\nport={self.fake.front_port}\nversion=1.61.1\nclient=/w\nallow=\n"
+        for conf, want in ((base + "video=1\n", "1"), (base + "video=0\n", "0"), (base, "0")):
+            with self.subTest(conf=conf.splitlines()[-1]):
+                r = self.run_wrapper(conf, show='echo "$FACTORY_EVIDENCE_VIDEO"')
+                self.assertEqual(r.returncode, 0, r.stderr)
+                self.assertEqual(r.stdout.strip(), want)
 
     def test_a_refusing_proxy_is_named(self):
         self.fake = FakeFrontEnd(refuse=True)

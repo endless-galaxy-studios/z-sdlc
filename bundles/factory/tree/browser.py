@@ -11,7 +11,8 @@ agent starts. When factory.json's browser block names a browser host and lists t
   the sandbox's proxy lets a sandboxed command reach that front end and nothing else on the host;
 - adds each outside host CD approved for the browser route (browser.allow: one host each, port 443, with why and who
   decided it; D6 rule 6) to the same list, so a sandboxed command can fetch from it through the proxy;
-- writes <conf-out> (host, port, version, the client's directory and the allowed hosts), which with-browser reads.
+- writes <conf-out> (host, port, version, the client's directory, the allowed hosts, and video: 1 for the stages
+  whose reproducing and verifying runs record video, 0 for smoke), which with-browser reads.
 Otherwise it changes nothing and says why: with no browser.conf, with-browser reports the browser host unavailable,
 and a stage reports `blocked`, never that a bug was reproduced or ruled out.
 
@@ -154,7 +155,7 @@ def main():
         conf = pathlib.Path(conf_path)
         conf.parent.mkdir(parents=True, exist_ok=True)
         conf.write_text(f"host={host}\nport={port}\nport_base={block(factory)['port_base']}\nversion={version}\n"
-                        f"client={client}\nallow={' '.join(allow)}\n")
+                        f"client={client}\nallow={' '.join(allow)}\nvideo={0 if stage == 'smoke' else 1}\n")
         conf.chmod(0o644)
     except (Invalid, OSError, ValueError) as e:
         print(f"::error::browser: {e}")
