@@ -37,6 +37,16 @@ Each entry contains:
 
 ---
 
+## 2026-11-20: The factory's evidence folder can hold an earlier run's files
+
+**Origin:** The pilot project, from its evidence PR's review. CD chose to state the rule, and left a mechanical check for later.
+
+**Changes made:**
+
+1. **`process/factory.md` D6 rule 5, the `factory-browser` mirror and its copies in `sdlc-implement`, `sdlc-revise` and `sdlc-reproduce`** — within one job, a run refused by the project's guard, or one that never started, leaves the previous run's files in `.factory/evidence/`. The rule now says so: treat the latest run as not run (reproduce reports `blocked`), and cite none of the folder's files. A mechanical check, with `with-browser` stamping each invocation and the report flagging older evidence, waits until a factory run shows the problem.
+
+---
+
 ## 2026-11-20: The factory's video evidence: plain video, one per stage, switched on by the factory, written by the project's helper
 
 **Origin:** The review of the pilot project's evidence and video PR. It sent four notes, and CD chose all four as recommended.
