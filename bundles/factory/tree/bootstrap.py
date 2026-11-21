@@ -173,6 +173,7 @@ class Bootstrap:
             # wouldn't: fill factory.json first, so the setup is applied once, whole.
             self.apply = False
             self.note("problem", "settings", "nothing applied: fill the settings above, run render.py, then --apply")
+        self.check_browser_stages()
         self.check_labels()
         self.check_environments()
         self.check_secrets()
@@ -204,6 +205,21 @@ class Bootstrap:
         if not unset:
             self.note("ok", "settings", "factory.json names your App, image and echo service")
         return not unset
+
+    def check_browser_stages(self):
+        """An implement run asks for the browser route as execute when it's given a plan and as implement when
+        it isn't (templates/factory-implement.yml), so browser.stages naming one without the other leaves half
+        of those runs without a browser (z-sdlc process/factory.md, D6)."""
+        stages = set((self.cfg.get("browser") or {}).get("stages") or [])
+        listed = stages & {"implement", "execute"}
+        if len(listed) == 1:
+            (have,), (lack,) = listed, {"implement", "execute"} - listed
+            runs = "with a plan" if lack == "execute" else "without a plan"
+            self.note("problem", "browser", f"factory.json browser.stages lists {have} but not {lack}: implement runs "
+                                            f"{runs} ask for the route as {lack} and get no browser; list both")
+        elif listed:
+            self.note("ok", "browser", "browser.stages gives implement runs the route with a plan (execute) and "
+                                       "without one (implement)")
 
     def check_labels(self):
         have = {l["name"]: l for l in self.list_all(f"repos/{self.repo}/labels", None) or []}

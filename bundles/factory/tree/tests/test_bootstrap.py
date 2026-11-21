@@ -765,6 +765,28 @@ class Bootstrap(unittest.TestCase):
         code, out = self.run_it()
         self.assertIn("factory.json names your App, image and echo service", out)
 
+    def test_browser_stages_name_implement_and_execute_together(self):
+        cfg_file = self.root / ".github/factory/factory.json"
+        cfg = json.loads(cfg_file.read_text())
+        for stages, want in ((["implement", "revise"], "lists implement but not execute: implement runs with a plan"),
+                             (["execute"], "lists execute but not implement: implement runs without a plan")):
+            with self.subTest(stages=stages):
+                cfg["browser"] = {"host": "10.20.30.40", "stages": stages}
+                cfg_file.write_text(json.dumps(cfg))
+                code, out = self.run_it()
+                self.assertEqual(code, 1)
+                self.assertIn(want, out)
+        cfg["browser"] = {"host": "10.20.30.40", "stages": ["implement", "execute", "reproduce"]}
+        cfg_file.write_text(json.dumps(cfg))
+        code, out = self.run_it()
+        self.assertIn("gives implement runs the route with a plan (execute) and without one", out)
+        self.assertNotIn("but not", out)
+        # No browser stages, or none of these two: nothing to say.
+        cfg["browser"] = {"host": "10.20.30.40", "stages": ["reproduce"]}
+        cfg_file.write_text(json.dumps(cfg))
+        code, out = self.run_it()
+        self.assertNotIn("browser.stages", out)
+
     def test_an_unreadable_factory_json_is_a_settings_error(self):
         (self.root / ".github" / "factory" / "factory.json").write_text("{}")
         err = io.StringIO()

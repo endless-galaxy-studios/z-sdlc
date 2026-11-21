@@ -8,8 +8,10 @@
 # sandbox's own loopback, and nothing else. The sandbox has no network but its HTTP proxy, which allows the
 # front end's one address and port (browser.py added it to the stage's sandbox settings), so this forwards a
 # loopback port to it through the proxy (CONNECT), as with-test-services does for the test services, and points
-# Playwright Test at it (PW_TEST_CONNECT_WS_ENDPOINT). A script of the agent's own connects to
-# $FACTORY_BROWSER_WS_ENDPOINT with chromium.connect(), loading Playwright from $FACTORY_BROWSER_CLIENT.
+# Playwright Test at it (PW_TEST_CONNECT_WS_ENDPOINT). A script of the agent's own can connect to
+# $FACTORY_BROWSER_WS_ENDPOINT with chromium.connect(), loading Playwright from $FACTORY_BROWSER_CLIENT, unless
+# the project opens its browser contexts through a helper of its own: then it uses that helper, whose routes (an
+# allowed host's context.route, D6 rule 6) a bare connect() would skip.
 #
 # Composes with with-test-services: `with-test-services with-browser npx playwright test ...`.
 # When the route is missing or the browser host doesn't answer, it prints `UNAVAILABLE: browser host (<why>)`

@@ -37,6 +37,18 @@ Each entry contains:
 
 ---
 
+## 2026-11-20: The factory warns when browser.stages lists implement without execute; with-browser defers to a project's helper
+
+**Origin:** The pilot project, before listing its browser stages. CD chose the warning and the comment fix.
+
+**Changes made:**
+
+1. **`bootstrap.py`, `tests/test_bootstrap.py`** — An implement run asks for the browser route as `execute` when it's given a plan, and as `implement` when it isn't (`templates/factory-implement.yml`). So `browser.stages` listing one without the other silently leaves half those runs without a browser. `bootstrap.py` reports that as a problem naming the stage to add, and reports both listed as ok.
+2. **`process/factory.md` (Enablement, the browser's step 4) and `bundles/factory/seed/factory.json`'s `browser._doc`** — say the same at the point of listing. The seed reaches new installs only.
+3. **`with-browser`** — its header said a script of the agent's own connects with `chromium.connect()`. Now: unless the project opens its browser contexts through a helper of its own, whose routes (an allowed host's `context.route`) a bare `connect()` would skip. This matches the browser block v2.9.0 already corrected.
+
+---
+
 ## 2026-11-20: The factory's browser route: a project helper may serve an allowed host, and smoke proves that path
 
 **Origin:** The pilot project, proving its card-art route helper through the browser host and a real sandbox. It sent four notes, and CD chose all four.

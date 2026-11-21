@@ -1290,7 +1290,9 @@ needs an organization owner's `gh` login (`admin:org`) for the runner groups and
        with `browser.client` if its Playwright isn't installed in `stack.node`. Leave `browser.stages` empty.
     3. **Smoke:** run `factory-smoke`. Its `browser-host` job must pass (D6 rule 4).
     4. **The stages:** list them in `browser.stages` (implement, execute, revise, and `reproduce` for the step before
-       planning, D6 rule 8), through a PR.
+       planning, D6 rule 8), through a PR. An implement run asks for the route as `execute` when it's given a
+       plan and as `implement` when it isn't, so list both, or a plan-driven run gets no browser; `bootstrap.py`
+       reports one listed without the other.
     5. **The archive** (optional, D6 rule 7): on the host that keeps it, with storage already in place,
        `sudo bash .github/factory/host/setup-archive.sh <root> <owner/repository> ...` from the shared tiers'
        repository, then set each project's `factory.json` `evidence.archive` to `<root>`.
