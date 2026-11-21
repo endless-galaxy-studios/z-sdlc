@@ -404,6 +404,7 @@ jobs:
           "$CHECKS/agent_job.sh" workspace
           "$CHECKS/agent_job.sh" browser smoke "$CHECKS/implement-sandbox.settings.json"
           jq -r 'if .browser.gpu == false then "nogpu" else "gpu" end' "$CHECKS/factory.json" > "$CHECKS/browser-gpu"
+          jq -r '.browser.allow[0].host // ""' "$CHECKS/factory.json" > "$CHECKS/browser-allow"
 
       # The secrets' hashes for the probe, and a canary: the control holds the canary under a credential's name, never
       # a real token, since it runs the project's Playwright with network.
@@ -436,7 +437,7 @@ jobs:
         run: |
           GH_TOKEN=$(cat "$RUNNER_TEMP/browser-canary/value") /opt/factory/with-browser /usr/local/bin/node \
             "$PROBE_DIR/browser_probe.mjs" "$PROBE_DIR/secret-hashes" > "$CHECKS/browser-control.txt"
-          /usr/local/bin/python3 -I "$CHECKS/browser_check.py" control "$CHECKS/browser-control.txt" "$(cat "$CHECKS/browser-gpu")"
+          /usr/local/bin/python3 -I "$CHECKS/browser_check.py" control "$CHECKS/browser-control.txt" "$(cat "$CHECKS/browser-gpu")" "$(cat "$CHECKS/browser-allow")"
 
       # --settings makes the sandbox admin-required, so the repository's settings can't loosen it; the same file
       # at user scope (the action's settings input) carries the user-scope-only keys.
@@ -498,7 +499,7 @@ jobs:
           c = results.get(uses[0]["id"], {}).get("content")
           print(c if isinstance(c, str) else "\n".join(x.get("text", "") for x in c or []))
           PY
-          [ "$bad" = 0 ] && { /usr/local/bin/python3 -I "$CHECKS/browser_check.py" agent "$CHECKS/browser-agent.txt" "$(cat "$CHECKS/browser-gpu")" || bad=1; }
+          [ "$bad" = 0 ] && { /usr/local/bin/python3 -I "$CHECKS/browser_check.py" agent "$CHECKS/browser-agent.txt" "$(cat "$CHECKS/browser-gpu")" "$(cat "$CHECKS/browser-allow")" || bad=1; }
           for v in "$OAUTH" "$GHTOKEN" "$CONTEXT7_API_KEY"; do
             if [ -n "$v" ] && grep -qF -- "$v" "$EXEC"; then echo "::error::a raw token is in the transcript"; bad=1; fi
           done

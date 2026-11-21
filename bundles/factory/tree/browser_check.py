@@ -1,8 +1,8 @@
 """Judge browser_probe.mjs output: factory-smoke's browser-host job (process/factory.md, D6).
 
 Usage:
-  python3 -I browser_check.py control <output> [gpu|nogpu]
-  python3 -I browser_check.py agent <output> [gpu|nogpu]
+  python3 -I browser_check.py control <output> [gpu|nogpu] [<first browser.allow host, or "">]
+  python3 -I browser_check.py agent <output> [gpu|nogpu] [<first browser.allow host, or "">]
 
 both:    the probe connected to the browser host's front end through with-browser. The browser loaded the app the
          probe started on its own command's loopback, with its WebSocket. WebGL renders on the GPU (unless the
@@ -11,7 +11,9 @@ both:    the probe connected to the browser host's front end through with-browse
          line. A context's own proxy, by address and by name, is refused. A page reaching the host's loopback (shown
          by plain HTTP answering on the run-servers' ports) opens no WebSocket to a run-server. A second client asking
          for another browser, its own launch options and loopback only, in its headers and its query, gets the
-         forced Chromium and flags and none of its own.
+         forced Chromium and flags and none of its own. Given the project's first allowed outside host
+         (browser.allow), Node's fetch reaches it, through the sandbox's proxy in the agent run: the path a project's
+         route helper depends on. With none allowed, the probe says so.
 control: run outside the sandbox, with network and a canary credential in its environment (never a real token:
          it runs the project's own Playwright). The outside world, by name and by address, must answer through the
          tunnel, and the canary must be found, which proves the agent run's refusals and its clean environment are
@@ -59,6 +61,8 @@ WHY = {
     "hostile": "the browser host honoured a client's own browser or launch options",
     "narrow": "the sandbox's proxy didn't refuse the browser host's next port",
     "gpu": "WebGL renders in software",
+    "allowed": "Node's fetch didn't reach the project's allowed outside host (browser.allow): a spec's context.route "
+               "helper can't serve it",
 }
 
 
@@ -72,9 +76,17 @@ def results(lines):
     return seen
 
 
-def judge(lines, mode, gpu=True):
+def judge(lines, mode, gpu=True, allow=None):
+    """allow: the project's first browser.allow host ("" when it has none), or None to leave the check out."""
     failures = []
     got = results(lines)
+    if allow is not None:
+        want_allowed, detail = ("reached", allow) if allow else ("none", "")
+        if "allowed" not in got:
+            failures.append("probe output has no 'allowed' line")
+        elif got["allowed"][0] != want_allowed or (allow and got["allowed"][1].split(" ", 1)[0] != allow):
+            reason = WHY["allowed"] if allow else "the probe saw an allowed host, but factory.json's browser.allow has none"
+            failures.append(f"{reason}: {got['allowed'][0]} {got['allowed'][1]}".rstrip())
     want = dict(BOTH, **(CONTROL if mode == "control" else AGENT))
     for check, result in want.items():
         if check not in got:
@@ -109,6 +121,7 @@ def judge(lines, mode, gpu=True):
 def main():
     mode, path = sys.argv[1], sys.argv[2]
     gpu = (sys.argv[3] if len(sys.argv) > 3 else "gpu") != "nogpu"
+    allow = sys.argv[4] if len(sys.argv) > 4 else None
     if mode not in ("control", "agent"):
         print(f"::error::unknown mode {mode!r}: control or agent")
         return 2
@@ -122,7 +135,7 @@ def main():
         failures.append("probe output is incomplete (no end marker)")
     if any(l.startswith("UNAVAILABLE: browser host") for l in shown):
         failures.append("with-browser found no browser host: " + next(l for l in shown if l.startswith("UNAVAILABLE")))
-    failures += judge(lines, mode, gpu)
+    failures += judge(lines, mode, gpu, allow)
 
     # The output is agent-influenced: stop workflow-command parsing and fence it safely.
     token = secrets.token_hex(16)

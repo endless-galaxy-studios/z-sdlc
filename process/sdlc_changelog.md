@@ -37,6 +37,24 @@ Each entry contains:
 
 ---
 
+## 2026-11-20: The factory's browser route: a project helper may serve an allowed host, and smoke proves that path
+
+**Origin:** The pilot project, proving its card-art route helper through the browser host and a real sandbox. It sent four notes, and CD chose all four.
+
+**Changes made:**
+
+1. **`process/factory.md` (the `factory-browser` mirror and its copies in `sdlc-implement`, `sdlc-revise` and `sdlc-reproduce`; D6 rule 6)** — An allowed outside host is served by "the spec, or the project's helper its specs use". Before, the block a stage passes to its agent word for word said the spec serves it itself, which contradicted a project that routes it in one helper.
+   - New rule 6 bullet: a project rule that must bind the working agent goes in a file beside the code that the agent reads for itself, not only in the orchestrator's prompt. A verbatim block reaches the agent unchanged, while a project rule may reach it only as a summary.
+   - Rule 6's egress weighing now says what an exception opens: the whole of `<host>:443`, to every sandboxed command, with any method, headers and body, not only request URLs.
+2. **`browser_probe.mjs`, `browser_check.py`, `templates/factory-smoke.yml`, `tests/test_browser.py`** — `factory-smoke`'s `browser-host` job checks that Node's `fetch` reaches the project's first `browser.allow` host, through the sandbox's proxy in the agent run. That's the path a `context.route` helper depends on: before, smoke proved only refusals.
+   - Any HTTP status counts.
+   - It sends one `HEAD` request per run, which rule 6 now says.
+   - The job reads the host from `factory.json`. With none allowed, the probe must say so; a probe that reaches a host anyway, or another host, fails.
+   - It's unproven against the real proxy until a project's next smoke run.
+3. **`bundles/factory/seed/factory.json`** — the `browser._doc` lists `reproduce` among the stages that take the route (D6 rule 8 needs it there). Seeds are never overwritten, so this reaches new installs only; an installed project edits its own copy.
+
+---
+
 ## 2026-11-20: Migration follows the project's marks: a deliberate change to a framework file is marked [contract-change]
 
 **Migrating to this release from an earlier one:** the installed `sdlc-migrate` runs the migration, and an installed copy from before this release still follows the old rules: it adds back every top-level upstream knowledge key the project lacks (so an entry removed on purpose returns), and it moves `source_version` past the change, so the next migration can't see it. Tell the migrating session to follow this release's `sdlc-migrate` (its `SKILL.md` and `references/`) and process docs, read from the z-sdlc source at this release's tag, instead of the installed copy. That leaves nothing on disk for drift detection to ask about. **A session reading this at its changelog gate while following an older installed copy:** stop following that copy now (Phase 1 has written nothing to the project), and start again from Pre-Flight with this release's `sdlc-migrate` and process docs, read from the z-sdlc source at this release's tag. From this release on, migration follows the release's own rules by itself (Pre-Flight 1c).

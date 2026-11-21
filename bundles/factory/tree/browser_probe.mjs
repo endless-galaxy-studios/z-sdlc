@@ -137,6 +137,21 @@ function otherPort() {
   });
 }
 
+// The first outside host CD allowed (factory.json browser.allow), fetched the way a project's route helper fetches
+// it: Node's fetch, through the sandbox's proxy when there is one (with-browser sets NODE_USE_ENV_PROXY). One HEAD
+// request per run; any HTTP status means the path works.
+async function allowedHost() {
+  const host = (process.env.FACTORY_BROWSER_ALLOW || "").split(/\s+/).filter(Boolean)[0];
+  if (!host) return out("allowed", "none", "browser.allow is empty");
+  try {
+    const r = await fetch(`https://${host}/`, { method: "HEAD", redirect: "manual", signal: AbortSignal.timeout(15000) });
+    out("allowed", "reached", `${host} ${r.status}`);
+  } catch (e) {
+    const cause = e && e.cause && (e.cause.code || e.cause.message);
+    out("allowed", "unreached", `${host} ${cause || why(e)}`);
+  }
+}
+
 async function main() {
   const endpoint = process.env.FACTORY_BROWSER_WS_ENDPOINT;
   if (!endpoint) return out("connect", "failed", "FACTORY_BROWSER_WS_ENDPOINT is unset: run under with-browser");
@@ -274,6 +289,7 @@ async function main() {
     // A program of the client's, if it had run, would have failed the launch.
     out("hostile", "failed", e.message);
   }
+  await allowedHost();
   await otherPort();
 }
 

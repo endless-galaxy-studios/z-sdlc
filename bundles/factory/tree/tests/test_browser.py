@@ -362,6 +362,7 @@ proxy-name refused http://example.com/ net::ERR_PROXY_CONNECTION_FAILED
 loopback reached plain HTTP answered on 3260,3261 of 3200-3299
 runserver-ws none
 hostile replaced Chromium 149.0.7827.55
+allowed reached cdn.example.org 403
 narrow unchecked no proxy: outside the sandbox
 end""".splitlines()
 AGENT = """credentials clean 2 secrets checked
@@ -380,6 +381,7 @@ proxy-name refused http://example.com/ net::ERR_PROXY_CONNECTION_FAILED
 loopback reached plain HTTP answered on 3260,3261 of 3200-3299
 runserver-ws none
 hostile replaced Chromium 149.0.7827.55
+allowed reached cdn.example.org 200
 narrow refused 10.20.30.40:3162 403
 end""".splitlines()
 
@@ -405,7 +407,7 @@ class Verdict(unittest.TestCase):
         for line in AGENT[:-1]:
             check = line.split(" ", 1)[0]
             with self.subTest(check=check):
-                failures = browser_check.judge([l for l in AGENT if l != line], "agent")
+                failures = browser_check.judge([l for l in AGENT if l != line], "agent", allow="cdn.example.org")
                 self.assertTrue(any(f"no '{check}' line" in f for f in failures), failures)
 
     def test_each_boundary_failure_fails(self):
@@ -425,6 +427,31 @@ class Verdict(unittest.TestCase):
                             ("credentials", "credentials found 2 secrets checked")):
             with self.subTest(line=line):
                 self.assertTrue(browser_check.judge(swap(AGENT, check, line), "agent"))
+
+    def test_the_allowed_host(self):
+        # Any HTTP status means Node's fetch reached the host (through the proxy, in the agent run).
+        self.assertEqual(browser_check.judge(AGENT, "agent", allow="cdn.example.org"), [])
+        self.assertEqual(browser_check.judge(CONTROL, "control", allow="cdn.example.org"), [])
+        refused = swap(AGENT, "allowed", "allowed unreached cdn.example.org UND_ERR_SOCKET")
+        self.assertTrue(any("browser.allow" in f for f in browser_check.judge(refused, "agent", allow="cdn.example.org")))
+        # Another host than the project's first, or none where the project allows one, fails.
+        self.assertTrue(browser_check.judge(swap(AGENT, "allowed", "allowed reached other.example.org 200"), "agent",
+                                            allow="cdn.example.org"))
+        self.assertTrue(browser_check.judge(swap(AGENT, "allowed", "allowed none browser.allow is empty"), "agent",
+                                            allow="cdn.example.org"))
+        # With nothing allowed the probe says so, and a probe that reached a host anyway fails.
+        none = swap(AGENT, "allowed", "allowed none browser.allow is empty")
+        self.assertEqual(browser_check.judge(none, "agent", allow=""), [])
+        self.assertTrue(browser_check.judge(AGENT, "agent", allow=""))
+        # A missing line fails once the job names the host; an old caller that doesn't is left as it was.
+        missing = [l for l in AGENT if not l.startswith("allowed ")]
+        self.assertTrue(any("no 'allowed' line" in f for f in browser_check.judge(missing, "agent", allow="")))
+        self.assertEqual(browser_check.judge(missing, "agent"), [])
+
+    def test_the_smoke_job_names_the_allowed_host(self):
+        text = (FACTORY / "templates" / "factory-smoke.yml").read_text()
+        self.assertIn('jq -r \'.browser.allow[0].host // ""\' "$CHECKS/factory.json" > "$CHECKS/browser-allow"', text)
+        self.assertEqual(text.count('"$(cat "$CHECKS/browser-allow")"'), 2)
 
     def test_a_visible_credential_fails_the_agent(self):
         self.assertTrue(browser_check.judge(["secret env oauth"] + AGENT, "agent"))
