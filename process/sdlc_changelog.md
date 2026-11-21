@@ -37,6 +37,16 @@ Each entry contains:
 
 ---
 
+## 2026-11-21: The factory imported from the incubator (664b097..f2af44d): z-sdlc's changes through v2.9.4 handed back
+
+**Origin:** The incubator took z-sdlc's factory changes from v2.8.0 to v2.9.4 in two PRs, #148 (through v2.9.0) and #149 (v2.9.1 to v2.9.4). Those changes are the browser route, browser evidence, the reproduce step and the `sdlc-reproduce` skill, the `browser.stages` check, and the video and trace rules.
+
+**Changes made:**
+
+1. **`.claude/skills/zsdlc-import-factory/import.json`** — `last_import` moves to the incubator's merge of #149, `f2af44d`. The import reads every bundle file in sync, and the skills and process doc the incubator copies match. No bundle code or seed changed. The proof passed in the incubator and in an empty project.
+
+---
+
 ## 2026-11-21: A run that records video traces without screenshots
 
 **Origin:** The pilot project, measuring a real 90-second run on Playwright 1.61.1. With video on, the trace's screenshot frames are captured at the video's size (1280×720, not 800×450): the trace was 61.2 MB, 57.2 MB of it frames, and `tracing.stop` took 18 s. Without the frames it was 3.9 MB, and stop took 1.5 s. `evidence.py` keeps a trace up to 50 MB, and v2.9.2 turned video on for every browser stage, so every project's long runs would have lost their trace. CD chose the rule over raising the limit.
