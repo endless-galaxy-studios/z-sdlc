@@ -197,9 +197,12 @@ Mechanics:
 2. State where the code is going (which model/endpoint) so CD sees any egress.
    For hosted providers not durably authorized, confirm with CD first. Never send
    secrets or `.env` content.
-3. Run the wrapper with the payload (rubric + spec/plan context + diff). If it
-   exits non-zero, record "external gate errored — skipped" and proceed to
-   commit. **Never block a commit on external availability.**
+3. Run the wrapper with the payload (rubric + spec/plan context + diff). For a
+   Codex-backed wrapper whose decision leaves the model to a lookup, look the
+   models up first and pass one in `CODEX_MODEL` (the gate doc § Task-Based
+   Model Selection). If it exits non-zero, record "external gate errored —
+   skipped" and proceed to commit. **Never block a commit on external
+   availability.**
 4. Feed any returned findings into **Step C** triage exactly like agent findings —
    deduplicated against and calibrated alongside the internal findings, on the
    same severity scale. The external model does not fix — domain agents fix.
