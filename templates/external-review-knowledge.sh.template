@@ -3,8 +3,10 @@
 # Gate (standard template).
 #
 # To enable: copy this file to [sdlc-root]/external-review-knowledge.sh,
-# chmod +x it, and adjust the model/endpoint defaults to your project's
-# egress policy.
+# chmod +x it, and adjust the endpoint defaults to your project's egress
+# policy. It names no model: the invoking skill looks the models up before
+# each call and passes one (CODEX_MODEL), and without one Codex uses its
+# own default, which its header on stderr names.
 #
 # EGRESS: this sends parking-lot entry text and corroboration evidence to
 # OpenAI via the codex CLI. Never let secrets, .env files, or key material
@@ -33,7 +35,7 @@ timeout_secs="${CODEX_TIMEOUT_SECS:-1800}"
 # codex reads stdin when it isn't a terminal; without a piped payload it would wait forever.
 if [ -t 0 ]; then echo "external-review-knowledge: pipe the review payload on stdin" >&2; exit 2; fi
 
-echo "external-review-knowledge: sending payload to OpenAI Codex (hosted egress)${model:+, model=$model}, effort=$effort" >&2
+echo "external-review-knowledge: sending payload to OpenAI Codex (hosted egress), model=${model:-the Codex default, named in its header below}, effort=$effort" >&2
 
 out="$(mktemp)"
 trap 'rm -f "$out"' EXIT

@@ -2,9 +2,12 @@
 # External review gate wrapper — Codex reviewer (standard template).
 #
 # To enable the gate: copy this file to [sdlc-root]/external-review.sh,
-# chmod +x it, and adjust the model/endpoint defaults to your project's
-# egress policy. For sensitive codebases, replace the codex call with a
-# local model (llama.cpp / Ollama / vLLM) so nothing leaves the machine.
+# chmod +x it, and adjust the endpoint defaults to your project's egress
+# policy. It names no model: the invoking skill looks the models up before
+# each call and passes one (CODEX_MODEL), and without one Codex uses its
+# own default, which its header on stderr names. For sensitive codebases,
+# replace the codex call with a local model (llama.cpp / Ollama / vLLM) so
+# nothing leaves the machine.
 #
 # EGRESS: this sends the review payload to OpenAI via the codex CLI. Never
 # let secrets, .env files, or key material reach stdin of this script.
@@ -33,7 +36,7 @@ timeout_secs="${CODEX_TIMEOUT_SECS:-1800}"
 # codex reads stdin when it isn't a terminal; without a piped payload it would wait forever.
 if [ -t 0 ]; then echo "external-review: pipe the review payload on stdin" >&2; exit 2; fi
 
-echo "external-review: sending payload to OpenAI Codex (hosted egress)${model:+, model=$model}, effort=$effort" >&2
+echo "external-review: sending payload to OpenAI Codex (hosted egress), model=${model:-the Codex default, named in its header below}, effort=$effort" >&2
 
 out="$(mktemp)"
 trap 'rm -f "$out"' EXIT

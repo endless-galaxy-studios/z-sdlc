@@ -94,15 +94,20 @@ or logged by the provider. This is an outward-facing action:
   Ollama) so nothing leaves the machine. The OpenCode local-serving reference
   (`.claude/skills/sdlc-port-opencode/references/local-model-serving.md`)
   documents a suitable local setup.
-- The gate must state, each time it runs, **where the code is going** (which
-  model / endpoint) so CD sees the egress. If the project has not durably
+- The gate must state, each time it runs, **where the code is going** (the
+  provider or endpoint, and the model the run used) so CD sees the egress. If the project has not durably
   authorized egress to a hosted provider, confirm with CD before the first
   hosted-model run of a session.
 - **Durable authorization is the destination CD decided in the gate's
   runbook** (step 2 of § Enabling the gate, recorded in
   `docs/runbooks/external-review-gate.md`): a hosted provider is authorized
   when that decision, not since dropped, names it and the wrapper still sends
-  to it. A destination is a provider and a model. For a Codex wrapper the
+  to it. A destination is a provider and how its model is chosen: a model the
+  decision names, or, the default for a hosted provider, its most capable model,
+  looked up before each call (§ Task-Based Model Selection), so the decision
+  never names a model that goes stale. Authorization is by provider: a record
+  that names a model still authorizes its provider, and the model it names is
+  the choice. For a Codex wrapper the
   provider is OpenAI unless the wrapper's flags, or the Codex configuration it
   runs under (`model_provider`), name another; for a local model it is the
   host serving it. Until step 2 has passed (no record yet, a record
@@ -136,9 +141,11 @@ first: this runbook's record holds the project's egress decision, which is the
 durable authorization that section relies on.
 
 **Ask first,** after step 1: where review payloads may go, naming the provider
-and model. A local model keeps everything on the machine (recommended
-for proprietary or sensitive code). A hosted provider receives the code, which
-may be retained or logged. Nowhere leaves the gate off. Ask too whether
+and how its model is chosen. A local model keeps everything on the machine
+(recommended for proprietary or sensitive code). A hosted provider receives the
+code, which may be retained or logged; its model is, by default, the provider's
+most capable one, looked up before each call (recommended: a named model goes
+stale), or a model CD names. Nowhere leaves the gate off. Ask too whether
 promotion judgments (§ Knowledge-Judgment Wrapper) go the same way; recommended
 only once the project runs promotion passes. **Done when:** every step passed,
 or was skipped by a decision.
@@ -146,14 +153,17 @@ or was skipped by a decision.
 1. **Find what's there.** An executable `[sdlc-root]/external-review.sh` or
    `[sdlc-root]/external-review-knowledge.sh` is the project's own: keep it, and
    read where it sends payloads: its provider (§ Data egress says how to tell
-   for a Codex wrapper) and its model (its default, or `CODEX_MODEL`). An
+   for a Codex wrapper) and how it picks its model (a default it names,
+   `CODEX_MODEL` from its caller, or, naming neither, the provider's own
+   default). An
    authorization the project wrote down elsewhere (its `CLAUDE.md`) goes into
    Decisions with its source, for CD to confirm in step 2. **Check:** State
-   lists each wrapper found, or none, with its provider and model.
+   lists each wrapper found, or none, with its provider and how it picks its
+   model.
 2. **[CD] Decide where payloads go** (asked first). A changed decision replaces
    the old one, which is marked dropped. **Check:** Decisions hold the
-   destination in CD's words, with the date: the provider and model, or
-   nowhere; and the same for promotion judgments.
+   destination in CD's words, with the date: the provider and how its model is
+   chosen, or nowhere; and the same for promotion judgments.
 3. **Write the wrapper.** Copy `[sdlc-root]/templates/external-review.sh.template`
    to `[sdlc-root]/external-review.sh` (for a local model, swap the call as
    § Standard template shows), set its defaults to the decision, and `chmod +x`
@@ -162,14 +172,18 @@ or was skipped by a decision.
    turns the gate off without deleting the project's files. A note elsewhere
    saying where the gate sends (step 1's `CLAUDE.md` note, say) becomes a
    pointer to this record, so the two can't disagree. **Check:** each wrapper
-   the decisions cover is executable and sends to the decided provider and
-   model, and for nowhere `test -x` fails for both wrappers; no note outside the
-   record names another destination.
+   the decisions cover is executable and sends to the decided provider, choosing
+   its model as decided (for a looked-up model, it names none of its own and
+   passes its caller's `CODEX_MODEL`), and for nowhere `test -x` fails for both
+   wrappers; no note outside the record names another destination.
 4. **A dry run.** Pipe a payload holding no project code through the wrapper:
    a rubric header asking for findings in the default format, and a one-line
    artifact with an obvious defect (`x = 1 / 0`). Skipped for nowhere.
-   **Check:** it exits 0, its stderr names the decided provider and model (the
-   disclosure § Data egress requires), and its stdout is in the rubric's format.
+   For a looked-up model, look it up first and pass it, as a real call does.
+   **Check:** it exits 0, its stderr names the decided provider and the model
+   the run used (the disclosure § Data egress requires; a Codex wrapper that
+   leaves the choice to Codex shows it in Codex's own header there), and its
+   stdout is in the rubric's format.
 5. **The knowledge-judgment wrapper,** if promotion judgments were given a
    destination: the same as steps 3 and 4, with
    `external-review-knowledge.sh.template` and
@@ -195,11 +209,15 @@ or was skipped by a decision.
 - **exit code** — `0` on success (including zero findings). Non-zero means the
   gate could not run; the skill records "external gate errored — skipped" and
   proceeds to commit. **Never block a commit on external availability.**
-- The wrapper owns endpoint, secret scrubbing, and prompt shaping, and provides
-  the default model choice. z-sdlc ships a **standard template** at
+- The wrapper owns endpoint, secret scrubbing, and prompt shaping. The model
+  choice is the caller's, or the wrapper's default where the project's decision
+  names a model: the standard template names none, so the caller passes the
+  model its lookup found (§ Task-Based Model Selection), and with none passed
+  Codex uses its own default. Either way, each run names the model it used.
+  z-sdlc ships a **standard template** at
   `[sdlc-root]/templates/external-review.sh.template` — enabling is copy +
-  `chmod +x` + adjusting the defaults, because the right model and the egress
-  policy remain project decisions. Codex-backed wrappers SHOULD honor the
+  `chmod +x` + adjusting the defaults, because the egress policy, and a model
+  where CD names one, remain project decisions. Codex-backed wrappers SHOULD honor the
   optional `CODEX_MODEL` / `CODEX_REASONING_EFFORT` environment variables (see
   § Task-Based Model Selection below) so the invoking skill can match model and
   reasoning effort to the task; the wrapper's own defaults apply when they are
@@ -232,7 +250,9 @@ have to rediscover them:
   The codex CLI reads stdin whenever it isn't a terminal and waits for
   end-of-file, so a background call with an open, empty stdin hangs forever.
 - **Egress disclosure on stderr** — each run announces where the payload is
-  going and at what model/effort, satisfying the disclosure rule above.
+  going and at what model/effort, satisfying the disclosure rule above. With no
+  `CODEX_MODEL`, Codex's own header (its `model:` and `provider:` lines) reaches
+  stderr too, since only stdout is discarded, and names the model it chose.
 - **Payload-neutral prompt** — the embedded prompt defers to the payload's
   rubric header for artifact, task, and output format, so the one wrapper
   serves diff review, plan review, and approach consults.
@@ -263,8 +283,9 @@ The invoking skill builds the payload like:
 
 ## Task-Based Model Selection
 
-When the wrapper is Codex-backed, the invoking skill may choose the model and
-reasoning effort per task instead of accepting the wrapper's defaults. The
+When the wrapper is Codex-backed, the invoking skill chooses the model and
+reasoning effort per task: the model by a lookup just before each call, unless
+the project's decision names one. The
 Codex CLI accepts both on the command line:
 
 ```bash
@@ -279,17 +300,28 @@ The convention: wrappers pass these through from environment variables, and
 the invoking skill sets them at the call site —
 
 ```bash
-CODEX_MODEL="gpt-5.6-luna" CODEX_REASONING_EFFORT="xhigh" \
+CODEX_MODEL="<the model the lookup chose>" CODEX_REASONING_EFFORT="xhigh" \
   { ...payload... } | "[sdlc-root]/external-review.sh"
 ```
 
-- **Resolve model names at runtime, not from memory.** OpenAI's model catalog
-  changes; a model name recalled from training data may be retired or
-  superseded. Before choosing a model, fetch the current catalog from
-  <https://developers.openai.com/api/docs/models> (WebFetch) and pick from
-  what is actually listed. If the catalog cannot be fetched, leave
-  `CODEX_MODEL` unset and let the wrapper's default stand — never guess a
-  model name.
+- **Look the models up before each call, never from memory** (CD,
+  2026-11-21). OpenAI's catalog changes, and a model name recalled from
+  training data, or written into a doc or a wrapper, goes stale. Two sources:
+  `codex debug models`, which lists the models the installed Codex can use,
+  with OpenAI's description of each, and OpenAI's models page,
+  <https://developers.openai.com/api/docs/models> (WebFetch). The listed ones,
+  one per line:
+
+  ```bash
+  codex debug models < /dev/null | python3 -I -c 'import json,sys; [print(m["slug"], "-", m.get("description", "")) for m in json.load(sys.stdin)["models"] if m.get("visibility") == "list"]'
+  ```
+
+  Pass the one the descriptions call most capable. Where this doc or a skill
+  gives a step a balanced/mid-tier model (plan review, the promotion gate's
+  screening pass), pick that tier from the same lookup. Never pick one
+  described as legacy or previous generation. If no lookup works, leave
+  `CODEX_MODEL` unset, and Codex uses its default (named in its header on
+  stderr) — never guess a model name.
 - **Match effort to the task — screen cheap, escalate splits.** High-volume
   screening passes (initial promotion-gate verdicts over a batch) run on a
   balanced/mid-tier model at `high`; reserve the frontier tier at `xhigh` for
@@ -298,11 +330,11 @@ CODEX_MODEL="gpt-5.6-luna" CODEX_REASONING_EFFORT="xhigh" \
   concurrency). Routine second opinions on ordinary diffs run fine at
   `medium`; don't pay frontier-model latency for a docs-only change.
 - **Both variables are optional, independently.** Setting only
-  `CODEX_REASONING_EFFORT` while leaving the wrapper's default model is a
+  `CODEX_REASONING_EFFORT` while leaving the model to the wrapper or Codex is a
   normal configuration.
 - Model selection does not change the egress picture — the payload goes to the
   same provider either way — but the "state where the code is going"
-  disclosure should name the actual model used.
+  disclosure names the model each run used.
 
 ## Planning Integration
 
