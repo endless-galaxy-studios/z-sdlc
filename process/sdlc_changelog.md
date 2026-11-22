@@ -37,6 +37,27 @@ Each entry contains:
 
 ---
 
+## 2026-11-22: The env scrub's empty root package.json: smoke loads the Node configs in the sandbox, and bootstrap.py asks for a root package.json
+
+**Origin:** The pilot project's first real factory reproduce run came back `blocked` before any browser session. CD decided the fix goes in the project and upstream, in z-sdlc's design.
+
+**What happened:** With `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` on, as in every agent job, Claude Code write-protects a list of names in the working directory for sandboxed Bash, and leaves an empty placeholder file for any that doesn't exist. The pilot project read the list from the Claude Code binary. Among the names is `package.json`. esbuild, which bundles a Vite or Vitest config, reads every `package.json` up the tree and fails on an empty one: `../../package.json:1:0: ERROR: Unexpected end of file in JSON`. So every Vite and Vitest run below the root failed in the sandbox. That covers `verify node` in every implement, execute and revise run, in all three factory projects, none of which has a root `package.json`. Smoke didn't catch it: its sandbox probe ran only `tsc --version` on the Node side.
+
+**Changes made:**
+
+1. **`bundles/factory/tree/node_configs.py`** — `load`: loads each recorded Vite and Vitest config with the project's own Vite (`loadConfigFromFile`, which bundles it with esbuild, as both tools do), from the node directory. A failure names the file, gives esbuild's error, and, for this error, says to add a root `package.json`. On the pilot project's tree, the configs loaded, failed with that error once an empty root `package.json` was added, and loaded again with `{"private": true}`.
+2. **The three profiles' `verify probe`** — runs `node_configs.py load`, so `factory-smoke`'s implement-tools probe, as sandboxed agent Bash, fails on a config that can't load there.
+3. **`bootstrap.py`** — `check_root_package_json`: when `stack.node` is below the root, a missing, invalid or non-object root `package.json` is a problem. **`implement_guard.py`** `profile_build_files` — for that layout, a `package.json` in each folder above `stack.node` becomes a sample, the root's included, since esbuild reads every one. So the seeded CODEOWNERS test checks they're owned; that would have flagged the pilot project's unowned root.
+4. **`agent_job.sh bundle`** — before checking for uncommitted changes, it removes an empty, untracked file or empty directory left at a name the sandbox mounts over at the workspace's root (`.bashrc`, `.gitconfig`, `.profile`, `.zshrc`, `.vscode` and the like). Claude Code removes those mount points when each command ends: its binary logs "Cleaned up bwrap mount point". It leaves them when a sandbox doesn't end normally, and the quiesce step kills any that outlived the agent. One with content, a symlink or a tracked one still fails the check. **`process/factory.md`** D2 rule 4 says so.
+5. **`process/factory.md`:**
+   - D2 rule 2 lists what the env scrub write-protects in the working directory, and that a name that doesn't exist becomes an empty placeholder. It says a project with `stack.node` below the root keeps a code-owned root `package.json`, and how each check catches its absence.
+   - Enablement step 2 says the same.
+   - The verify table and § After migrating (`bootstrap.py` now reports repository problems too) follow.
+
+**Rationale:** Smoke exists so that nothing fails first in a stage. Loading the configs the way the tools do, inside the sandbox, catches this class of failure, whatever else in the sandbox breaks a config load. The deny list also stops sandboxed Bash from writing the root's `scripts/` and `node_modules/.bin`, which D2 now says, though no factory step writes them. Release type: patch.
+
+---
+
 ## 2026-11-22: The factory's verify runs pytest without the project's directory on sys.path, and CODEOWNERS covers Vitest's projects file and the .env files
 
 **Origin:** Two gaps v2.9.6 named and didn't close, which CD left to z-sdlc's judgment ("for the decisions, do what you need to").

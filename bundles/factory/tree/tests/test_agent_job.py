@@ -257,6 +257,26 @@ class Bundle(Repo):
         self.assertEqual(self.lines("output"), ["bundle=yes", "incomplete=yes"])
 
 
+    def test_the_sandboxs_empty_placeholders_are_removed_before_the_check(self):
+        self.commit()
+        for name in (".bashrc", ".gitconfig", ".zshrc"):
+            (self.repo / name).write_text("")
+        (self.repo / ".vscode").mkdir()
+        r = self.bundle_run("done", "done")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("removed the sandbox's empty placeholder .bashrc", r.stdout)
+        self.assertIn("removed the sandbox's empty placeholder .vscode/", r.stdout)
+        self.assertFalse((self.repo / ".bashrc").exists())
+        # One with content, or anything else, still fails the check.
+        (self.repo / ".profile").write_text("export X=1\n")
+        (self.repo / ".idea").mkdir()
+        (self.repo / ".idea" / "workspace.xml").write_text("<x/>")
+        r = self.bundle_run("done", "done")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn(".profile", r.stdout)
+        self.assertIn(".idea/", r.stdout)
+
+
 class Quiesce(Repo):
     def test_a_clean_repository_passes(self):
         r = self.run_script("quiesce", cwd=self.repo)
@@ -481,6 +501,9 @@ class Verify(unittest.TestCase):
             "node: " + self.check("web", "eslint vite") + "cd web && npx --no-install eslint . --config eslint.config.js"
             " && npx --no-install tsc -b && npx --no-install vite build --config vite.config.ts"])
         self.assertIn("echo probe-ok", self.verify("--print", "probe").stdout)
+        # The probe loads the recorded Vite config in the sandbox, as Vite does (node_configs.py load).
+        self.assertIn(f"node_configs.py load web {self.dir}/verify.conf && echo probe-ok",
+                      self.verify("--print", "probe").stdout)
 
     def test_runs_every_area_and_reports_the_failures(self):
         # Stand-ins: a wrapper that runs its command, and neither directory exists, so both areas fail.
@@ -541,7 +564,7 @@ class VerifyDotnetNode(Verify):
             " vitest.config.ts && node_modules/.bin/vite build --config vite.config.ts"])
         probe = self.verify("--print", "probe").stdout
         self.assertIn("dotnet build --no-restore -c Release -m:1", probe)
-        self.assertIn("echo probe-ok", probe)
+        self.assertIn(f"node_configs.py load src/Web {self.dir}/verify.conf && echo probe-ok", probe)
 
     def test_runs_every_area_and_reports_the_failures(self):
         (self.dir / "with-test-services").write_text('#!/usr/bin/env bash\nexec "$@"\n')
@@ -593,7 +616,7 @@ class VerifyPythonUvNode(Verify):
                                    "node_modules/.bin/vitest run --config vitest.config.ts")
         probe = self.verify("--print", "probe").stdout
         self.assertIn(".venv/bin/alembic current > /dev/null && echo db-ok", probe)
-        self.assertIn("echo probe-ok", probe)
+        self.assertIn(f"node_configs.py load web {self.dir}/verify.conf && echo probe-ok", probe)
 
     def test_runs_every_area_and_reports_the_failures(self):
         (self.dir / "with-test-services").write_text('#!/usr/bin/env bash\nexec "$@"\n')

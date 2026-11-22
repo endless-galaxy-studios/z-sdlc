@@ -20,6 +20,7 @@ Exit 0 when nothing is missing, 1 when something is (or a write failed), 2 on a 
 """
 import argparse
 import json
+import os
 import pathlib
 import re
 import subprocess
@@ -174,6 +175,7 @@ class Bootstrap:
             self.apply = False
             self.note("problem", "settings", "nothing applied: fill the settings above, run render.py, then --apply")
         self.check_browser_stages()
+        self.check_root_package_json()
         self.check_labels()
         self.check_environments()
         self.check_secrets()
@@ -220,6 +222,31 @@ class Bootstrap:
         elif listed:
             self.note("ok", "browser", "browser.stages gives implement runs the route with a plan (execute) and "
                                        "without one (implement)")
+
+    def check_root_package_json(self):
+        """Claude Code's env scrub, on in every agent job, write-protects package.json in the working directory and
+        leaves an empty one where there's none. esbuild, which loads Vite's and Vitest's configs, reads each
+        package.json up the tree and fails on an empty one, so a project whose Node app is below the root keeps a
+        valid, code-owned one there (z-sdlc process/factory.md, D2 rule 2)."""
+        node = os.path.normpath(str((self.cfg.get("stack") or {}).get("node") or "."))
+        if node == ".":
+            return
+        try:
+            data = json.loads((self.root / "package.json").read_text())
+        except FileNotFoundError:
+            data = None
+            why = "there's no root package.json"
+        except (OSError, ValueError):
+            data = None
+            why = "the root package.json isn't valid JSON"
+        else:
+            why = "the root package.json isn't a JSON object"
+        if not isinstance(data, dict):
+            self.note("problem", "stack", f"stack.node ({node}) is below the root and {why}: Claude Code's env scrub, in "
+                                          "every agent job, leaves an empty one there, which every Vite and Vitest config "
+                                          "load fails on. Add a code-owned root package.json, such as {\"private\": true}")
+        else:
+            self.note("ok", "stack", f"stack.node ({node}) is below the root, which has a package.json")
 
     def check_labels(self):
         have = {l["name"]: l for l in self.list_all(f"repos/{self.repo}/labels", None) or []}

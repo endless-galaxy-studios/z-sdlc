@@ -15,8 +15,9 @@
 #   node         eslint . (no warnings), tsc -b and vitest run, with the config files recorded before the
 #                agent started
 #   probe        what an agent job needs works here: the test database through the project's own alembic
-#                settings (alembic current, which writes nothing) and the Node toolchain (factory-smoke's
-#                implement-tools probe); prints probe-ok when both do
+#                settings (alembic current, which writes nothing) and the Node toolchain, loading the recorded
+#                Vitest config as Vitest does (factory-smoke's implement-tools probe, in the sandbox); prints
+#                probe-ok when both do
 #   --print      print the commands and run nothing (to run a narrower one, such as a single test)
 # The tests reach the test services through with-test-services, which also exports TEST_DATABASE_URL and
 # TEST_REDIS_URL. pytest runs as its own script, as CI's uv run pytest does, never python -m pytest: that puts the
@@ -81,7 +82,7 @@ commands_for() {
     node)
       printf 'node\t%s\n' "$configs && cd $node_dir && $bin/eslint .$eslint --max-warnings 0 && $bin/tsc -b && $bin/vitest run$vitest" ;;
     probe)
-      printf 'probe\t%s\n' "$wrap bash -c 'cd $python_dir && .venv/bin/alembic current > /dev/null && echo db-ok' && (cd $node_dir && $bin/tsc --version) && echo probe-ok" ;;
+      printf 'probe\t%s\n' "$wrap bash -c 'cd $python_dir && .venv/bin/alembic current > /dev/null && echo db-ok' && (cd $node_dir && $bin/tsc --version) && /usr/local/bin/python3 -I $here/node_configs.py load $node_dir $here/verify.conf && echo probe-ok" ;;
   esac
 }
 

@@ -1370,7 +1370,15 @@ class ProfileBuildFiles(unittest.TestCase):
         self.assertIn("api/requirements.txt", paths)  # python-node's list, in a uv project too
         self.assertIn("web/pnpm-lock.yaml", paths)
         self.assertNotIn("web/package-lock.json", paths)
-        self.assertIn("pyproject.toml", guard.profile_build_files({"profile": "python-node", "python": ".", "node": "."}))
+        # A package.json in each folder above a Node app below the root, which esbuild reads; at the root, it's listed
+        # once.
+        self.assertIn("package.json", paths)
+        deep = guard.profile_build_files({"profile": "dotnet-node", "python": ".", "node": "src/app/web"})
+        self.assertEqual([p for p in deep if p.endswith("package.json")],
+                         ["src/app/web/package.json", "src/app/package.json", "src/package.json", "package.json"])
+        at_root = guard.profile_build_files({"profile": "python-node", "python": ".", "node": "."})
+        self.assertIn("pyproject.toml", at_root)
+        self.assertEqual(at_root.count("package.json"), 1)
         self.assertEqual(guard.profile_build_files({"profile": "no-such-profile", "python": "a", "node": "b"}), [])
 
     def test_the_guard_s_own_codeowners_patterns_cover_them_at_any_depth(self):

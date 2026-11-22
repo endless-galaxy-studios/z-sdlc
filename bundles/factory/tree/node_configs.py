@@ -3,6 +3,7 @@
 Usage:
   python3 -I node_configs.py record <node dir>
   python3 -I node_configs.py check <node dir> <verify.conf> <tool>...     tools: eslint, vite, vitest
+  python3 -I node_configs.py load <node dir> <verify.conf>
 
 Each tool finds its config by name, in its own order, and the first name there wins: an added vite.config.js
 replaces a project's vite.config.ts, and an added vitest.config.ts replaces the test settings a project keeps in
@@ -23,10 +24,17 @@ The search orders, as measured in the pilot project's installed tools (2026-11):
   vitest.workspace.* or vitest.projects.* (those six, and .json) beside the config it loaded, which choose the tests
   it runs unless the config sets test.projects. The command line can't pin that file, so it is checked only.
 The upward searches stop at the working directory, the checkout's root: what's above it isn't the run's to change.
+
+`load`, in a profile's `verify probe` (which factory-smoke runs as sandboxed agent Bash), loads each recorded Vite and
+Vitest config with the project's own Vite (loadConfigFromFile, which bundles it with esbuild, as both tools do), so a
+config that can't load in the sandbox fails smoke rather than a stage. Claude Code's env scrub, on in every agent job,
+write-protects package.json in the working directory and, when there's none, leaves an empty one, which esbuild,
+reading each package.json up the tree, fails on (process/factory.md, D2 rule 2).
 """
 
 import os
 import pathlib
+import subprocess
 import sys
 
 ESLINT = tuple(f"eslint.config.{e}" for e in ("js", "mjs", "cjs", "ts", "mts", "cts"))
@@ -112,6 +120,41 @@ def check(root, before, tools):
     return problems
 
 
+# Run in the node directory by node: loadConfigFromFile resolves the file from there, as the tools do.
+LOAD = r"""
+const file = process.argv[1];
+try {
+  const { loadConfigFromFile } = await import("vite");
+  const loaded = await loadConfigFromFile({ command: "build", mode: "production" }, file, process.cwd(), "silent");
+  if (!loaded) throw new Error(`Vite found no config at ${file}`);
+} catch (e) {
+  console.error(String((e && e.message) || e).split("\n").filter(Boolean).slice(0, 4).join(" | "));
+  process.exit(1);
+}
+"""
+
+
+def load(root, before):
+    """The problems, one line each: a recorded Vite or Vitest config that Vite can't load from the node directory."""
+    problems = []
+    for name in sorted({before[k] for k in ("vite_config", "vitest_config") if before[k]}):
+        try:
+            r = subprocess.run(["node", "--input-type=module", "-e", LOAD, name], cwd=root, capture_output=True,
+                               text=True, timeout=120)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            problems.append(f"couldn't load {name} in {root}: {e}")
+            continue
+        if r.returncode != 0:
+            # The script's own line is the last: esbuild writes its diagnostics to stderr first.
+            why = ((r.stderr or r.stdout).strip().splitlines() or ["no output"])[-1][:1000]
+            if "package.json" in why and "Unexpected end of file" in why:
+                why += (" (an empty package.json above it is the placeholder Claude Code's env scrub leaves where there's "
+                        "none: give the repository a code-owned root package.json, such as {\"private\": true}; "
+                        "process/factory.md, D2 rule 2)")
+            problems.append(f"Vite couldn't load {name} in {root}: {why}")
+    return problems
+
+
 def main(argv):
     try:
         if len(argv) == 2 and argv[0] == "record":
@@ -124,6 +167,16 @@ def main(argv):
             for p in problems:
                 print(f"verify: {p}: a config file added since replaces the project's wherever nothing pins it, CI "
                       "included. Remove it, or leave the change to CD.")
+            return 1 if problems else 0
+        if len(argv) == 3 and argv[0] == "load":
+            root = node_dir(argv[1])
+            before = recorded(pathlib.Path(argv[2]).read_text())
+            problems = load(root, before)
+            for p in problems:
+                print(f"verify: {p}")
+            loaded = [before[k] for k in ("vite_config", "vitest_config") if before[k]]
+            if not problems:
+                print(f"configs-ok {' '.join(sorted(set(loaded))) or '(no Vite or Vitest config)'}")
             return 1 if problems else 0
     except (Invalid, OSError) as e:
         print(f"verify: {e}", file=sys.stderr)

@@ -208,6 +208,8 @@ class Bootstrap(unittest.TestCase):
             (workflows / name).write_text(f"jobs:\n  a:\n    runs-on: ubuntu-latest\n  b:\n    runs-on: [self-hosted, {label}]\n")
         (workflows / "ci.yml").write_text("jobs:\n  t:\n    runs-on: ubuntu-latest\n")
         (self.root / ".github" / "CODEOWNERS").write_text("/.github/ @cd\n/.claude/ @cd\n")
+        # The root package.json a project whose Node app is below the root keeps (check_root_package_json).
+        (self.root / "package.json").write_text('{"private": true}\n')
         self.gh = FakeGitHub()
 
     def tearDown(self):
@@ -764,6 +766,28 @@ class Bootstrap(unittest.TestCase):
         (self.root / ".github/factory/factory.json").write_text(json.dumps(cfg))
         code, out = self.run_it()
         self.assertIn("factory.json names your App, image and echo service", out)
+
+    def test_a_node_app_below_the_root_needs_a_root_package_json(self):
+        cfg_file = self.root / ".github/factory/factory.json"
+        cfg = json.loads(cfg_file.read_text())
+        cfg["stack"]["node"] = "src/web"
+        cfg_file.write_text(json.dumps(cfg))
+        code, out = self.run_it()
+        self.assertIn("stack.node (src/web) is below the root, which has a package.json", out)
+        for text, want in ((None, "there's no root package.json"), ("", "the root package.json isn't valid JSON"),
+                           ("[]", "the root package.json isn't a JSON object")):
+            with self.subTest(text=text):
+                if text is None:
+                    (self.root / "package.json").unlink(missing_ok=True)
+                else:
+                    (self.root / "package.json").write_text(text)
+                code, out = self.run_it()
+                self.assertEqual(code, 1)
+                self.assertIn(f"stack.node (src/web) is below the root and {want}: Claude Code's env scrub", out)
+        # A Node app at the root has its own package.json, which nothing replaces.
+        cfg["stack"]["node"] = "."
+        cfg_file.write_text(json.dumps(cfg))
+        self.assertNotIn("stack.node", self.run_it()[1])
 
     def test_browser_stages_name_implement_and_execute_together(self):
         cfg_file = self.root / ".github/factory/factory.json"

@@ -2,6 +2,7 @@
 starts and checked before verify runs the tools (process/factory.md, Stack Profiles)."""
 
 import pathlib
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -98,6 +99,47 @@ class NodeConfigs(unittest.TestCase):
         r = self.check("vite")
         self.assertEqual(r.returncode, 1)
         self.assertIn("vite would load no config file in src/web, not vite.config.ts", r.stdout)
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_load_runs_the_projects_vite_on_each_recorded_config(self):
+        # A stand-in for the project's Vite: loadConfigFromFile fails as esbuild does on an empty package.json above.
+        vite = self.web / "node_modules" / "vite"
+        vite.mkdir(parents=True)
+        (vite / "package.json").write_text('{"name": "vite", "type": "module", "main": "index.js"}')
+        (vite / "index.js").write_text(
+            "import fs from 'node:fs';\n"
+            "export async function loadConfigFromFile(env, file, root) {\n"
+            "  if (fs.existsSync('../../package.json') && !fs.readFileSync('../../package.json', 'utf8').trim())\n"
+            "    throw new Error('Build failed with 1 error:\\n../../package.json:1:0: ERROR: Unexpected end of file in JSON');\n"
+            "  if (env.command !== 'build' || root !== process.cwd()) throw new Error('called wrong');\n"
+            "  return fs.existsSync(file) ? { path: file, config: {} } : null;\n}\n")
+        # The node directory's own package.json, as every Node app has: Node stops there, esbuild reads on up.
+        (self.web / "package.json").write_text('{"private": true}')
+        self.add("src/web/vite.config.ts")
+        self.add("src/web/vitest.config.ts")
+        self.record()
+        r = self.run_script("load", "src/web", "verify.conf")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(r.stdout.strip(), "configs-ok vite.config.ts vitest.config.ts")
+        # The env scrub's placeholder: an empty package.json at the root.
+        (self.ws / "package.json").write_text("")
+        r = self.run_script("load", "src/web", "verify.conf")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("Vite couldn't load vite.config.ts in src/web: Build failed with 1 error: | ../../package.json:1:0",
+                      r.stdout)
+        self.assertIn("code-owned root package.json", r.stdout)
+        self.assertEqual(r.stdout.count("verify: "), 2)
+        # A recorded file Vite doesn't find.
+        (self.ws / "package.json").write_text('{"private": true}')
+        (self.web / "vitest.config.ts").unlink()
+        r = self.run_script("load", "src/web", "verify.conf")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("Vite found no config at vitest.config.ts", r.stdout)
+
+    def test_load_with_no_vite_config(self):
+        self.record()
+        r = self.run_script("load", "src/web", "verify.conf")
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, "configs-ok (no Vite or Vitest config)"))
 
     def test_refusals(self):
         (self.ws / "verify.conf").write_text("python=.\nnode=src/web\n")

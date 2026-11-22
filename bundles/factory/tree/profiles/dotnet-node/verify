@@ -13,8 +13,9 @@
 #   node         lint, type check, unit tests (vitest) and production build (vite), each with the config
 #                file recorded before the agent started
 #   probe        what an agent job needs works here: the test database through the sandbox's proxy,
-#                a .NET build from the restored packages, and the Node toolchain (factory-smoke's
-#                implement-tools probe); prints probe-ok when all do
+#                a .NET build from the restored packages, and the Node toolchain, loading the recorded Vite
+#                and Vitest configs as they do (factory-smoke's implement-tools probe, in the sandbox); prints
+#                probe-ok when all do
 #   --print      print the commands and run nothing (to run a narrower one, such as a single test)
 # Runs every area asked for, even after one fails, and exits 1 if any did.
 # Every .NET build here runs in one process (-m:1): MSBuild's worker nodes talk over Unix sockets,
@@ -61,7 +62,7 @@ command_for() {
   case "$1" in
     dotnet) echo "$wrap bash -c 'cd $dotnet_dir && dotnet test --no-restore -c Release -m:1 --filter \"Category!=Nightly&Category!=External\"'" ;;
     node) echo "$configs && cd $node_dir && $bin/eslint .$eslint && $bin/tsc -b && $bin/vitest run$vitest && $bin/vite build$vite" ;;
-    probe) echo "$wrap pg_isready -q -h 127.0.0.1 -p 5432 && echo db-ok && (cd $dotnet_dir && dotnet build --no-restore -c Release -m:1 -v quiet -nologo > /dev/null) && echo dotnet-ok && (cd $node_dir && $bin/tsc --version) && echo probe-ok" ;;
+    probe) echo "$wrap pg_isready -q -h 127.0.0.1 -p 5432 && echo db-ok && (cd $dotnet_dir && dotnet build --no-restore -c Release -m:1 -v quiet -nologo > /dev/null) && echo dotnet-ok && (cd $node_dir && $bin/tsc --version) && /usr/local/bin/python3 -I $here/node_configs.py load $node_dir $here/verify.conf && echo probe-ok" ;;
   esac
 }
 

@@ -237,6 +237,15 @@ case "$cmd" in
     g bundle create -q "$bundle" "$base..HEAD"
     # The bundle is uploaded either way, so the commits survive for CD; publish won't run.
     echo "bundle=yes" >> "$GITHUB_OUTPUT"
+    # The sandbox mounts over these names at the workspace's root and removes the empty mount points it made when a
+    # command ends, unless the sandbox was killed first (quiesce kills one that outlived the agent). An empty, untracked
+    # one is that placeholder: remove it. One with content, or tracked, is left for the check below.
+    for p in .bash_profile .bashrc .gitconfig .profile .ripgreprc .zprofile .zshrc .idea .vscode; do
+      if [ -L "$p" ] || g ls-files --error-unmatch -- "$p" > /dev/null 2>&1; then continue
+      elif [ -f "$p" ] && [ ! -s "$p" ]; then rm -f -- "$p"; echo "removed the sandbox's empty placeholder $p"
+      elif [ -d "$p" ] && [ -z "$(ls -A -- "$p")" ]; then rmdir -- "$p"; echo "removed the sandbox's empty placeholder $p/"
+      fi
+    done
     changes=$(g status --porcelain --ignore-submodules=all)
     if [ -n "$changes" ]; then
       echo "incomplete=yes" >> "$GITHUB_OUTPUT"

@@ -131,11 +131,18 @@ PROFILE_BUILD_FILES = {
 
 def profile_build_files(stack):
     """The sample paths a project's CODEOWNERS must own for its stack (factory.json's stack block): the profile's
-    own files under stack.python and the Node ones under stack.node. An unknown profile has none here: a new
-    profile adds its lists above with its tests."""
-    own, node = PROFILE_BUILD_FILES.get(stack.get("profile"), ((), ()))
+    own files under stack.python and the Node ones under stack.node, and, when stack.node is below the root, a
+    package.json in each folder above it: esbuild, which loads Vite's and Vitest's configs, reads every one up to the
+    root, and the root's is the one the project keeps there, since Claude Code's env scrub leaves an empty one where
+    there's none (factory.md, D2 rule 2). An unknown profile has none here: a new profile adds its lists above with
+    its tests."""
+    if stack.get("profile") not in PROFILE_BUILD_FILES:
+        return []
+    own, node = PROFILE_BUILD_FILES[stack.get("profile")]
+    node_dir = os.path.normpath(stack.get("node") or ".")
+    parents = [os.path.normpath(f"{d}/package.json") for d in pathlib.PurePosixPath(node_dir).parents]
     return ([os.path.normpath(f"{stack.get('python') or '.'}/{p}") for p in own]
-            + [os.path.normpath(f"{stack.get('node') or '.'}/{p}") for p in node])
+            + [os.path.normpath(f"{node_dir}/{p}") for p in node] + parents)
 
 # Where to look (factory.json review.focus). Line patterns read whole lines: the patch cap bounds them, and
 # the patterns are CD's. A shown path is cut to MAX_SHOWN_PATH characters, and a body or comment over
