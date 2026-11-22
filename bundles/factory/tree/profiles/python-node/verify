@@ -5,7 +5,10 @@
 # agent_job.sh workspace, beside verify.conf (python=<dir>, node=<dir>, from factory.json's stack).
 # Usage: verify [--print] [python|node|probe ...]
 #   no area      python and node
-#   python       the test suite, through with-test-services (it reaches the test database and Redis)
+#   python       the test suite, through with-test-services (it reaches the test database and Redis).
+#                PYTHONSAFEPATH=1 keeps python -m from putting the project's directory first on sys.path,
+#                where a module named like pytest or anything it imports would replace it; CI's pytest
+#                script doesn't put it there either. A project's own pythonpath setting still applies.
 #   node         lint, type check and production build, with the config files recorded before the agent
 #                started
 #   probe        what an agent job needs works here: the test database through the project's own
@@ -50,7 +53,7 @@ done
 
 command_for() {
   case "$1" in
-    python) echo "$wrap bash -c 'cd $python_dir && python -m pytest -q'" ;;
+    python) echo "$wrap bash -c 'cd $python_dir && PYTHONSAFEPATH=1 python -m pytest -q'" ;;
     node) echo "$configs && cd $node_dir && npx --no-install eslint .$eslint && npx --no-install tsc -b && npx --no-install vite build$vite" ;;
     probe) echo "$wrap bash -c 'cd $python_dir && python manage.py migrate --plan > /dev/null && echo db-ok' && (cd $node_dir && npx --no-install tsc --version) && echo probe-ok" ;;
   esac

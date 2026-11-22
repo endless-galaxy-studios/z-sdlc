@@ -1384,7 +1384,7 @@ class ProfileBuildFiles(unittest.TestCase):
                  "dotnet-tools.json", "*.runsettings", "xunit.runner.json", ".editorconfig", ".globalconfig",
                  "package.json", "package-lock.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", ".npmrc",
                  ".pnpmfile.cjs", "eslint.config.*", "tsconfig*.json", "vite.config.*", "vitest.config.*",
-                 "vitest.workspace.*", ".eslintrc*", "postcss.config.*", ".postcssrc*", "babel.config.*", ".babelrc*"]
+                 "vitest.workspace.*", "vitest.projects.*", ".env*", ".eslintrc*", "postcss.config.*", ".postcssrc*", "babel.config.*", ".babelrc*"]
         patterns = guard.codeowners_patterns("".join(f"{g} @owner\n" for g in globs))
         for profile in guard.PROFILE_BUILD_FILES:
             for path in guard.profile_build_files({"profile": profile, "python": "a/b", "node": "c"}):

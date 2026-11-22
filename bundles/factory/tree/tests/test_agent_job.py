@@ -477,7 +477,7 @@ class Verify(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         wrap = f"{self.dir}/with-test-services"
         self.assertEqual(r.stdout.splitlines(), [
-            f"python: {wrap} bash -c 'cd api && python -m pytest -q'",
+            f"python: {wrap} bash -c 'cd api && PYTHONSAFEPATH=1 python -m pytest -q'",
             "node: " + self.check("web", "eslint vite") + "cd web && npx --no-install eslint . --config eslint.config.js"
             " && npx --no-install tsc -b && npx --no-install vite build --config vite.config.ts"])
         self.assertIn("echo probe-ok", self.verify("--print", "probe").stdout)
@@ -580,7 +580,7 @@ class VerifyPythonUvNode(Verify):
         # The note first: an agent's own Python commands use each project's .venv, offline.
         self.assertIn(".venv/bin", lines[0])
         python = ("cd {p} && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/mypy && "
-                  f"{wrap} .venv/bin/python -m pytest -q -p no:cacheprovider --ignore=tests/integration")
+                  f"{wrap} .venv/bin/pytest -q -p no:cacheprovider --ignore=tests/integration")
         self.assertEqual(lines[1], "python api: " + python.format(p="api"))
         self.assertEqual(lines[2], "python mcp: " + python.format(p="mcp"))
         self.assertTrue(lines[3].startswith(f"migrations: {wrap} bash -c 'cd api && dropdb --if-exists"))

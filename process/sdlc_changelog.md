@@ -37,6 +37,22 @@ Each entry contains:
 
 ---
 
+## 2026-11-22: The factory's verify runs pytest without the project's directory on sys.path, and CODEOWNERS covers Vitest's projects file and the .env files
+
+**Origin:** Two gaps v2.9.6 named and didn't close, which CD left to z-sdlc's judgment ("for the decisions, do what you need to").
+
+**What happened:** The new `name_resolved_inputs` entry says `python -m` puts the current directory first on `sys.path`, and the Python profiles' `verify` ran `python -m pytest`. Neither factory project with a Python profile runs pytest that way in CI: both call the `pytest` script (`pytest -q` in the incubator's image, `uv run pytest` in the other), which doesn't put the directory there. `node_configs.py` checks Vitest's `vitest.projects.*`, but § What CODEOWNERS must cover listed only `vitest.workspace.*`, and none of the `.env` files Vite loads into a build.
+
+**Changes made:**
+
+1. **`bundles/factory/tree/profiles/python-node/verify`** — `PYTHONSAFEPATH=1 python -m pytest` (the image's Python is 3.12). **`profiles/python-uv-node/verify`** — `.venv/bin/pytest` for the unit and integration areas, as CI's `uv run pytest` runs it, whatever Python a project's venv has. A project's own `pythonpath` setting still applies: the incubator's `pytest.ini` names `.`. In the other project, both forms collected the same tests (3,767 and 320). **`process/factory.md`** § Stack Profiles says so.
+2. **§ What CODEOWNERS must cover** (`process/factory.md`) — the Node list adds `vitest.projects.*` (Vitest 3.2's name for the workspace file, which chooses the tests run) and `.env*` (`.env`, `.env.local`, `.env.<mode>`), and lets a template nothing loads (`.env.example`) be un-owned again after that line. `implement_guard.py`'s Node samples gain `vitest.projects.ts`, `.env` and `.env.production`, so a project's seeded CODEOWNERS test asks for them on migration. Its own test's list of the globs grows to match, and so does the proof's CODEOWNERS (`.claude/skills/zsdlc-import-factory/scripts/import_factory.py`).
+3. **§ After migrating** — a CODEOWNERS test that keeps its own copied lists, written before the seed as the incubator's was, checks none of a release's new names: compare CODEOWNERS with the list by hand.
+
+**Rationale:** verify now loads what CI loads, and a planted module named like the test runner no longer runs in the agent's verify. The `vitest.projects.*` and `.env*` names change what a build or a test run does just by existing, so they are owned the same way as the configs. The incubator's CODEOWNERS gains both names in its hand-back PR. The other factory projects get them when their CODEOWNERS test flags them on migration. Release type: patch.
+
+---
+
 ## 2026-11-22: The factory imported from the incubator (f2af44d..00e091a): v2.9.6 handed back
 
 **Origin:** The incubator took v2.9.6's factory changes in #150.

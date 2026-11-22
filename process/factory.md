@@ -654,7 +654,11 @@ project's `vite.config.ts`, and an added `vitest.config.ts` the test settings it
 in the checkout (`node_configs.py`, into `verify.conf`). `verify` passes those files to the tools
 (`--config`; eslint's only when it's in `stack.node` itself), and its node area fails, naming the file, when
 a tool would now load another, or Vitest another workspace file. CI runs the tools without the pin, so such a
-file is refused at publish too, since CODEOWNERS covers each of these names (below). In the sandbox, Unix
+file is refused at publish too, since CODEOWNERS covers each of these names (below). The Python profiles run
+pytest without the project's directory first on `sys.path`, as CI's `pytest` script does: `python -m` would
+put it there, where a module named like pytest or anything it imports replaces it (`python-node` sets
+`PYTHONSAFEPATH=1`; `python-uv-node` runs `.venv/bin/pytest`). A project's own `pythonpath` setting still
+applies. In the sandbox, Unix
 sockets are blocked, and MSBuild's worker nodes use them: `dotnet-node` builds in one process
 (`-m:1`), and `verify --print` tells the agent to do the same (`dotnet run` and `dotnet ef` ignore
 the switch, so they run with `--no-build` after a `dotnet build -m:1`). End-to-end suites
@@ -691,8 +695,11 @@ new profile adds its own.
   makes a new project or package CD's change; the implement sandbox can't fetch a package anyway.
 - **Node, in both:** `package.json` (`install` runs its lifecycle scripts), `.npmrc`, the eslint
   (`eslint.config.*`, `.eslintrc*`), TypeScript (`tsconfig*.json`), Vite and Vitest
-  (`vite.config.*`, `vitest.config.*`, `vitest.workspace.*`) configs, and the PostCSS and Babel ones
-  Vite loads when they exist (`postcss.config.*`, `.postcssrc*`, `babel.config.*`, `.babelrc*`); for
+  (`vite.config.*`, `vitest.config.*`, and `vitest.workspace.*` or `vitest.projects.*`, which choose the
+  tests Vitest runs) configs, the PostCSS and Babel ones Vite loads when they exist (`postcss.config.*`,
+  `.postcssrc*`, `babel.config.*`, `.babelrc*`), and the env files it loads into the build (`.env*`: `.env`,
+  `.env.local`, `.env.<mode>`; a template nothing loads, such as `.env.example`, may be un-owned again after
+  that line); for
   npm (`python-node`) `package-lock.json`, and for pnpm (`dotnet-node`, `python-uv-node`)
   `pnpm-lock.yaml`, `pnpm-workspace.yaml` and `.pnpmfile.cjs`.
 
@@ -1340,7 +1347,9 @@ project's previous version with the release's.
 - **What CODEOWNERS must cover:** `implement_guard.py`'s build-file lists changed → the project's seeded test
   of its CODEOWNERS (`.github/factory/tests/test_codeowners.py`) checks the new names, and fails until
   CODEOWNERS covers them (§ Stack Profiles, What CODEOWNERS must cover). Run it; a name it reports goes into
-  CODEOWNERS through a PR.
+  CODEOWNERS through a PR. A test that keeps its own copied lists instead of reading `profile_build_files`
+  (one written before the seed, as the incubator's was) checks none of the new names: compare CODEOWNERS with
+  that list by hand.
 - **The browser route:** `browser.py`, `with-browser`, `browser_probe.mjs` or `browser_check.py` changed → a
   project with `browser.host` set runs `factory-smoke` once the migration's PR merges, and its `browser-host`
   job must pass before its stages keep the route (D6 rule 4). `host/setup.sh`'s browser opening changed → re-run

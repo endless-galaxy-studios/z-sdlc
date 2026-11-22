@@ -19,7 +19,9 @@
 #                implement-tools probe); prints probe-ok when both do
 #   --print      print the commands and run nothing (to run a narrower one, such as a single test)
 # The tests reach the test services through with-test-services, which also exports TEST_DATABASE_URL and
-# TEST_REDIS_URL. Runs every area asked for, even after one fails, and exits 1 if any did.
+# TEST_REDIS_URL. pytest runs as its own script, as CI's uv run pytest does, never python -m pytest: that puts the
+# project's directory first on sys.path, where a module named like pytest or anything it imports would replace it.
+# Runs every area asked for, even after one fails, and exits 1 if any did.
 set -uo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -70,12 +72,12 @@ commands_for() {
     python)
       [ ${#projects[@]} -gt 0 ] || { printf 'python\t%s\n' "echo 'verify: no uv project (a top-level directory with uv.lock and pyproject.toml)' >&2; false"; return; }
       for p in "${projects[@]}"; do
-        printf 'python %s\t%s\n' "$p" "cd $p && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/mypy && $wrap .venv/bin/python -m pytest -q -p no:cacheprovider --ignore=tests/integration"
+        printf 'python %s\t%s\n' "$p" "cd $p && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/mypy && $wrap .venv/bin/pytest -q -p no:cacheprovider --ignore=tests/integration"
       done ;;
     migrations)
       printf 'migrations\t%s\n' "$wrap bash -c 'cd $python_dir && dropdb --if-exists -h 127.0.0.1 -U $db ${db}_migrations && createdb -h 127.0.0.1 -U $db ${db}_migrations && export DATABASE_URL=postgresql+asyncpg://$db@127.0.0.1:5432/${db}_migrations && .venv/bin/alembic upgrade head && .venv/bin/alembic downgrade -1 && .venv/bin/alembic upgrade head'" ;;
     integration)
-      printf 'integration\t%s\n' "$wrap bash -c 'cd $python_dir && if [ -d tests/integration ]; then .venv/bin/python -m pytest -q -p no:cacheprovider tests/integration -m \"not slow\"; else echo \"verify: no tests/integration in $python_dir\"; fi'" ;;
+      printf 'integration\t%s\n' "$wrap bash -c 'cd $python_dir && if [ -d tests/integration ]; then .venv/bin/pytest -q -p no:cacheprovider tests/integration -m \"not slow\"; else echo \"verify: no tests/integration in $python_dir\"; fi'" ;;
     node)
       printf 'node\t%s\n' "$configs && cd $node_dir && $bin/eslint .$eslint --max-warnings 0 && $bin/tsc -b && $bin/vitest run$vitest" ;;
     probe)

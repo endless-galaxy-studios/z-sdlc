@@ -132,6 +132,8 @@ tsconfig*.json @owner
 vite.config.* @owner
 vitest.config.* @owner
 vitest.workspace.* @owner
+vitest.projects.* @owner
+.env* @owner
 .eslintrc* @owner
 postcss.config.* @owner
 .postcssrc* @owner
