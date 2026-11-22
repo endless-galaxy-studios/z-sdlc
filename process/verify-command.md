@@ -28,9 +28,9 @@ The verify command answers "do the checks pass"; a separate question — "does t
 
 When creating a verify command in a project that lacks one:
 
-1. Inventory what exists: which of lint / typecheck / format / test are configured, per package.
+1. Inventory what exists: which of lint / typecheck / format / test are configured, per package, and every job CI runs (each workflow's, including the ones that run in parallel or only for some paths).
 2. Chain what exists — do not invent new tooling as a side effect: every gate CI runs, with CI's own command for it, and any a package configures beyond them. A gate neither CI nor the package has is a gap, reported, not silently added; a gate CI runs that the package doesn't configure (CI's `mypy .` with no mypy settings) is chained as CI runs it, and its missing configuration is a gap.
-3. Fail fast and loudly: the command exits non-zero on the first failing gate and names it.
+3. Fail fast and loudly: the command exits non-zero on the first failing gate and names it. Run the quick gates first and the slowest last (a full test suite, a production build), so a lint or type error shows in seconds instead of after the long run.
 4. Add the one-line usage to root CLAUDE.md.
 
 ## Setting it up
@@ -49,14 +49,16 @@ was skipped by a decision.
 
 1. **Inventory.** Find a root verify command (`"verify"` in `package.json`, a `verify:` target in a `Makefile` or
    `justfile`, `scripts/verify.sh`, the stack's equivalent) and read what it runs; for each package, which of
-   lint, typecheck, format check and tests it configures; and what CI runs. A package missing a gate is a gap. A
-   retrofit project often has some packages covered and some not. **Check:** State lists the command (or none),
-   each package's gates and CI's.
+   lint, typecheck, format check and tests it configures; and what CI runs: every job in every workflow that runs on
+   a pull request, including the ones that run in parallel with the main build or only for some paths, each with
+   its command. A package missing a gate is a gap. A retrofit project often has some packages covered and some
+   not. **Check:** State lists the command (or none), each package's gates, and each CI job with its command.
 2. **[CD] Decide** (asked first). **Check:** Decisions hold the answer, and one for each gap.
-3. **Scaffold or extend** the command per § Scaffolding Guidance. Skipped when step 1's command already chains
-   what CI runs, or CD chose to leave the project as it is. **Check:** with a failure put in the first gate it runs
-   (a lint error in a scratch change, reverted after), the command exits non-zero and names that gate; and State
-   records what it gives on the tree as it is (passes, or the gate that already fails).
+3. **Scaffold or extend** the command per § Scaffolding Guidance, its slowest gate last. Skipped when step 1's
+   command already chains what CI runs, or CD chose to leave the project as it is. **Check:** with a failure put
+   in the first gate it runs (a lint error in a scratch change, reverted after), the command exits non-zero and
+   names that gate; and State records what it gives on the tree as it is (passes, or the gate that already
+   fails).
 4. **Document it** in the project's root `CLAUDE.md`, with any difference from CI stated where the command is
    defined. Skipped when CD chose to leave the project as it is and there's no command. **Check:** `CLAUDE.md`
    has the command's one-line usage, and where the command is defined, each gate CI runs that it doesn't is
