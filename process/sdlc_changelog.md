@@ -37,6 +37,16 @@ Each entry contains:
 
 ---
 
+## 2026-11-22: The factory imported from the incubator (f2af44d..00e091a): v2.9.6 handed back
+
+**Origin:** The incubator took v2.9.6's factory changes in #150.
+
+**Changes made:**
+
+1. **`.claude/skills/zsdlc-import-factory/import.json`** — `last_import` moves to the incubator's merge of #150, `00e091a`. Every bundle file was in sync, and no bundle code or seed changed.
+
+---
+
 ## 2026-11-22: The pilot project's findings: model lookups for the external gate, pinned Node configs, a probe path, and migration fixes
 
 **Origin:** What the pilot project found during its v2.9.4 migration (#95), its browser-route PRs (#96, #97) and its first factory smoke with the route. CD's decision on the external gate (2026-11-21): "OpenAI is the egress and the default should be whatever OpenAI's current highest level model is. We should stray away from naming whatever it is so we don't have to maintain updating it everytime", and "Models should look up GPT models before calling".
