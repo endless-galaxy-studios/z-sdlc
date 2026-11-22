@@ -12,7 +12,7 @@ spec_relevant: false
 project_applicability:
   relevant_when: "Always relevant — cross-project failure patterns"
   action_if_irrelevant: keep
-last_updated: 2026-05-28
+last_updated: 2026-11-22
 
 gotchas:
   - id: dom-not-visual
@@ -145,6 +145,33 @@ gotchas:
     resolution: "Add a source-of-truth comment to every fixture file (e.g., '# Verified against api/schemas/user.py:42 on 2026-05-28') and re-verify when touching the same surface."
     prevention: "Before authoring a test fixture, read the live schema or production payload sample. Schedule periodic fixture-shape audits as part of test maintenance."
     applies_to: "all projects with test fixtures that mock API or service responses"
+
+  - id: playwright-helper-top-level-calls-bind-the-importer
+    severity: medium
+    symptom: "Every spec that imports a helper module gets that helper's settings, hooks or describe configuration, though none of them asked for it"
+    cause: "test.use(), the hooks (test.beforeEach and the rest) and test.describe.configure() attach to the file being loaded when they run. A helper's top-level call runs while the importing spec loads, so it lands on that spec (measured on Playwright 1.61.1)"
+    resolution: "Move the call into a fixture or a function the spec calls explicitly, and give the helper no top-level test calls"
+    prevention: "Keep test.use, hooks and describe.configure in spec files. A check of the specs that a rule holds (every context opened through the project's helper, say) treats an import of a module with such calls as the calls themselves"
+    discovered: "2026-11 — review rounds of a project's static check that its end-to-end specs keep its evidence and network rules"
+    applies_to: "all projects with Playwright Test"
+
+  - id: playwright-fixture-override-keeps-its-scope
+    severity: medium
+    symptom: "An overriding fixture runs once per worker when it was meant to run per test, or the reverse, and state leaks between tests or setup repeats"
+    cause: "A plain function passed to test.extend() for a fixture that already exists keeps the existing fixture's scope; only the tuple form, [fn, { scope }], sets another (Playwright 1.61.1)"
+    resolution: "Write the override as [fn, { scope: 'test' }] (or 'worker'), stating the scope it needs"
+    prevention: "State the scope on every override of a built-in or shared fixture rather than relying on the default"
+    discovered: "2026-11 — review rounds of a project's static check of its end-to-end specs"
+    applies_to: "all projects with Playwright Test"
+
+  - id: playwright-reads-fixture-options-through-the-prototype
+    severity: low
+    symptom: "A static check of fixture definitions or describe.configure options passes, while Playwright runs with an option the check didn't see, or treats as a value what the check took for a fixture"
+    cause: "Playwright reads a fixture tuple's options (value[1].scope) and describe.configure's options by property access, so a value inherited through __proto__ counts, not only an own key. A fixture tuple needs an object at index 1: [fn] alone isn't one (isFixtureTuple), so the fixture's value is that array (Playwright 1.61.1)"
+    resolution: "Read options the way Playwright does (property access, prototype chain included), or refuse any options object that isn't a plain object literal"
+    prevention: "Prefer a run-time check in the module that owns the effect over parsing spec code: a static reading has to match the runner's own reading in every case, and drifts from it ([sdlc-root]/process/factory.md, D6 rule 6)"
+    discovered: "2026-11 — an outside review of a project's static check of its end-to-end specs"
+    applies_to: "projects that check Playwright specs or fixtures by reading their code"
 
   # ─── Project-Specific Gotchas ───
   # Add project-specific gotchas here as they are discovered.

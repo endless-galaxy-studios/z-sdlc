@@ -2,7 +2,7 @@
 # Cross-project general taxonomy for security reviews.
 # Project-specific findings, known vulnerabilities, accepted risks, and audit status
 # belong in the agent body (security-engineer/MEMORY.md).
-# Last updated: 2026-11-05
+# Last updated: 2026-11-22
 
 id: security-review-taxonomy
 name: "Security Review Taxonomy — 7 Domain Framework"
@@ -13,7 +13,7 @@ spec_relevant: false
 project_applicability:
   relevant_when: "Always relevant — all projects have security concerns"
   action_if_irrelevant: keep
-last_updated: 2026-11-05
+last_updated: 2026-11-22
 
 # ─────────────────────────────────────────────
 # Severity Scale
@@ -371,6 +371,44 @@ supply_chain_security:
     review_checks:
       - "Does the change add or edit a file from this list, at any depth, in any letter case?"
       - "Does CODEOWNERS cover each of them, and does a later owner-less line unown one by accident (last match wins)?"
+
+  name_resolved_inputs:
+    name: "Inputs a tool finds by name: search orders and nearest-file lookups"
+    description: >
+      A tool that finds its config, build file or modules by name loads the first name it finds, in its
+      own order, so a file earlier in that order replaces the one the project uses, without editing it.
+      Owning the file in use isn't enough: every name the tool might pick up has to be owned, or pinned.
+      This complements load_on_presence above (files loaded because they exist). There are two kinds, and
+      they need different fixes. The facts below are as measured in 2026-11, on the versions named.
+    root_only_search:
+      description: >
+        The tool looks in one directory (or walks up from it) through a fixed list of names. Own every
+        name in the list, whether or not one exists yet, and pin the file with the tool's flag where it
+        has one, the same way in CI and locally.
+      examples:
+        - "GNU make reads GNUmakefile, then makefile, then Makefile: call make -f Makefile and own the other names"
+        - "GNU make remakes its makefile through built-in implicit rules: on GNU make 4.3, a newer Makefile.sh overwrote Makefile before the run. An empty rule for it (Makefile: ;) stops that"
+        - "python -m puts the current directory first on sys.path, so a module there named like the runner or anything it imports replaces it: a root-level unittest.py made a unittest gate pass with no tests. PYTHONSAFEPATH=1 (Python 3.11+) or python -P leaves it off; python -m pytest has the same gap"
+        - "Vite 6.4: vite.config.js, .mjs, .ts, .cjs, .mts, .cts, in the root only, so an added vite.config.js replaces vite.config.ts (pin: --config). It also loads .env, .env.local, .env.[mode] and .env.[mode].local, and a PostCSS config, when present"
+        - "Vitest 3.2: every vitest.config.* (.ts first) before any vite.config.*, walking up from the root, so an added vitest.config.ts replaces test settings kept in vite.config.ts (pin: --config). Beside its config, a vitest.workspace.* or vitest.projects.* file chooses which tests run unless the config sets test.projects, and no flag pins it"
+        - "ESLint 9.39: eslint.config.js, .mjs, .cjs, .ts, .mts, .cts, from the working directory up (pin: --config, which then reads the config's paths relative to the working directory rather than its own)"
+    nearest_file_lookup:
+      description: >
+        The tool reads, for each file, the nearest config above that file. CODEOWNERS on the root's copy
+        can't stop a file a change adds deeper in the tree: own the name at any depth (**/tsconfig*.json),
+        or pin it with a config option.
+      examples:
+        - "Playwright 1.61.1 applies the nearest tsconfig.json or jsconfig.json paths to each file it loads; the tsconfig option in playwright.config.ts pins one, but only for what loads after the config itself"
+        - "Vite's esbuild transform compiles each file with the nearest tsconfig.json (tsconfck)"
+        - "Node resolves the nearest package.json for each file: its type (ESM or CommonJS) and its # imports"
+        - "TypeScript: an ambient declare module 'x' in any script file in the program wins over the resolved package's own types"
+    mitigations:
+      - "Own every name a tool searches, at every depth it searches, whether or not a file has the name yet"
+      - "Pin with the tool's flag or config option where it has one, in CI as well as locally, so both load the same file"
+      - "Where code a reviewer hasn't seen runs before the check (an agent's working tree, a pull request's job), record the file each tool resolves before that code runs, and fail when the tool would now load another"
+    review_checks:
+      - "Does the change add a file whose name a tool earlier in the chain searches before the project's own (a .js beside a .ts config, a GNUmakefile, a module named like a runner)?"
+      - "Does it add a tsconfig.json, jsconfig.json or package.json below the root, or an ambient module declaration?"
 
   case_aliasing:
     name: "Case and Unicode aliasing on case-insensitive checkouts"

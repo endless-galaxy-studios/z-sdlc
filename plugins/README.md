@@ -51,4 +51,4 @@ pages or templates (`*.tsx`, `*.jsx`, `*.vue`, `*.svelte`, `*.cshtml` files, say
 grep -r "playwright" ~/.claude/settings.json ~/.claude/settings.local.json .claude/settings.json .claude/settings.local.json .mcp.json 2>/dev/null
 ```
 Missing, in a project with UI: "Playwright MCP is recommended for automated UI verification during execution.
-Install via `/plugin install playwright-mcp` or see `[sdlc-root]/plugins/playwright-mcp-setup.md`."
+Install via `/plugin install playwright@claude-plugins-official` or see `[sdlc-root]/plugins/playwright-mcp-setup.md`."

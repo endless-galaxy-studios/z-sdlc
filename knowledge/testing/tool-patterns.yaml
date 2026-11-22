@@ -14,7 +14,7 @@ spec_relevant: false
 project_applicability:
   relevant_when: "Project uses Playwright CLI, Playwright MCP, or an AI browser tool for testing"
   action_if_irrelevant: customize
-last_updated: 2026-03-15
+last_updated: 2026-11-22
 
 playwright_cli:
   version: "1.59.0-alpha"
@@ -79,13 +79,19 @@ ai_browser_tool:
 playwright_mcp:
   abbreviation: "PW MCP"
   role: "Primary interactive browser tool for SDET and debug-specialist agents"
-  setup: "Configured in .mcp.json — available to all agents automatically"
-  tools_prefix: "mcp__playwright__"
+  setup: >-
+    Installed as the official Claude Code plugin (/plugin install playwright@claude-plugins-official) or as a
+    project MCP server (.mcp.json, or claude mcp add playwright npx @playwright/mcp@latest). The tools' names
+    carry the install's prefix (tools_prefix). An agent with no tools: line inherits them; an agent with one gets
+    only what it lists, so it lists each browser tool it uses by its full name.
+  tools_prefix: >-
+    Depends on the install: mcp__plugin_playwright_playwright__ for the plugin, mcp__playwright__ for a server
+    named playwright in .mcp.json. Check the session's tool list before writing a tools: line.
   key_tools:
     navigation: "browser_navigate, browser_navigate_back, browser_tabs"
     interaction: "browser_click, browser_fill_form, browser_hover, browser_press_key, browser_type, browser_select_option, browser_drag, browser_file_upload"
     observation: "browser_snapshot, browser_take_screenshot, browser_console_messages, browser_network_requests"
-    execution: "browser_evaluate, browser_run_code"
+    execution: "browser_evaluate; browser_run_code_unsafe (renamed from browser_run_code: it runs arbitrary JavaScript in the Playwright server's process, outside the browser)"
     lifecycle: "browser_close, browser_resize, browser_handle_dialog, browser_wait_for"
   when_to_use:
     - "Interactive browser validation during test development (see the page before writing assertions)"
@@ -95,6 +101,7 @@ playwright_mcp:
   when_not_to_use:
     - "Running the actual test suite — use `npx playwright test` via Bash"
     - "CI/CD pipelines — MCP requires an active agent session"
+    - "The factory's stages: no MCP server runs in a stage (it would run outside the sandbox, beside the job's credentials). A stage with the browser route runs the project's own Playwright through /opt/factory/with-browser ([sdlc-root]/process/factory.md, D6)"
   workflow:
     - "browser_navigate to your app's local dev URL"
     - "browser_snapshot to get accessibility tree with element refs"

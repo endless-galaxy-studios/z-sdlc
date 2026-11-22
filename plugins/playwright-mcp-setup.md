@@ -7,10 +7,10 @@ The `@playwright/mcp` server gives Claude Code direct browser control — naviga
 | Capability | What It Does | Used By |
 |-----------|-------------|---------|
 | `browser_navigate` | Navigate to a URL in a browser | Execution skills (POST-GATE UI smoke check, Step 0.5 experiential verification) |
-| `browser_screenshot` | Capture the current viewport as an image | POST-GATE visual verification, review agent findings |
+| `browser_take_screenshot` | Capture the current page as an image | POST-GATE visual verification, review agent findings |
 | `browser_click` / `browser_type` | Interact with page elements | Review subagents (golden path walk, interaction testing) |
-| `browser_wait_for_selector` | Wait for a DOM element to appear | Smoke checks (verify page rendered), interaction verification |
-| `browser_console` | Read browser console messages | POST-GATE console error check |
+| `browser_wait_for` | Wait for text to appear or disappear, or for a time to pass | Smoke checks (verify page rendered), interaction verification |
+| `browser_console_messages` | Read browser console messages | POST-GATE console error check |
 
 ## Why It's Recommended
 
@@ -20,11 +20,21 @@ For UI-heavy deliverables (visual editors, multi-phase component work, layout ov
 
 ## Installation
 
-Install via Claude Code:
+Install the official plugin in Claude Code:
 
 ```
-/plugin install playwright-mcp
+/plugin install playwright@claude-plugins-official
 ```
+
+Or add it as a project MCP server, which a `.mcp.json` records for everyone working in the repository:
+
+```
+claude mcp add playwright npx @playwright/mcp@latest
+```
+
+The tools' names carry the install's prefix: `mcp__plugin_playwright_playwright__` for the plugin,
+`mcp__playwright__` for the server. An agent whose frontmatter has a `tools:` line gets only the tools it
+lists, so it names each browser tool it uses in full, with that prefix; an agent without one inherits them.
 
 ## Verification
 
@@ -34,7 +44,7 @@ After installation, verify the tools are available by asking Claude Code:
 What MCP tools do you have access to?
 ```
 
-You should see `browser_navigate`, `browser_screenshot`, `browser_click`, and related tools in the list. The exact tool names may vary by server version — check the `@playwright/mcp` documentation via Context7 for the current API surface.
+You should see `browser_navigate`, `browser_take_screenshot`, `browser_click`, and related tools in the list. The exact tool names may vary by server version — check the `@playwright/mcp` documentation via Context7 for the current API surface.
 
 ## How It's Used in the SDLC
 
