@@ -229,7 +229,9 @@ role, through the real route; an MCP token bound to the reader's connection fail
 ### 3.5 Smoke, then one real issue
 
 1. **Step 11:** `factory-smoke`. Every job passes; `mcp-services` runs when `services.json` lists an
-   MCP service, and `browser-host` when `factory.json` names a browser host (Enablement step 14).
+   MCP service, and `browser-host` when `factory.json` names a browser host (Enablement step 14). Smoke
+   checks out the default branch, so the browser route takes two PRs: its settings, smoked once they
+   merge, then `browser.stages`.
 2. **One trivial real issue** through triage, plan, implement and the PR. Smoke proves the plumbing,
    not `verify` on the project's code, nor planning's data access.
 

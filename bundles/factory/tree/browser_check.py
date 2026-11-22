@@ -13,7 +13,9 @@ both:    the probe connected to the browser host's front end through with-browse
          for another browser, its own launch options and loopback only, in its headers and its query, gets the
          forced Chromium and flags and none of its own. Given the project's first allowed outside host
          (browser.allow), Node's fetch reaches it, through the sandbox's proxy in the agent run: the path a project's
-         route helper depends on. With none allowed, the probe says so.
+         route helper depends on. With the entry's probe path, the probe's GET of it must answer 2xx, so the host
+         serves what specs fetch; without one, any answer to a HEAD of its root counts. With none allowed, the probe
+         says so.
 control: run outside the sandbox, with network and a canary credential in its environment (never a real token:
          it runs the project's own Playwright). The outside world, by name and by address, must answer through the
          tunnel, and the canary must be found, which proves the agent run's refusals and its clean environment are
@@ -86,6 +88,9 @@ def judge(lines, mode, gpu=True, allow=None):
             failures.append("probe output has no 'allowed' line")
         elif got["allowed"][0] != want_allowed or (allow and got["allowed"][1].split(" ", 1)[0] != allow):
             reason = WHY["allowed"] if allow else "the probe saw an allowed host, but factory.json's browser.allow has none"
+            if allow and got["allowed"][0] == "answered":
+                reason = ("the project's allowed outside host answered browser.allow's probe path with a status other "
+                          "than 2xx: it doesn't serve what the specs fetch")
             failures.append(f"{reason}: {got['allowed'][0]} {got['allowed'][1]}".rstrip())
     want = dict(BOTH, **(CONTROL if mode == "control" else AGENT))
     for check, result in want.items():

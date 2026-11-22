@@ -11,8 +11,9 @@ agent starts. When factory.json's browser block names a browser host and lists t
   the sandbox's proxy lets a sandboxed command reach that front end and nothing else on the host;
 - adds each outside host CD approved for the browser route (browser.allow: one host each, port 443, with why and who
   decided it; D6 rule 6) to the same list, so a sandboxed command can fetch from it through the proxy;
-- writes <conf-out> (host, port, version, the client's directory, the allowed hosts, and video: 1 for the stages
-  whose reproducing and verifying runs record video, 0 for smoke), which with-browser reads.
+- writes <conf-out> (host, port, version, the client's directory, the allowed hosts, the first one's probe path
+  for factory-smoke, and video: 1 for the stages whose reproducing and verifying runs record video, 0 for smoke),
+  which with-browser reads.
 Otherwise it changes nothing and says why: with no browser.conf, with-browser reports the browser host unavailable,
 and a stage reports `blocked`, never that a bug was reproduced or ruled out.
 
@@ -37,6 +38,9 @@ KEYS = {"_doc", "host", "port_base", "gpu", "stages", "client", "allow"}
 # like): a browser host anywhere else would be reached without the firewall's say.
 PRIVATE = [ipaddress.IPv4Network(n) for n in ("10.0.0.0/8", "100.64.0.0/10", "172.16.0.0/12", "192.168.0.0/16")]
 ALLOW_KEYS = {"host", "why", "decided"}
+# An entry's optional probe: a path on the host that answers 2xx to a GET, which factory-smoke fetches from the first
+# entry (D6 rule 4). Plain path and query characters only, since it becomes a browser.conf line and a URL.
+ALLOW_PROBE = re.compile(r"/[A-Za-z0-9._~%/+-]{0,400}(\?[A-Za-z0-9._~%&=+/-]{0,400})?")
 # One plain hostname: no wildcard, port, scheme or address (an address would pass the sandbox's own address checks).
 ALLOW_HOST = re.compile(r"(?=.{1,253}\Z)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}")
 # Names that mean this machine or the local network. The strict tier's firewall rejects private addresses and the
@@ -83,13 +87,18 @@ def block(factory):
         raise Invalid("browser.allow must be a list")
     hosts = []
     for entry in allow:
-        if not isinstance(entry, dict) or set(entry) != ALLOW_KEYS \
+        if not isinstance(entry, dict) or not ALLOW_KEYS <= set(entry) <= ALLOW_KEYS | {"probe"} \
                 or not all(isinstance(entry[k], str) and entry[k].strip() for k in ALLOW_KEYS):
-            raise Invalid('each browser.allow entry is {"host", "why", "decided"}, each one written out (D6 rule 6)')
+            raise Invalid('each browser.allow entry is {"host", "why", "decided"}, each one written out, and optionally '
+                          '"probe" (D6 rule 6)')
+        if "probe" in entry and not (isinstance(entry["probe"], str) and ALLOW_PROBE.fullmatch(entry["probe"])):
+            raise Invalid(f"browser.allow's probe is a path on the host, starting with /: got {entry['probe']!r}")
         if not ALLOW_HOST.fullmatch(entry["host"]) or LOCAL_NAME.search(entry["host"]) or entry["host"] in hosts:
             raise Invalid(f"browser.allow names one plain hostname per entry, once: got {entry['host']!r}")
         hosts.append(entry["host"])
-    return {"host": host, "port_base": base, "stages": stages, "gpu": gpu, "client": client, "allow": hosts}
+    probe = allow[0].get("probe", "") if allow else ""
+    return {"host": host, "port_base": base, "stages": stages, "gpu": gpu, "client": client, "allow": hosts,
+            "probe": probe}
 
 
 def client_version(directory):
@@ -154,8 +163,10 @@ def main():
         pathlib.Path(settings_path).write_text(json.dumps(add_route(settings, host, port, allow), indent=2) + "\n")
         conf = pathlib.Path(conf_path)
         conf.parent.mkdir(parents=True, exist_ok=True)
-        conf.write_text(f"host={host}\nport={port}\nport_base={block(factory)['port_base']}\nversion={version}\n"
-                        f"client={client}\nallow={' '.join(allow)}\nvideo={0 if stage == 'smoke' else 1}\n")
+        b = block(factory)
+        conf.write_text(f"host={host}\nport={port}\nport_base={b['port_base']}\nversion={version}\n"
+                        f"client={client}\nallow={' '.join(allow)}\nprobe={b['probe']}\n"
+                        f"video={0 if stage == 'smoke' else 1}\n")
         conf.chmod(0o644)
     except (Invalid, OSError, ValueError) as e:
         print(f"::error::browser: {e}")

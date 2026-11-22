@@ -113,7 +113,16 @@ class Route(unittest.TestCase):
         r, settings, conf = self.run_main(self.factory(stages=["implement"], allow=allow), "implement")
         self.assertEqual(r.returncode, 0, r.stdout)
         self.assertIn("cdn.example.org:443", settings["sandbox"]["network"]["allowedDomains"])
-        self.assertIn("allow=cdn.example.org\n", conf.read_text())
+        self.assertIn("allow=cdn.example.org\nprobe=\n", conf.read_text())
+        # The first entry's probe path, for factory-smoke's GET (D6 rule 4); a later entry's isn't fetched.
+        probed = [dict(allow[0], probe="/cards/a1/front.webp?v=2"),
+                  {"host": "fonts.example.org", "why": "x", "decided": "CD", "probe": "/other.css"}]
+        r, _, conf = self.run_main(self.factory(stages=["implement"], allow=probed), "implement")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("allow=cdn.example.org fonts.example.org\nprobe=/cards/a1/front.webp?v=2\n", conf.read_text())
+        for bad in ("cards/front.webp", "/a b", "/x\nvideo=1", "https://cdn.example.org/x", "/x#top", "/x;y", 5, ""):
+            with self.subTest(probe=bad), self.assertRaises(browser.Invalid):
+                browser.route(self.factory(allow=[dict(allow[0], probe=bad)]), "smoke", self.ws)
         # Each entry is one plain hostname, with why and who decided it, written out.
         for bad in ([{"host": "*.example.org", "why": "x", "decided": "CD"}],
                     [{"host": "cdn.example.org:8443", "why": "x", "decided": "CD"}],
@@ -156,7 +165,7 @@ class Route(unittest.TestCase):
         self.assertIn(f"{HOST}:3161", settings["sandbox"]["network"]["allowedDomains"])
         self.assertEqual(conf.read_text(),
                          f"host={HOST}\nport=3161\nport_base=3100\nversion=1.61.1\nclient={(self.ws / 'web').resolve()}\nallow=\n"
-                         "video=1\n")
+                         "probe=\nvideo=1\n")
 
     def test_main_changes_nothing_when_off(self):
         r, settings, conf = self.run_main(self.factory(stages=[]), "revise")
@@ -332,6 +341,15 @@ class WrapperRoute(unittest.TestCase):
         self.assertTrue(connect.startswith(f"CONNECT 10.20.30.40:{port} "), connect)
         self.assertIn("proxy-authorization: basic " + base64.b64encode(b"srt.abc%3D%3D:secret").decode().lower(), connect.lower())
 
+    def test_the_probe_path_for_smoke(self):
+        self.fake = FakeFrontEnd()
+        base = f"host=127.0.0.1\nport={self.fake.front_port}\nversion=1.61.1\nclient=/w\nallow=cdn.example.org\n"
+        for conf, want in ((base + "probe=/cards/front.webp\n", "/cards/front.webp"), (base, "")):
+            with self.subTest(conf=conf.splitlines()[-1]):
+                r = self.run_wrapper(conf, show='echo "[$FACTORY_BROWSER_PROBE]"')
+                self.assertEqual(r.returncode, 0, r.stderr)
+                self.assertEqual(r.stdout.strip(), f"[{want}]")
+
     def test_the_stage_says_whether_to_record_video(self):
         self.fake = FakeFrontEnd()
         base = f"host=127.0.0.1\nport={self.fake.front_port}\nversion=1.61.1\nclient=/w\nallow=\n"
@@ -451,6 +469,14 @@ class Verdict(unittest.TestCase):
         self.assertEqual(browser_check.judge(CONTROL, "control", allow="cdn.example.org"), [])
         refused = swap(AGENT, "allowed", "allowed unreached cdn.example.org UND_ERR_SOCKET")
         self.assertTrue(any("browser.allow" in f for f in browser_check.judge(refused, "agent", allow="cdn.example.org")))
+        # With the entry's probe path, the GET must answer 2xx: another answer has its own reason.
+        got = swap(AGENT, "allowed", "allowed reached cdn.example.org 200 GET /cards/front.webp")
+        self.assertEqual(browser_check.judge(got, "agent", allow="cdn.example.org"), [])
+        answered = browser_check.judge(swap(AGENT, "allowed", "allowed answered cdn.example.org 522 GET /cards/front.webp"),
+                                       "agent", allow="cdn.example.org")
+        self.assertEqual(len(answered), 1)
+        self.assertIn("status other than 2xx", answered[0])
+        self.assertIn("522 GET /cards/front.webp", answered[0])
         # Another host than the project's first, or none where the project allows one, fails.
         self.assertTrue(browser_check.judge(swap(AGENT, "allowed", "allowed reached other.example.org 200"), "agent",
                                             allow="cdn.example.org"))

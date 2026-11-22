@@ -138,14 +138,21 @@ function otherPort() {
 }
 
 // The first outside host CD allowed (factory.json browser.allow), fetched the way a project's route helper fetches
-// it: Node's fetch, through the sandbox's proxy when there is one (with-browser sets NODE_USE_ENV_PROXY). One HEAD
-// request per run; any HTTP status means the path works.
+// it: Node's fetch, through the sandbox's proxy when there is one (with-browser sets NODE_USE_ENV_PROXY). One request
+// per run, and factory-smoke runs this twice (the control and the agent). With the entry's probe path
+// (FACTORY_BROWSER_PROBE), a GET of it, which must answer 2xx: the host serves what the specs fetch. Without one, a
+// HEAD of the root, where any HTTP status proves only the path through the proxy (a CDN with nothing at its root
+// answers 522), so the line says so.
 async function allowedHost() {
   const host = (process.env.FACTORY_BROWSER_ALLOW || "").split(/\s+/).filter(Boolean)[0];
   if (!host) return out("allowed", "none", "browser.allow is empty");
+  const probe = process.env.FACTORY_BROWSER_PROBE || "";
   try {
-    const r = await fetch(`https://${host}/`, { method: "HEAD", redirect: "manual", signal: AbortSignal.timeout(15000) });
-    out("allowed", "reached", `${host} ${r.status}`);
+    const r = await fetch(`https://${host}${probe || "/"}`,
+      { method: probe ? "GET" : "HEAD", redirect: "manual", signal: AbortSignal.timeout(15000) });
+    if (!probe) return out("allowed", "reached", `${host} ${r.status} HEAD /: any answer counts; browser.allow's probe checks content`);
+    await r.body?.cancel().catch(() => {});
+    out("allowed", r.status >= 200 && r.status < 300 ? "reached" : "answered", `${host} ${r.status} GET ${probe}`);
   } catch (e) {
     const cause = e && e.cause && (e.cause.code || e.cause.message);
     out("allowed", "unreached", `${host} ${cause || why(e)}`);
