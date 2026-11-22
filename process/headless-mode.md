@@ -15,6 +15,8 @@ Otherwise the run is interactive, and the ordinary rules apply.
 
 **Subagents.** A dispatched subagent is never headless itself: it has no ask tool in any session, and it returns questions, DECIDE items and escalations to its orchestrator. In a headless run, the orchestrator says so in every dispatch prompt: the run is headless, outward actions are off limits (§ Outward Actions Go to the Caller), and questions come back to the orchestrator rather than being guessed. The limits bind the subagent through that prompt.
 
+**A skill run inside a subagent** (an orchestrator handing it a whole skill or one of its phases, such as a migration's Phase 1) can't ask either. At each point the skill asks CD, it stops as a headless run does (§ The Rule): it saves its work and returns the questions, or the plan awaiting approval, in the result format below. The orchestrator then asks CD, with its own ask tool and in the form the skill asks for (one question per file, say), and passes the answers to the run that continues. In a headless run the orchestrator stops with them instead. The run doesn't take a default for CD's decision because it has no way to ask.
+
 ## The Rule
 
 **Every point that needs CD stops the run.** At a question the next step depends on, an approval, or an escalation, the run stops at that point and returns what CD needs to see. It never guesses an answer, never takes a default for a decision CD owns, never approves its own work, and never skips the gate to keep going.

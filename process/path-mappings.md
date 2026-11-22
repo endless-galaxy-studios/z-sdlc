@@ -12,6 +12,7 @@ Throughout this migration, apply these transformations when copying or merging c
 | `templates/*` (manifest-listed files) | `[sdlc-root]/templates/` |
 | `playbooks/` | `[sdlc-root]/playbooks/` |
 | `examples/` | `[sdlc-root]/examples/` |
+| `README.md` (the top-level one) | `[sdlc-root]/README.md` |
 | `agents/` | `.claude/agents/` (always — Claude Code requires this location) |
 | `skills/` | `.claude/skills/` (always — Claude Code requires this location), including a skill's `references/` and `scripts/` |
 | `bundles/<bundle>/tree/` (an installed bundle's `tree.from`) | the bundle's `tree.to` (the factory: `.github/factory/`), same relative paths, executable bits kept |

@@ -277,7 +277,7 @@ For each directory in manifest.directories:
 
 **Copy files by category** using the source → target path mappings in `[sdlc-root]/process/path-mappings.md`. The key transforms: `knowledge/` → `[sdlc-root]/knowledge/`, `agents/` → `.claude/agents/`, `skills/` → `.claude/skills/`, and process/templates/disciplines/playbooks → `[sdlc-root]/` subdirectories.
 
-**Safe file extraction:** See `[sdlc-root]/process/source-repo-safety.md` for verified-content extraction patterns. The core rule: never use shell redirection (`git show > file`) — it truncates the target before git show runs, leaving empty files on failure.
+**Safe file extraction:** See `[sdlc-root]/process/source-repo-safety.md` for verified-content extraction patterns. The core rule: never redirect into a project file (`git show > file`) — it truncates the target before git show runs, leaving empty files on failure. A new file in a scratch directory outside the project is allowed once the command's exit status is checked.
 
 **Not installed to child projects:**
 - `templates/optional/` — Conditional CLAUDE.md appendices (e.g., `data-pipeline-integrity.md`). Read from z-sdlc source during Phase 2 when needed, not installed.
@@ -365,7 +365,7 @@ When no adapter is found, behavior is identical to before this protocol existed.
   "source_version": "<latest semver release tag from z-sdlc source (e.g., 'v1.4.0'), or 'unknown'>",
   "source_version_sha": "<commit SHA of the release tag, for precise diff resolution>",
   "install_date": "<ISO 8601 timestamp>",
-  "file_count": <number of files installed>,
+  "file_count": <number of entries in installed_files>,
   "sdlc_root": "<SDLC_ROOT value from detection above>",
   "installed_bundles": ["design"],
   "bundle_fragments": {},

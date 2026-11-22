@@ -12,7 +12,9 @@ Never use `cat`, `cp`, `ls`, or direct file reads against `[z-sdlc-path]`. The s
 
 ## Safe File Extraction (CRITICAL)
 
-**Never use direct shell redirection** to extract files: `git show HEAD:<path> > file` is UNSAFE because shell redirection truncates the target file *before* `git show` runs. If `git show` fails for any reason (path doesn't exist, clone was cleaned up, permission error), the target file is left empty — destroying the project's content.
+**Never use direct shell redirection** to extract files into the project: `git show HEAD:<path> > file` is UNSAFE because shell redirection truncates the target file *before* `git show` runs. If `git show` fails for any reason (path doesn't exist, clone was cleaned up, permission error), the target file is left empty — destroying the project's content.
+
+**A scratch file outside the project is the exception.** Redirecting into a new file in a scratch directory (the session's scratchpad, or a `mktemp -d` directory) destroys nothing when it fails, so it's allowed for reading and comparing, provided the command's exit status is checked before the file is used: `git -C [z-sdlc-path] show [target_tag]:<path> > "$tmp/<name>" || exit 1`. Anything copied from there into the project goes through the verify-before-overwriting pattern below.
 
 **Safe pattern — verify before overwriting:**
 ```bash

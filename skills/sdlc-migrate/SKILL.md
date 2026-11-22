@@ -22,7 +22,7 @@ Apply z-sdlc upstream updates to a project while keeping the changes the project
 
 ## Source Repo Access Rule
 
-**All reads from z-sdlc MUST use git commands** (`git -C [z-sdlc-path] show [target_tag]:<path>`), never filesystem reads. **Never use shell redirection** (`git show > file`) — it silently destroys targets on failure. Full rules and safe extraction patterns: see `[sdlc-root]/process/source-repo-safety.md`.
+**All reads from z-sdlc MUST use git commands** (`git -C [z-sdlc-path] show [target_tag]:<path>`), never filesystem reads. **Never redirect into a project file** (`git show > file`) — it silently destroys targets on failure; a new file in a scratch directory outside the project is allowed once the command's exit status is checked. Full rules and safe extraction patterns: see `[sdlc-root]/process/source-repo-safety.md`.
 
 **`[target_tag]`** is the latest semver release tag in the z-sdlc source repo (e.g., `v1.4.0`). Resolved once during Pre-Flight and used as the git ref for every source read. Never use bare `HEAD` while the source has a release tag — it may point past the latest release if the source repo has unreleased commits. Only a source with no release tags at all falls back to `HEAD` (Pre-Flight 1b), and the report says the run targeted unreleased commits.
 
@@ -258,7 +258,7 @@ Surface drifted files in the §1.3 change manifest with a `⚠ DRIFT` marker so 
 
 **Why this matters:** Without drift detection, migration silently overwrites manual edits to framework files. With it, every unexpected edit gets surfaced and consented before being touched.
 
-**Deviations and marks are decided here too, before anything is written.** After the drift gate, run deviation detection (§2.1c) and the mark review (§2.1d), reading only, over the files Phase 2 will write, which §2.1 defines from the §1.1 change list: those upstream changed since `source_version`, those upstream added, every framework file in a full migration, and a plugin guide that differs from the release's. Add every framework file the project lacks that isn't declined (§2.1c § A framework file the project lacks). Phase 2 writes nothing else, so a file it won't write isn't asked about; its unmarked changes come up when a release next changes it. Ask once per file: a drifted file's `drift_decision` is its deviation decision, a re-applied hunk is written as a mark (an addition or a replacement), never left bare, and a file kept unmarked by an earlier migration's rules (its hash is clean, its content differs from upstream at `source_version`) is asked about as a deviation. **The Phase 1 decision point:** put the §1.2 summary, its "Proceed with migration?", and every question this pass found to CD together, as one message: the summary first; then, per file, each question with its options and a proposed answer (a proposed mark's label, target and why written out, so CD can edit it in place); then Proceed / Stop. Interactive runs ask the file questions with `AskUserQuestion` (one question per file, an option per answer, CD's edits in its free-text field). Log each answer with what Phase 2 needs to act on it (`gate` for proceed; `deviation_decision` with each mark's label, target and why; `marker_review_decision`). Phase 2 writes the marks and applies the decisions, and asks nothing. **Headless:** ask nothing: the decision point is the approval gate of migrate's change plan (`[sdlc-root]/process/headless-mode.md`, the Approval gate row). Put the plan in the result in full: the §1.2 summary, and every drift, deviation, mark and missing-file question with its proposed answer (each mark's label, target and why). Stop with `awaiting-approval`, nothing written to the project's files. The next run executes exactly what CD approved, and stops again if the project changed since.
+**Deviations and marks are decided here too, before anything is written.** After the drift gate, run deviation detection (§2.1c) and the mark review (§2.1d), reading only, over the files Phase 2 will write, which §2.1 defines from the §1.1 change list: those upstream changed since `source_version`, those upstream added, every framework file in a full migration, and a plugin guide that differs from the release's. Add every framework file the project lacks that isn't declined (§2.1c § A framework file the project lacks). Phase 2 writes nothing else, so a file it won't write isn't asked about; its unmarked changes come up when a release next changes it. Ask once per file: a drifted file's `drift_decision` is its deviation decision, a re-applied hunk is written as a mark (an addition or a replacement), never left bare, and a file kept unmarked by an earlier migration's rules (its hash is clean, its content differs from upstream at `source_version`) is asked about as a deviation. **The Phase 1 decision point:** put the §1.2 summary, its "Proceed with migration?", and every question this pass found to CD together, as one message: the summary first; then, per file, each question with its options and a proposed answer (a proposed mark's label, target and why written out, so CD can edit it in place); then Proceed / Stop. Interactive runs ask the file questions with `AskUserQuestion` (one question per file, an option per answer, CD's edits in its free-text field). **Run by a subagent,** which has no ask tool: stop with the decision point as a headless run does, and the orchestrator asks CD, one question per file as above, and passes the answers to the run that does Phase 2 (`[sdlc-root]/process/headless-mode.md` § Subagents). Log each answer with what Phase 2 needs to act on it (`gate` for proceed; `deviation_decision` with each mark's label, target and why; `marker_review_decision`). Phase 2 writes the marks and applies the decisions, and asks nothing. **Headless:** ask nothing: the decision point is the approval gate of migrate's change plan (`[sdlc-root]/process/headless-mode.md`, the Approval gate row). Put the plan in the result in full: the §1.2 summary, and every drift, deviation, mark and missing-file question with its proposed answer (each mark's label, target and why). Stop with `awaiting-approval`, nothing written to the project's files. The next run executes exactly what CD approved, and stops again if the project changed since.
 
 **Back-fill path (projects initialized before `installed_files` was introduced):**
 
@@ -578,7 +578,7 @@ Knowledge YAML files hold upstream's entries and the project's own. Upstream's e
 
 1. Read the project's current version of the file
 2. Read the previous upstream version (at `source_version` commit): `git -C [z-sdlc-path] show [source_version]:<path>`
-3. Diff the project's version against the previous upstream version, after setting aside what isn't a project change: the values the framework leaves the project to set (`[sdlc-root]/process/project-section-markers.md` § When Markers Are Needed: filled placeholders, agent names, resolved guards, the SDLC root, `spec_relevant`, `last_updated`), `BUNDLE-SECTION` blocks (upstream's), what existing marks cover, separators and blank lines (between sections, and beside marks within one: they follow upstream; § Target Grammar), a discipline file's project-data sections (§2.3), and, in an adapter-backed project, the adapter's own transforms (run its `post-file-write` transform on the baseline copy before diffing)
+3. Diff the project's version against the previous upstream version, after setting aside what isn't a project change: the values the framework leaves the project to set (`[sdlc-root]/process/project-section-markers.md` § When Markers Are Needed: filled placeholders, agent names, resolved guards, the SDLC root (the chosen path, not `CLAUDE.md`'s note naming both roots, which is framework text), `spec_relevant`, `last_updated`), `BUNDLE-SECTION` blocks (upstream's), what existing marks cover, separators and blank lines (between sections, and beside marks within one: they follow upstream; § Target Grammar), a discipline file's project-data sections (§2.3), and, in an adapter-backed project, the adapter's own transforms (run its `post-file-write` transform on the baseline copy before diffing)
 4. Identify changes that are:
    - **Inside markers** — already protected, will be preserved automatically (§2.1 marker preservation)
    - **Outside markers** — project customizations that will be lost on overwrite
@@ -607,13 +607,15 @@ Confirm or edit each.
 
 A removal is shown as one: "the project removed `[target]`, which upstream still has". Marking it keeps it removed.
 
-**A framework file the project lacks** (any file in `skeleton/manifest.json` → `source_files` at `[target_tag]`, at its installed path per `[sdlc-root]/process/path-mappings.md`, that isn't on disk and isn't in `declined_files`, whether or not this release changed it) is asked about once:
+**A framework file the project lacks** (any file in `skeleton/manifest.json` → `source_files` at `[target_tag]`, at its installed path per `[sdlc-root]/process/path-mappings.md`, that isn't on disk and isn't in `declined_files`, whether or not this release changed it) is asked about once. `.claude/agents/AGENT_SUGGESTIONS.md` is the exception: the installer deletes it once the project's agents exist (`sdlc-initialize` Phase 12), so it is never asked about, recorded or restored.
 
 ```
 MISSING: [installed path] (upstream: [source path])
 1. Keep it removed — recorded in declined_files. Why: [proposed from the commit that deleted it, if one did; else ask]
 2. Restore it — Phase 2 copies upstream's and records its hash
 ```
+
+Several missing files may be put as one table, a row per file with these fields and a proposed answer. Restoring needs no why: it puts back what upstream ships.
 
 §4.5 writes a kept removal with CD's why and the date CD answered (headless: the date CD approved the change plan). `declined_files` absent from the manifest reads as empty. This is also how a file comes back: CD removes its record, and the next migration asks. A bundle file the project lacks is copied back: a bundle is declined whole.
 
@@ -644,7 +646,7 @@ Any deviation that fixes framework text rather than adding project content, mark
 
 2. **Identify the SDLC section boundaries** in the project's `CLAUDE.md`:
    - If it has `<!-- SDLC-START -->` / `<!-- SDLC-END -->` lines (the installer writes them), the region between them is the SDLC content.
-   - Otherwise, an SDLC section is a `##` section (with its `###` subsections, up to the next `##`) whose heading is a `##` heading of `CLAUDE-SDLC.md` at `[target_tag]` or at `source_version`, so a section upstream renamed is still found. A `##` section matching neither is the project's own, outside the SDLC region: kept whole, with no mark needed. Phase 2 then writes the two lines around the SDLC sections it found, so later migrations needn't match headings: `SDLC-START` before the first, `SDLC-END` after the last, with any adapter-written lines at the end of that section inside it (they're the adapter's, § When Markers Are Needed).
+   - Otherwise, an SDLC section is a `##` section (with its `###` subsections, up to the next `##`) whose heading is a `##` heading of `CLAUDE-SDLC.md` at `[target_tag]` or at `source_version`, so a section upstream renamed is still found. A `##` section matching neither is the project's own, outside the SDLC region: kept whole, with no mark needed. Phase 2 then writes the two lines around the SDLC sections it found, so later migrations needn't match headings: `SDLC-START` before the first, `SDLC-END` after the last, with any adapter-written lines at the end of that section inside it (they're the adapter's, § When Markers Are Needed). Lines in an adapter's own form (the block an adapter plugin writes, which it finds by its opening line) stay the adapter's when the manifest names no adapter now: kept, not asked about as a deviation, and listed under the report's **Preserved** so CD can remove them if the adapter is gone.
    - A `##` section upstream added goes after the SDLC section it follows upstream.
 
 3. **Compare and update:**
@@ -771,12 +773,14 @@ For each agent in `.claude/agents/`:
 
 ### 3.3 Update Agent-Context-Map (if needed)
 
-The agent-context-map is **never overwritten** because projects have their own agent names. But it must be updated for four scenarios. A declined knowledge file (`declined_files`) is never wired in, under any of them:
+The agent-context-map is **never overwritten** because projects have their own agent names. But it must be updated for five scenarios. A declined knowledge file (`declined_files`) is never wired in, under any of them:
 
-**New knowledge files added to existing roles:** If z-sdlc added new YAML files that are relevant to existing agents:
+**New mappings for existing roles:** If z-sdlc added new YAML files that are relevant to existing agents, or mapped an existing file to a role (a path added to a role's list in the source's `agent-context-map.yaml` since `source_version`):
 1. Read the project's `agent-context-map.yaml`
-2. Read the z-sdlc source's `agent-context-map.yaml` for the new mappings
+2. Read the z-sdlc source's `agent-context-map.yaml` for the new mappings (`git diff [source_version]..[target_tag] -- knowledge/agent-context-map.yaml` shows what was added)
 3. Add new file paths to the project's existing agent entries (matching by role, not by exact name)
+
+**Restored knowledge files:** A knowledge file CD chose to restore (§2.1c, a framework file the project lacks) is wired like a new one: add the source map's paths for it to the project's matching agent entries.
 
 **New role entries:** If z-sdlc added an entirely new role section to the agent-context-map (e.g., `business-analyst`):
 1. Read the project's `agent-context-map.yaml`
@@ -845,7 +849,7 @@ New or updated knowledge files and process docs may conflict with or improve the
    - Compare project-added rules against newly landed upstream rules for contradictions
    - **Do not modify files.** Collect findings.
 
-**Present findings via `AskUserQuestion`:**
+**Present findings via `AskUserQuestion`** (run by a subagent: return them for the orchestrator to ask, `[sdlc-root]/process/headless-mode.md` § Subagents):
 
 ```
 DOWNSTREAM IMPACT ANALYSIS
@@ -971,6 +975,7 @@ The project's `CLAUDE.md` contains CLAUDE-SDLC.md content — skill names, proce
 > - Content-merge preserved project data (tracker levels, parking lot entries, skill customizations)
 > - CLAUDE-SDLC.md references in CLAUDE.md are valid
 > - `.claude/agents/sdlc-compliance-auditor.md` is present and current
+> - The manifest §4.5 is about to write. `.sdlc-manifest.json` on disk keeps the previous version's values until then, so judge Dimension 7 against these instead: `source_version` [target_tag], `source_version_sha` [the tag's commit], `declined_files` [after this run's decisions], `file_count` [§4.5 step 4c], and the new hash of every file this run wrote: [path → sha256]
 >
 > **Context:** This audit runs immediately after migration applied changes. Uncommitted files in the working tree are expected — the user has not committed yet. Do NOT flag uncommitted migration files as findings.
 
@@ -1008,6 +1013,7 @@ After migration, update `.sdlc-manifest.json`:
 4. **Update `installed_bundles`** to include any bundles CD accepted in §4.7.
 4a. **Update `bundle_fragments`** to reflect every `BUNDLE-SECTION` fragment injected this run (§2.1 step 7 and §4.7 installs): label `bundle/fragment` → target path. Remove entries for fragments upstream no longer declares (their blocks were stripped by §2.1 step 7's strip pass and not re-added).
 4b. **Update `declined_files`** from the run's decisions: add each file CD kept removed (`{"why": ..., "decided": "CD, <date>"}`), drop each one CD took back or upstream deleted, and move each one upstream moved. A declined file has no `installed_files` entry: drop it there.
+4c. **Set `file_count`** to the number of `installed_files` entries after steps 2 to 4b, as `sdlc-initialize` counts it (add the field if the manifest lacks it).
 5. **Update `last_applied_contract_id`** to the newest `id` in `contract_changes.yaml`. Do this only after §4.3a, §4.7, and every other pending-change consumer has run successfully — if any of them failed, leave the old id so the next migration retries.
 
 ```bash
@@ -1170,7 +1176,7 @@ This is automatic (contract 0017): don't ask CD. Exit 2 means the files didn't p
 
 ### 4.7 Offer Newly Debuted Bundles and Setup Runbooks
 
-Two offers follow the migration report, each made whether or not the other has anything to offer: newly debuted bundles, then `setup` runbooks (the end of this section).
+Two offers follow the migration report, each made whether or not the other has anything to offer: newly debuted bundles, then `setup` runbooks (the end of this section). Run by a subagent, return both offers for the orchestrator to put to CD (`[sdlc-root]/process/headless-mode.md` § Subagents).
 
 After the migration report, surface any `bundle_debut` entry in **pending_changes** whose bundle isn't already installed. Only debut entries pending for this migration trigger the offer — bundles CD previously declined (debut entry is no longer pending because `last_applied_contract_id` has advanced past it) are not re-offered. This prevents nagging every migration about the same bundle.
 
