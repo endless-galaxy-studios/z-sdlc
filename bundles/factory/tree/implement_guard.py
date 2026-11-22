@@ -97,7 +97,8 @@ GOVERNING_KNOWLEDGE = tuple("ops/sdlc/knowledge/" + name for name in (
 # factory.md's list has a sample here.
 NODE_BUILD_FILES = (
     "package.json", ".npmrc", "eslint.config.js", "eslint.config.mjs", ".eslintrc.json", ".eslintrc.js",
-    "tsconfig.json", "tsconfig.app.json", "vite.config.ts", "vitest.config.ts", "vitest.workspace.ts",
+    "tsconfig.json", "tsconfig.app.json", "vite.config.ts", "vite.config.js", "vite.config.mjs", "vitest.config.ts",
+    "vitest.config.js", "vitest.workspace.ts",
     "postcss.config.js", "postcss.config.mjs", ".postcssrc", ".postcssrc.json", "babel.config.js", ".babelrc",
     ".babelrc.json")
 # Each package manager's own files: npm (python-node) reads its lockfile; pnpm its lockfile, workspace file and

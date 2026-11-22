@@ -10,7 +10,8 @@
 #   dotnet       build and test, Release, through with-test-services (it reaches the test database);
 #                tests in the categories Nightly (long suites with their own schedule) and External
 #                (they need the network or a secret, which a job doesn't have) are left out
-#   node         lint, type check, unit tests (vitest) and production build (vite)
+#   node         lint, type check, unit tests (vitest) and production build (vite), each with the config
+#                file recorded before the agent started
 #   probe        what an agent job needs works here: the test database through the sandbox's proxy,
 #                a .NET build from the restored packages, and the Node toolchain (factory-smoke's
 #                implement-tools probe); prints probe-ok when all do
@@ -28,6 +29,23 @@ node_dir=$(sed -n 's/^node=//p' "$here/verify.conf")
 wrap=$here/with-test-services
 bin=node_modules/.bin
 
+# The config file each Node tool loads, recorded in verify.conf before the agent started (node_configs.py):
+# passed to the tool, and checked first, so a config file added since fails the node area instead of
+# quietly replacing the project's (CI's run would load it). ESLint is pinned only from the node directory:
+# given --config, it reads the config's paths from the working directory rather than the config's own.
+pin() {
+  local v
+  grep -q "^$1=" "$here/verify.conf" || { echo "verify: no $1= line in $here/verify.conf: agent_job.sh workspace records it" >&2; exit 2; }
+  v=$(sed -n "s/^$1=//p" "$here/verify.conf")
+  [[ -z $v || $v =~ ^(\.\./)*[A-Za-z0-9._-]+$ ]] || { echo "verify: $1= in $here/verify.conf names no config file: $v" >&2; exit 2; }
+  [[ $1 == eslint_config && $v == ../* ]] && v=
+  flag=${v:+ --config $v}
+}
+pin eslint_config; eslint=$flag
+pin vite_config; vite=$flag
+pin vitest_config; vitest=$flag
+configs="/usr/local/bin/python3 -I $here/node_configs.py check $node_dir $here/verify.conf eslint vitest vite"
+
 print=no
 areas=()
 for a in "$@"; do
@@ -42,7 +60,7 @@ done
 command_for() {
   case "$1" in
     dotnet) echo "$wrap bash -c 'cd $dotnet_dir && dotnet test --no-restore -c Release -m:1 --filter \"Category!=Nightly&Category!=External\"'" ;;
-    node) echo "cd $node_dir && $bin/eslint . && $bin/tsc -b && $bin/vitest run && $bin/vite build" ;;
+    node) echo "$configs && cd $node_dir && $bin/eslint .$eslint && $bin/tsc -b && $bin/vitest run$vitest && $bin/vite build$vite" ;;
     probe) echo "$wrap pg_isready -q -h 127.0.0.1 -p 5432 && echo db-ok && (cd $dotnet_dir && dotnet build --no-restore -c Release -m:1 -v quiet -nologo > /dev/null) && echo dotnet-ok && (cd $node_dir && $bin/tsc --version) && echo probe-ok" ;;
   esac
 }

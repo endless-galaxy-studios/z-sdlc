@@ -449,6 +449,10 @@ class Services(AgentJob):
         self.assertIn("names no profile", r.stdout)
 
 
+# The Node tools' config files, as agent_job.sh workspace records them (node_configs.py).
+CONFIGS = "eslint_config=eslint.config.js\nvite_config=vite.config.ts\nvitest_config=vitest.config.ts\nvitest_workspace=\n"
+
+
 class Verify(unittest.TestCase):
     """The python-node profile's verify: the commands the factory's skills used to name, per area."""
 
@@ -456,7 +460,10 @@ class Verify(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.dir = pathlib.Path(self.tmp.name)
         shutil.copy(FACTORY / "profiles/python-node/verify", self.dir)
-        (self.dir / "verify.conf").write_text("python=api\nnode=web\n")
+        (self.dir / "verify.conf").write_text("python=api\nnode=web\n" + CONFIGS)
+
+    def check(self, node, tools):
+        return f"/usr/local/bin/python3 -I {self.dir}/node_configs.py check {node} {self.dir}/verify.conf {tools} && "
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -471,7 +478,8 @@ class Verify(unittest.TestCase):
         wrap = f"{self.dir}/with-test-services"
         self.assertEqual(r.stdout.splitlines(), [
             f"python: {wrap} bash -c 'cd api && python -m pytest -q'",
-            "node: cd web && npx --no-install eslint . && npx --no-install tsc -b && npx --no-install vite build"])
+            "node: " + self.check("web", "eslint vite") + "cd web && npx --no-install eslint . --config eslint.config.js"
+            " && npx --no-install tsc -b && npx --no-install vite build --config vite.config.ts"])
         self.assertIn("echo probe-ok", self.verify("--print", "probe").stdout)
 
     def test_runs_every_area_and_reports_the_failures(self):
@@ -489,6 +497,26 @@ class Verify(unittest.TestCase):
         (self.dir / "verify.conf").write_text("")
         self.assertEqual(self.verify("--print").returncode, 2)
 
+    def test_the_recorded_config_files(self):
+        conf = self.dir / "verify.conf"
+        dirs = conf.read_text().split("eslint_config=")[0]
+        # A verify.conf without them is refused: workspace always records them.
+        conf.write_text(dirs)
+        r = self.verify("--print")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("no eslint_config= line", r.stderr)
+        # Only a config file's name, below or above the node directory, reaches the command line.
+        conf.write_text(dirs + CONFIGS.replace("eslint.config.js", "x;touch y"))
+        r = self.verify("--print")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("names no config file", r.stderr)
+        # None recorded: the tools run without --config. ESLint's file above the node directory isn't pinned,
+        # since --config would read its paths from the node directory instead.
+        conf.write_text(dirs + "eslint_config=../eslint.config.js\nvite_config=\nvitest_config=\nvitest_workspace=\n")
+        node = [line for line in self.verify("--print").stdout.splitlines() if line.startswith("node: ")][0]
+        self.assertIn("node_configs.py check", node)
+        self.assertNotIn("--config", node)
+
 
 class VerifyDotnetNode(Verify):
     """The dotnet-node profile's verify: verify.conf's python= is the .NET directory."""
@@ -496,7 +524,7 @@ class VerifyDotnetNode(Verify):
     def setUp(self):
         super().setUp()
         shutil.copy(FACTORY / "profiles/dotnet-node/verify", self.dir)
-        (self.dir / "verify.conf").write_text("python=.\nnode=src/Web\n")
+        (self.dir / "verify.conf").write_text("python=.\nnode=src/Web\n" + CONFIGS)
 
     def test_print_shows_the_commands(self):
         r = self.verify("--print")
@@ -508,8 +536,9 @@ class VerifyDotnetNode(Verify):
         self.assertEqual(lines[1:], [
             f"dotnet: {wrap} bash -c 'cd . && dotnet test --no-restore -c Release -m:1"
             " --filter \"Category!=Nightly&Category!=External\"'",
-            "node: cd src/Web && node_modules/.bin/eslint . && node_modules/.bin/tsc -b"
-            " && node_modules/.bin/vitest run && node_modules/.bin/vite build"])
+            "node: " + self.check("src/Web", "eslint vitest vite") + "cd src/Web && node_modules/.bin/eslint ."
+            " --config eslint.config.js && node_modules/.bin/tsc -b && node_modules/.bin/vitest run --config"
+            " vitest.config.ts && node_modules/.bin/vite build --config vite.config.ts"])
         probe = self.verify("--print", "probe").stdout
         self.assertIn("dotnet build --no-restore -c Release -m:1", probe)
         self.assertIn("echo probe-ok", probe)
@@ -517,7 +546,7 @@ class VerifyDotnetNode(Verify):
     def test_runs_every_area_and_reports_the_failures(self):
         (self.dir / "with-test-services").write_text('#!/usr/bin/env bash\nexec "$@"\n')
         (self.dir / "with-test-services").chmod(0o755)
-        (self.dir / "verify.conf").write_text("python=no-such-dir\nnode=no-such-dir\n")
+        (self.dir / "verify.conf").write_text("python=no-such-dir\nnode=no-such-dir\n" + CONFIGS)
         r = self.verify("dotnet", "node")
         self.assertEqual(r.returncode, 1)
         self.assertIn("== verify dotnet:", r.stdout)
@@ -534,7 +563,7 @@ class VerifyPythonUvNode(Verify):
     def setUp(self):
         super().setUp()
         shutil.copy(FACTORY / "profiles/python-uv-node/verify", self.dir)
-        (self.dir / "verify.conf").write_text("python=api\nnode=web\ndatabase=app\n")
+        (self.dir / "verify.conf").write_text("python=api\nnode=web\ndatabase=app\n" + CONFIGS)
         for project in ("api", "mcp"):
             (self.dir / project).mkdir()
             (self.dir / project / "uv.lock").write_text("")
@@ -559,8 +588,9 @@ class VerifyPythonUvNode(Verify):
                       "postgresql+asyncpg://app@127.0.0.1:5432/app_migrations && .venv/bin/alembic upgrade head && "
                       ".venv/bin/alembic downgrade -1 && .venv/bin/alembic upgrade head", lines[3])
         self.assertIn("tests/integration -m \"not slow\"", lines[4])
-        self.assertEqual(lines[5], "node: cd web && node_modules/.bin/eslint . --max-warnings 0 && "
-                                   "node_modules/.bin/tsc -b && node_modules/.bin/vitest run")
+        self.assertEqual(lines[5], "node: " + self.check("web", "eslint vitest") + "cd web && node_modules/.bin/eslint"
+                                   " . --config eslint.config.js --max-warnings 0 && node_modules/.bin/tsc -b && "
+                                   "node_modules/.bin/vitest run --config vitest.config.ts")
         probe = self.verify("--print", "probe").stdout
         self.assertIn(".venv/bin/alembic current > /dev/null && echo db-ok", probe)
         self.assertIn("echo probe-ok", probe)
@@ -568,7 +598,7 @@ class VerifyPythonUvNode(Verify):
     def test_runs_every_area_and_reports_the_failures(self):
         (self.dir / "with-test-services").write_text('#!/usr/bin/env bash\nexec "$@"\n')
         (self.dir / "with-test-services").chmod(0o755)
-        (self.dir / "verify.conf").write_text("python=api\nnode=no-such-dir\ndatabase=app\n")
+        (self.dir / "verify.conf").write_text("python=api\nnode=no-such-dir\ndatabase=app\n" + CONFIGS)
         r = self.verify("python", "node")
         self.assertEqual(r.returncode, 1)
         for label in ("python api", "python mcp", "node"):
@@ -578,11 +608,11 @@ class VerifyPythonUvNode(Verify):
         self.assertEqual(self.verify("dotnet").returncode, 2)
 
     def test_the_database_areas_need_a_uv_project_and_a_database(self):
-        (self.dir / "verify.conf").write_text("python=web\nnode=web\ndatabase=app\n")
+        (self.dir / "verify.conf").write_text("python=web\nnode=web\ndatabase=app\n" + CONFIGS)
         r = self.verify("--print", "migrations")
         self.assertEqual(r.returncode, 2)
         self.assertIn("isn't a uv project", r.stderr)
-        (self.dir / "verify.conf").write_text("python=api\nnode=web\n")
+        (self.dir / "verify.conf").write_text("python=api\nnode=web\n" + CONFIGS)
         for area in ("migrations", "integration", "probe"):
             r = self.verify("--print", area)
             self.assertEqual(r.returncode, 2, area)

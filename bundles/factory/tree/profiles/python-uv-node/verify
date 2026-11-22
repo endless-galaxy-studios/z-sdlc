@@ -12,7 +12,8 @@
 #   migrations   in python=: alembic upgrade head, downgrade -1 and upgrade head, on a database made fresh
 #                for every run (<database>_migrations), as CI's round trip runs on a new one
 #   integration  in python=: tests/integration, without the tests marked slow
-#   node         eslint . (no warnings), tsc -b and vitest run
+#   node         eslint . (no warnings), tsc -b and vitest run, with the config files recorded before the
+#                agent started
 #   probe        what an agent job needs works here: the test database through the project's own alembic
 #                settings (alembic current, which writes nothing) and the Node toolchain (factory-smoke's
 #                implement-tools probe); prints probe-ok when both do
@@ -28,6 +29,22 @@ db=$(sed -n 's/^database=//p' "$here/verify.conf")
 [ -n "$python_dir" ] && [ -n "$node_dir" ] || { echo "verify: no python or node directory in $here/verify.conf" >&2; exit 2; }
 wrap=$here/with-test-services
 bin=node_modules/.bin
+
+# The config file each Node tool loads, recorded in verify.conf before the agent started (node_configs.py):
+# passed to the tool, and checked first, so a config file added since fails the node area instead of
+# quietly replacing the project's (CI's run would load it). ESLint is pinned only from the node directory:
+# given --config, it reads the config's paths from the working directory rather than the config's own.
+pin() {
+  local v
+  grep -q "^$1=" "$here/verify.conf" || { echo "verify: no $1= line in $here/verify.conf: agent_job.sh workspace records it" >&2; exit 2; }
+  v=$(sed -n "s/^$1=//p" "$here/verify.conf")
+  [[ -z $v || $v =~ ^(\.\./)*[A-Za-z0-9._-]+$ ]] || { echo "verify: $1= in $here/verify.conf names no config file: $v" >&2; exit 2; }
+  [[ $1 == eslint_config && $v == ../* ]] && v=
+  flag=${v:+ --config $v}
+}
+pin eslint_config; eslint=$flag
+pin vitest_config; vitest=$flag
+configs="/usr/local/bin/python3 -I $here/node_configs.py check $node_dir $here/verify.conf eslint vitest"
 
 print=no
 areas=()
@@ -60,7 +77,7 @@ commands_for() {
     integration)
       printf 'integration\t%s\n' "$wrap bash -c 'cd $python_dir && if [ -d tests/integration ]; then .venv/bin/python -m pytest -q -p no:cacheprovider tests/integration -m \"not slow\"; else echo \"verify: no tests/integration in $python_dir\"; fi'" ;;
     node)
-      printf 'node\t%s\n' "cd $node_dir && $bin/eslint . --max-warnings 0 && $bin/tsc -b && $bin/vitest run" ;;
+      printf 'node\t%s\n' "$configs && cd $node_dir && $bin/eslint .$eslint --max-warnings 0 && $bin/tsc -b && $bin/vitest run$vitest" ;;
     probe)
       printf 'probe\t%s\n' "$wrap bash -c 'cd $python_dir && .venv/bin/alembic current > /dev/null && echo db-ok' && (cd $node_dir && $bin/tsc --version) && echo probe-ok" ;;
   esac

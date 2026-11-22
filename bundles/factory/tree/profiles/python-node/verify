@@ -6,7 +6,8 @@
 # Usage: verify [--print] [python|node|probe ...]
 #   no area      python and node
 #   python       the test suite, through with-test-services (it reaches the test database and Redis)
-#   node         lint, type check and production build
+#   node         lint, type check and production build, with the config files recorded before the agent
+#                started
 #   probe        what an agent job needs works here: the test database through the project's own
 #                settings, and the Node toolchain (factory-smoke's implement-tools probe); prints
 #                probe-ok when both do
@@ -19,6 +20,22 @@ python_dir=$(sed -n 's/^python=//p' "$here/verify.conf")
 node_dir=$(sed -n 's/^node=//p' "$here/verify.conf")
 [ -n "$python_dir" ] && [ -n "$node_dir" ] || { echo "verify: no python or node directory in $here/verify.conf" >&2; exit 2; }
 wrap=$here/with-test-services
+
+# The config file each Node tool loads, recorded in verify.conf before the agent started (node_configs.py):
+# passed to the tool, and checked first, so a config file added since fails the node area instead of
+# quietly replacing the project's (CI's run would load it). ESLint is pinned only from the node directory:
+# given --config, it reads the config's paths from the working directory rather than the config's own.
+pin() {
+  local v
+  grep -q "^$1=" "$here/verify.conf" || { echo "verify: no $1= line in $here/verify.conf: agent_job.sh workspace records it" >&2; exit 2; }
+  v=$(sed -n "s/^$1=//p" "$here/verify.conf")
+  [[ -z $v || $v =~ ^(\.\./)*[A-Za-z0-9._-]+$ ]] || { echo "verify: $1= in $here/verify.conf names no config file: $v" >&2; exit 2; }
+  [[ $1 == eslint_config && $v == ../* ]] && v=
+  flag=${v:+ --config $v}
+}
+pin eslint_config; eslint=$flag
+pin vite_config; vite=$flag
+configs="/usr/local/bin/python3 -I $here/node_configs.py check $node_dir $here/verify.conf eslint vite"
 
 print=no
 areas=()
@@ -34,7 +51,7 @@ done
 command_for() {
   case "$1" in
     python) echo "$wrap bash -c 'cd $python_dir && python -m pytest -q'" ;;
-    node) echo "cd $node_dir && npx --no-install eslint . && npx --no-install tsc -b && npx --no-install vite build" ;;
+    node) echo "$configs && cd $node_dir && npx --no-install eslint .$eslint && npx --no-install tsc -b && npx --no-install vite build$vite" ;;
     probe) echo "$wrap bash -c 'cd $python_dir && python manage.py migrate --plan > /dev/null && echo db-ok' && (cd $node_dir && npx --no-install tsc --version) && echo probe-ok" ;;
   esac
 }

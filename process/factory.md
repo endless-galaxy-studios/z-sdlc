@@ -646,7 +646,14 @@ environment, nothing installed inside the sandbox), and prove it with `factory-s
 | `python-uv-node` | The uv project holding the database and its alembic migrations; the Node app (pnpm). Every top-level directory with a `uv.lock` beside its `pyproject.toml` is a uv project, installed and checked | `python` (in each uv project: `ruff check`, `ruff format --check`, `mypy`, the tests outside `tests/integration`), `migrations` (alembic `upgrade head`, `downgrade -1`, `upgrade head` on a fresh database each run), `integration` (`tests/integration` without `slow`), `node` (`eslint .` with no warnings, `tsc -b`, `vitest run`) | Postgres 17 with pgvector (in template1's `extensions` schema, on the role's `search_path`) and Redis 7 | Each uv project's mypy targets in its own configuration (`files`), and a bare `pytest --ignore=tests/integration` collecting what CI's unit run does; `ruff` and `mypy` in each project's locked dev group; `ruff format --check .` passing everywhere; `eslint .` passing; `alembic.ini` beside `stack.python`'s project, its `env.py` reading `DATABASE_URL`; the settings reading only `DATABASE_URL` and `REDIS_URL` from the env file (it holds nothing else, so settings that refuse unknown keys load) and the tests reading `TEST_DATABASE_URL` and `TEST_REDIS_URL` from the environment, which `with-test-services` exports; integration tests in `stack.python`'s `tests/integration`, the long ones marked `slow`; `.venv/` ignored |
 
 `verify` calls the tools, never a Makefile or package.json script, so a check a project's build
-script chains in (a bundle-size gate, a generated file) is left to CI on the PR. In the sandbox, Unix
+script chains in (a bundle-size gate, a generated file) is left to CI on the PR. The Node tools find their
+configs by name, the first name in each tool's order winning, so an added `vite.config.js` would replace a
+project's `vite.config.ts`, and an added `vitest.config.ts` the test settings it keeps in `vite.config.ts`.
+`agent_job.sh workspace` records, before the agent starts, the config file eslint, Vite and Vitest each load
+in the checkout (`node_configs.py`, into `verify.conf`). `verify` passes those files to the tools
+(`--config`; eslint's only when it's in `stack.node` itself), and its node area fails, naming the file, when
+a tool would now load another, or Vitest another workspace file. CI runs the tools without the pin, so such a
+file is refused at publish too, since CODEOWNERS covers each of these names (below). In the sandbox, Unix
 sockets are blocked, and MSBuild's worker nodes use them: `dotnet-node` builds in one process
 (`-m:1`), and `verify --print` tells the agent to do the same (`dotnet run` and `dotnet ef` ignore
 the switch, so they run with `--no-build` after a `dotnet build -m:1`). End-to-end suites

@@ -12,9 +12,11 @@
 #                       print its path (a stage that adds servers to it does so in the same step)
 #   services [file]     start the stack profile's test services; their settings go into the project's
 #                       env file (factory.json stack.env_file), or into the file named
-#   workspace           install the profile's test-services wrapper and verify at /opt/factory, run its
-#                       install.sh (the dependencies), point the project's paths (stack.env) into the
-#                       workspace, set the factory's git identity and record the hooks' hashes. Run
+#   workspace           install the profile's test-services wrapper and verify at /opt/factory, with
+#                       verify.conf (the stack's directories, and the config file each Node tool loads,
+#                       which verify pins), run its install.sh (the dependencies), point the project's
+#                       paths (stack.env) into the workspace, set the factory's git identity and record
+#                       the hooks' hashes. Run
 #                       after services, and after any secret is out of the environment.
 #   browser <stage> <settings>
 #                       the browser route (D6): when factory.json's browser block lists the stage (smoke
@@ -112,6 +114,11 @@ case "$cmd" in
     # unavailable, so a run without the route says `blocked` rather than guessing.
     install -D -m 755 "$here/with-browser" /opt/factory/with-browser
     printf 'python=%s\nnode=%s\ndatabase=%s\n' "$python_dir" "$node_dir" "$database" > /opt/factory/verify.conf
+    # The config file each Node tool loads in the checkout, recorded before the agent starts: verify pins
+    # them, and fails when a file added since would replace one (node_configs.py).
+    install -D -m 644 "$here/node_configs.py" /opt/factory/node_configs.py
+    /usr/local/bin/python3 -I "$here/node_configs.py" record "$node_dir" >> /opt/factory/verify.conf \
+      || { echo "::error::node_configs.py couldn't record the Node tools' config files in $node_dir"; exit 1; }
     chmod 644 /opt/factory/verify.conf
     "$here/profiles/$profile/install.sh" "$python_dir" "$node_dir"
     # Paths this project's code reads, moved into the workspace: the sandbox's root is read-only (the
