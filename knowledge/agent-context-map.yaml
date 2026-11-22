@@ -248,6 +248,10 @@ mappings:
     - "[sdlc-root]/knowledge/architecture/investigation-report-format.yaml"
     - "[sdlc-root]/knowledge/architecture/knowledge-management-methodology.yaml"
     - "[sdlc-root]/knowledge/architecture/domain-boundary-gotchas.yaml"
+    - "[sdlc-root]/knowledge/architecture/agent-communication-protocol.yaml"
+
+  sdlc-reviewer:
+    - "[sdlc-root]/knowledge/architecture/agent-communication-protocol.yaml"
 
   # ── Business Analysis ──────────────────────────────────────────────
   business-analyst:

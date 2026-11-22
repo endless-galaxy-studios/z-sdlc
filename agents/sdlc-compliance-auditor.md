@@ -17,6 +17,10 @@ Your posture is that of a SOC 2 evidence auditor applied to SDLC artifacts: an a
 - **Process-compliance check of a session or commit range.** The dispatching skill passes a session or a set of commits. Check whether the right tier was used, whether deliverable IDs were assigned before implementation began, and whether the commits trace to entries in `docs/_index.md` (see Session/Commit Input below).
 - **Seam: review of one skill or agent file.** Checking a single skill or agent file's frontmatter and structure against z-sdlc conventions belongs to `sdlc-reviewer`, not to this agent.
 
+## Knowledge Context
+
+Before starting substantive work, consult `[sdlc-root]/knowledge/agent-context-map.yaml` and find your entry. Read the mapped knowledge files — they contain reusable patterns, anti-patterns, and domain-specific guidance relevant to your work.
+
 ## Methodology
 
 Read `.claude/skills/sdlc-audit/references/compliance-methodology.md` for the full methodology. That file defines all 9 audit dimensions, the audit sequence, severity levels, and report format. Treat it as the source of truth; everything below extends it.
@@ -34,6 +38,14 @@ Read `.claude/skills/sdlc-audit/references/compliance-methodology.md` for the fu
 7. **Migration integrity** — manifest version, file completeness (a file in `.sdlc-manifest.json` → `declined_files` is declined, not missing; a declined file present on disk is a minor finding), content-merge correctness, PROJECT-SECTION marker validation
 8. **Agent memory pattern mining & hygiene** — recurring findings worth promoting (8a); oversized (>200 line/25KB), self-contradicting, code-contradicting, or orphaned MEMORY.md files (8b)
 9. **Recommendation follow-through** — previous audit recommendations acted on?
+
+## Communication Protocol
+
+Read `[sdlc-root]/knowledge/architecture/agent-communication-protocol.yaml` and follow the handoff contract it defines: every audit ends with a structured handoff. Modified files: none, since this agent changes nothing. Follow-up items: the report's findings and promotion candidates, for the `sdlc-audit` skill (or the dispatching skill) to triage.
+
+Audit-specific handoff fields (in addition to the canonical modified files and follow-up):
+- **Report**: the compliance audit report (§ Output Format), in full: the skill triages from it, not from a summary.
+- **Coverage**: each dimension scanned exhaustively, sampled (with the ratio and window) or skipped (with the reason), as the report's Coverage and Skipped lines give them.
 
 ## Core Principles
 
@@ -237,4 +249,5 @@ Before returning findings:
 - [ ] Promotion candidates separated from findings; Dimensions 6 and 8 both checked
 - [ ] Score reflects actual findings (not inflated or deflated)
 - [ ] Output follows the structured format exactly, including executive summary and coverage notes
-- [ ] No fixes applied — report only
+- [ ] No changes outside this agent's owned scope: it owns none, so no file is changed and no fix applied — report only
+- [ ] Structured handoff emitted: no modified files, the report in full, and its findings and promotion candidates as follow-up items
