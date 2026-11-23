@@ -37,6 +37,20 @@ Each entry contains:
 
 ---
 
+## 2026-11-22: discipline_capture.md names sdlc-design-consult as the design bundle's skill
+
+**Origin:** The pilot project's migration to v2.9.8, reported in the same handoff as the Freeze test. CD asked for it to go upstream.
+
+**What happened:** `process/discipline_capture.md` named `sdlc-design-consult` four times as if every project had it: in comparisons 2 and 3, the skill-applicability table and the context formats. The skill ships only in the opt-in `design` bundle. The pilot, which doesn't have the bundle, removed the mentions on 2026-11-17, and at this migration CD took upstream's text back rather than carry four replacement marks. `sdlc-idea`, `sdlc-reflect` and `process/commands.md` already say the skill is the design bundle's.
+
+**Changes made:**
+
+1. **`process/discipline_capture.md`** — each of the four mentions says the skill is the `design` bundle's, when installed. The context tag `[sdlc-design-consult: {slug}]` and its adapter mapping are unchanged, so archive and adapters read the same tags.
+
+**Rationale:** Qualifying each mention, as the other skills do, keeps one text for every project. Moving the rows into a bundle fragment would mean a fragment for four lines. A project without the bundle now reads them as not applying to it. Release type: patch.
+
+---
+
 ## 2026-11-22: The factory's Freeze test expects each stack profile's own files, and freezes every profile the bundle ships
 
 **Origin:** The pilot project's migration to v2.9.8, reported by its session in a handoff. The project is on the `dotnet-node` profile.
