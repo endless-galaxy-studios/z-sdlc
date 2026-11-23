@@ -1003,10 +1003,12 @@ def evidence_record(text):
         rec = json.loads(text)
     except ValueError:
         raise Refused("the evidence record isn't JSON")
+    # video_in_report (the video went inside the report) is newer than the rest: a record without it has none there.
     if not isinstance(rec, dict) or not {"files", "dropped", "report", "video", "trace"} <= set(rec) \
-            or set(rec) - {"files", "dropped", "report", "video", "trace", "issue", "run"} \
+            or set(rec) - {"files", "dropped", "report", "video", "video_in_report", "trace", "issue", "run"} \
             or not all(isinstance(rec.get(k, 0), int) and not isinstance(rec.get(k, 0), bool) for k in ("issue", "run")) \
-            or not all(isinstance(rec[k], bool) for k in ("report", "video", "trace")) \
+            or not all(isinstance(rec.get(k, False), bool) for k in ("report", "video", "video_in_report", "trace")) \
+            or rec.get("video_in_report") and not (rec["video"] and rec["report"]) \
             or not isinstance(rec["files"], list) or not isinstance(rec["dropped"], list) \
             or len(rec["files"]) > 30 or len(rec["dropped"]) > 21:
         raise Refused("the evidence record isn't evidence.py's")
@@ -1056,19 +1058,23 @@ def evidence_lines(text, ids, run_url, issue, archive=""):
         return [f"- Not shown: {why}. The run's artifacts still hold what was uploaded."]
     if not rec["files"] and not rec["dropped"]:
         return []
-    links = []
-    for key, label in (("report", "report"), ("video", "video"), ("trace", "Playwright trace")):
-        if rec[key]:
+    links, inside = [], rec.get("video_in_report", False)
+    for key, label in (("report", "report, with the video" if inside else "report"), ("video", "video"),
+                       ("trace", "Playwright trace")):
+        if rec[key] and not (key == "video" and inside):
             ident = str(ids.get(key) or "")
             links.append(f"[{label}]({run_url}/artifacts/{ident})" if ARTIFACT_ID.fullmatch(ident)
                          else f"{label} (its upload failed)")
     lines = []
     if links:
-        lines.append(f"- **From this run, kept 90 days:** {', '.join(links)}. The report has the screenshots and what "
-                     f"each shows.")
+        has = "the video, the screenshots" if inside else "the screenshots"
+        lines.append(f"- **From this run, kept 90 days:** {', '.join(links)}. The report has {has} and what each "
+                     f"shows.")
         m = RUN_URL.fullmatch(run_url)
         if archive and m:
-            lines.append(f"- **After that:** the archive, at `{archive}/{m.group(1)}/{issue}/{m.group(2)}/`")
+            keeps = "the report" + ("" if inside or not rec["video"] else " and the video")
+            lines.append(f"- **After that:** the archive keeps {keeps}, at `{archive}/{m.group(1)}/{issue}/{m.group(2)}/`"
+                         + (" (the trace isn't kept)" if rec["trace"] else ""))
     entries = []
     for f in sorted(rec["files"], key=lambda f: (f["step"], f["file"])):
         bug = " **Shows the bug.**" if f["bug"] else ""

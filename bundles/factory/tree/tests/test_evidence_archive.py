@@ -68,7 +68,8 @@ class Pull(unittest.TestCase):
 
     def api(self, rec=None):
         arts = {7: [{"id": 1, "name": "evidence.json"}, {"id": 2, "name": "evidence-report.html"},
-                    {"id": 3, "name": "evidence-video.webm"}, {"id": 4, "name": "other.txt"}]}
+                    {"id": 3, "name": "evidence-video.webm"}, {"id": 4, "name": "other.txt"},
+                    {"id": 5, "name": "evidence-trace.zip"}]}
         files = {1: rec or record(42, 7), 2: b"<!doctype html>report", 3: zipped("evidence-video.webm", b"\x1a\x45video")}
         return FakeAPI([run(7)], arts, files)
 
@@ -81,6 +82,7 @@ class Pull(unittest.TestCase):
         self.assertEqual((where / "evidence-report.html").read_bytes(), b"<!doctype html>report")
         self.assertEqual((where / "evidence-video.webm").read_bytes(), b"\x1a\x45video")  # a zipped download, unwrapped
         self.assertFalse(any("/4/" in c for c in api.calls))  # not an evidence file: never downloaded
+        self.assertFalse(any("/5/" in c for c in api.calls))  # the trace stays GitHub's 90 days only
         # The writer names the same path: <archive>/<repository name>/<issue>/<run id>/.
         rec = json.dumps({"files": [{"file": "a.png", "step": 1, "shows": "x", "bug": False, "kind": "screenshot"}],
                           "dropped": [], "report": True, "video": False, "trace": False, "issue": 42, "run": 7})

@@ -37,6 +37,35 @@ Each entry contains:
 
 ---
 
+## 2026-11-22: The browser evidence report holds the video, so its one link plays on a phone, and the archive keeps the report and a video too big for it
+
+**Origin:** CD's design request, relayed by the session testing the pilot project's browser evidence. CD chose it over a hosted viewer: "maintaining no code is a plus, and we can just archive the report". CD approved the design and the archive keeping a separate video too: "approved, keep the big videos too".
+
+**What happened:** The report, the video and the trace were three artifacts. GitHub serves the report inline, as a page that opens on a phone, but serves the video and trace as downloads. The testing session tried a prototype of the report holding the video on CD's iPhone, in Safari over HTTPS. A `<video>` element with a `data:` source, under the report's content policy plus `media-src data:`, played both an MP4 and Playwright's WebM as recorded. An MP4 handed to the player as a blob URL by a script didn't. In the pilot's run, the WebM was 4.2 MB, which took the report from 2.2 MB to about 8 MB.
+
+**Changes made:**
+
+1. **`bundles/factory/tree/evidence.py`:**
+   - A video of at most 20 MB (`MAX_EMBED`) goes inside the report as that element, with its step and caption. It sits after the manifest's table, since a page shows nothing past a `data:` URL until all of it has arrived, and before the screenshots. With 20 screenshots at their cap, the report stays under the archive's 200 MB a file. A bigger video is written beside the report, which says so.
+   - `evidence.json` gains `video_in_report`.
+   - The step output `video` is `yes` only for a separate file, so the workflows' upload steps are unchanged and upload the video only then.
+   - The page gains a phone's viewport, a full-width video and a table that scrolls sideways.
+   - The page's trust sentence now says what's checked: the screenshots are written again from their image data, while the video's header is checked and its bytes are as recorded.
+2. **`implement_guard.py`:**
+   - `evidence_record` accepts `video_in_report`, optional for an older record, and refuses one that puts the video in a report it doesn't have.
+   - `evidence_lines` links "report, with the video" and no separate video when the report holds it.
+   - The archive line says what the archive keeps, and that the trace isn't kept.
+3. **`host/evidence_archive.py`** — pulls `evidence.json`, the report, and the video when it's a separate file, never the trace. CD: the report is kept, and a separate video too ("keep the big videos too"), since then it's the only copy, as it is for runs made before this release; the trace, a desktop debugging tool, lasts GitHub's 90 days.
+4. **Tests** — in `test_browser.py`: the embedded video, the over-cap video, the links both ways, and the refused records. In `test_evidence_archive.py`: the trace is never downloaded.
+5. **`process/factory.md`:**
+   - D6 rule 7 adds a bullet on the report, with what was measured and the reading of the video's bytes at page-open.
+   - Its upload, link and archive bullets follow.
+   - § After migrating adds the archive puller, a copy on the host that the migration doesn't reach: re-run `setup-archive.sh` there.
+
+**Rationale:** One link that works everywhere, with no hosted code to keep, is what CD asked for. The video is still only header-checked, as before, but a browser now decodes it when the report opens rather than when CD opens the download. That's the same bytes and the same decoder as before, at an earlier moment. On CD's iPhone, pages holding a 12.7, a 21.2 and a 33.9 MB video all played, slow to load ("they certainly did take some time to load"), so the cap stays at 20 MB. Load time grows with the page, and a lower cap would only turn long videos back into downloads, which a phone handles worse. Release type: patch.
+
+---
+
 ## 2026-11-22: Tool state a profile's tools write in the checkout is excluded, and the bundle step's check reads the job's own copy of the excludes
 
 **Origin:** The pilot project's first publishing run, an implement run started by CD's merge of its plan PR. It failed in the bundle step, as the session testing the pilot's browser evidence reported.

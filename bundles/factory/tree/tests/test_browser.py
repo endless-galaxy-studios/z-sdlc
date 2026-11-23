@@ -16,6 +16,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 FACTORY = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(FACTORY))
@@ -580,16 +581,38 @@ class Evidence(unittest.TestCase):
                     self.entry("run.webm", 3, "the whole run"), self.entry("trace.zip", 3, "the trace")],
                    before__png=png(), after__png=png(), run__webm=WEBM, trace__zip=trace())
         r = self.pack()
-        self.assertEqual((r["report"], r["video"], r["trace"]), (True, True, True))
+        self.assertEqual((r["report"], r["video"], r["video_in_report"], r["trace"]), (True, True, True, True))
+        self.assertEqual(evidence.uploads(r), {"report": True, "video": False, "trace": True})
         self.assertEqual([f["file"] for f in r["files"]], ["before.png", "after.png", "run.webm", "trace.zip"])
         self.assertEqual(r["dropped"], [])
         page = (self.out / "evidence-report.html").read_text()
-        self.assertIn("default-src 'none'", page)
+        self.assertIn("default-src 'none'; img-src data:; media-src data:; style-src 'unsafe-inline'", page)
+        self.assertIn('name="viewport" content="width=device-width, initial-scale=1"', page)
         self.assertNotIn("<script", page.lower())
         self.assertIn("the score stays at 0", page)
-        self.assertEqual((self.out / "evidence-video.webm").read_bytes(), WEBM)
+        # The video plays from the page itself, with no script and nothing else to fetch: after the table, which shows
+        # while it loads, and before the screenshots.
+        self.assertIn('<video controls playsinline preload="metadata" src="data:video/webm;base64,', page)
+        data = base64.b64decode(page.split("data:video/webm;base64,")[1].split('"')[0])
+        self.assertEqual(data, WEBM)
+        self.assertLess(page.index("<table"), page.index("<video"))
+        self.assertLess(page.index("<video"), page.index("<img"))
+        self.assertIn("<figcaption>Step 3: the whole run</figcaption>", page)
+        self.assertFalse((self.out / "evidence-video.webm").exists())
         names = zipfile.ZipFile(self.out / "evidence-trace.zip").namelist()
         self.assertEqual(sorted(names), ["resources/abc.png", "trace.network", "trace.trace"])
+
+    def test_a_video_over_the_reports_cap_goes_beside_it(self):
+        self.write([self.entry("a.png"), self.entry("run.webm", 2, "the whole run")], a__png=png(), run__webm=WEBM)
+        with mock.patch.object(evidence, "MAX_EMBED", len(WEBM) - 1):
+            r = self.pack()
+        self.assertEqual((r["video"], r["video_in_report"]), (True, False))
+        self.assertEqual(evidence.uploads(r), {"report": True, "video": True, "trace": False})
+        self.assertEqual((self.out / "evidence-video.webm").read_bytes(), WEBM)
+        page = (self.out / "evidence-report.html").read_text()
+        self.assertNotIn("<video", page)
+        self.assertIn("is over the", page)
+        self.assertIn("separate video artifact", page)
 
     def test_screenshots_lose_their_metadata_and_keep_their_pixels(self):
         text = evidence.chunk(b"tEXt", b"Comment\x00exfiltrated") + evidence.chunk(b"eXIf", b"MM\x00*")
@@ -696,7 +719,8 @@ class Evidence(unittest.TestCase):
 
     def test_no_evidence_packs_nothing(self):
         shutil.rmtree(self.ws / ".factory")
-        self.assertEqual(self.pack(), {"files": [], "dropped": [], "report": False, "video": False, "trace": False})
+        self.assertEqual(self.pack(), {"files": [], "dropped": [], "report": False, "video": False,
+                                       "video_in_report": False, "trace": False})
 
     def test_caps(self):
         # A header claiming more than the cap is refused before anything is decompressed.
@@ -773,6 +797,25 @@ class EvidenceInThePR(unittest.TestCase):
         self.assertIn("`/srv/evidence/app/7/123/`", text)
         self.assertIn("Step 2, `after.png` (screenshot): the score stays at 0 **Shows the bug.**", text)
         self.assertIn("Dropped by the factory: `stray.png`", text)
+
+    def test_a_video_inside_the_report_is_linked_as_the_report(self):
+        lines = guard.evidence_lines(self.record(video_in_report=True, trace=True), {"report": "11", "trace": "13"},
+                                     RUN, "7", "/srv/evidence")
+        text = "\n".join(lines)
+        self.assertIn(f"[report, with the video]({RUN}/artifacts/11), [Playwright trace]({RUN}/artifacts/13). "
+                      "The report has the video, the screenshots and what each shows.", text)
+        self.assertNotIn("[video]", text)
+        self.assertNotIn("video (its upload failed)", text)
+        self.assertIn("the archive keeps the report, at `/srv/evidence/app/7/123/` (the trace isn't kept)", text)
+        # A video beside the report is linked, and archived, on its own; an older record has no video_in_report.
+        text = "\n".join(guard.evidence_lines(self.record(), {"report": "11", "video": "12"}, RUN, "7", "/srv/evidence"))
+        self.assertIn(f"[report]({RUN}/artifacts/11), [video]({RUN}/artifacts/12). The report has the screenshots", text)
+        self.assertIn("the archive keeps the report and the video, at", text)
+        # A record that says the video is inside a report it doesn't have isn't evidence.py's.
+        for bad in ({"video_in_report": True, "video": False}, {"video_in_report": True, "report": False},
+                    {"video_in_report": 1}):
+            with self.subTest(bad=bad):
+                self.assertTrue(guard.evidence_lines(self.record(**bad), {}, RUN, "7")[0].startswith("- Not shown:"))
 
     def test_an_id_that_isnt_a_number_is_no_link(self):
         text = "\n".join(guard.evidence_lines(self.record(), {"report": "11)](https://evil.example/x", "video": ""},

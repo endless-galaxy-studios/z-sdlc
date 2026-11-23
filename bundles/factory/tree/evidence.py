@@ -10,16 +10,18 @@ evidence directory (.factory/evidence/ in the workspace): its files and a manife
   or one that fails a check, is dropped and said why;
 - screenshots (PNG) are decoded and written again from their image data alone, which drops every text and
   metadata chunk: at most 20, each at most 5 MB and 64 MB decoded;
-- one video (WebM, its header checked), at most 50 MB;
+- one video (WebM, its header checked, its bytes as recorded), at most 50 MB: inside the report when it's at most
+  20 MB, so the one link plays it on a phone too (Safari plays Playwright's WebM), else beside it;
 - one Playwright trace (a zip of plain relative names, at most 2000 entries and 200 MB unpacked), written again
   entry by entry;
 - 150 MB in all.
-It writes <out-dir>/evidence-report.html (self-contained: the manifest and the screenshots inline, no script, and a
-content policy that loads nothing), evidence-video.webm and evidence-trace.zip when there are ones, and
-evidence.json (what was packed, and what was dropped and why), which the writer job renders into the PR. That record
+It writes <out-dir>/evidence-report.html (self-contained: the manifest, the screenshots and the video inline, no
+script, and a content policy that loads nothing), evidence-video.webm for a video too big for the report,
+evidence-trace.zip when there's a trace, and evidence.json (what was packed, and what was dropped and why), which the
+writer job renders into the PR. Its video_in_report says where the video went. That record
 also names the issue and the run, from the job's own ISSUE_NUMBER and GITHUB_RUN_ID, so the archive (host/
 evidence_archive.py) files the run's evidence where the PR said it would be. It prints
-a summary, and step outputs when GITHUB_OUTPUT is set. Evidence is optional: no directory, or nothing to keep, packs
+a summary, and step outputs when GITHUB_OUTPUT is set: report, video and trace say which files to upload. Evidence is optional: no directory, or nothing to keep, packs
 nothing and exits 0.
 """
 
@@ -39,6 +41,9 @@ import zlib
 MAX_ENTRIES = 30
 MAX_PNG, MAX_PNG_COUNT, MAX_PNG_RAW = 5 << 20, 20, 64 << 20
 MAX_VIDEO = 50 << 20
+# The largest video the report holds: 27 MB as base64, and with 20 screenshots at their cap the report stays under the
+# archive's 200 MB a file.
+MAX_EMBED = 20 << 20
 MAX_TRACE, MAX_TRACE_RAW, MAX_TRACE_ENTRIES = 50 << 20, 200 << 20, 2000
 MAX_TOTAL = 150 << 20
 MAX_SHOWS = 300
@@ -232,7 +237,8 @@ def manifest_entries(raw):
     return out
 
 
-def report(title, packed, images, dropped):
+def report(title, packed, images, dropped, video=None):
+    """The report page. video is (its manifest entry, its bytes, or None when it's too big to go inside)."""
     rows = "".join(
         f"<tr><td>{p['step']}</td><td><code>{html.escape(p['file'])}</code></td><td>{html.escape(p['shows'])}</td>"
         f"<td>{'yes' if p['bug'] else 'no'}</td></tr>" for p in sorted(packed, key=lambda p: (p["step"], p["file"])))
@@ -241,17 +247,31 @@ def report(title, packed, images, dropped):
         f"<figcaption>Step {p['step']}: {html.escape(p['shows'])}{' (shows the bug)' if p['bug'] else ''}</figcaption></figure>"
         for p in sorted(packed, key=lambda p: (p["step"], p["file"])) if p["file"] in images)
     gone = "".join(f"<li><code>{html.escape(d['file'])}</code>: {html.escape(d['why'])}</li>" for d in dropped)
+    film = ""
+    if video:
+        entry, body = video
+        caption = f"Step {entry['step']}: {html.escape(entry['shows'])}{' (shows the bug)' if entry['bug'] else ''}"
+        # No script, and no blob: URL: Safari on a phone plays a data: source in a video element, as measured. After
+        # the table: a page shows nothing past a data: URL until all of it has arrived.
+        film = (f'<figure><video controls playsinline preload="metadata" src="data:video/webm;base64,'
+                f'{base64.b64encode(body).decode()}"></video><figcaption>{caption}</figcaption></figure>' if body else
+                f"<p>The video, <code>{html.escape(entry['file'])}</code>, is over the {MAX_EMBED >> 20} MB this page "
+                f"holds: it's the run's separate video artifact.</p>")
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; media-src data:; style-src 'unsafe-inline'">
 <title>{html.escape(title)}: browser evidence</title>
 <style>body{{font:15px/1.5 system-ui,sans-serif;max-width:1100px;margin:2rem auto;padding:0 1rem}}
-table{{border-collapse:collapse}}td,th{{border:1px solid #ccc;padding:.3rem .6rem;text-align:left;vertical-align:top}}
-figure{{margin:1.5rem 0}}img{{max-width:100%;border:1px solid #ccc}}</style></head><body>
+.wide{{overflow-x:auto}}table{{border-collapse:collapse}}
+td,th{{border:1px solid #ccc;padding:.3rem .6rem;text-align:left;vertical-align:top}}
+figure{{margin:1.5rem 0}}img,video{{max-width:100%;border:1px solid #ccc}}video{{width:100%}}</style></head><body>
 <h1>{html.escape(title)}: browser evidence</h1>
-<p>Written by the factory's frozen code from what the agent left, every file checked and its metadata removed. The
-text is the agent's own description, shown as text.</p>
-<table><tr><th>Step</th><th>File</th><th>What it shows</th><th>Shows the bug</th></tr>{rows}</table>
+<p>Written by the factory's frozen code from what the agent left. Each screenshot is written again from its image data
+alone, which drops its metadata; the video's header is checked, and its bytes are as recorded. The text is the agent's
+own description, shown as text.</p>
+<div class="wide"><table><tr><th>Step</th><th>File</th><th>What it shows</th><th>Shows the bug</th></tr>{rows}</table></div>
+{film}
 {shots}
 {f'<h2>Dropped</h2><ul>{gone}</ul>' if gone else ''}
 </body></html>
@@ -260,7 +280,7 @@ text is the agent's own description, shown as text.</p>
 
 def pack(workspace, rel, out, title):
     """Pack the evidence; returns evidence.json's content."""
-    result = {"files": [], "dropped": [], "report": False, "video": False, "trace": False}
+    result = {"files": [], "dropped": [], "report": False, "video": False, "video_in_report": False, "trace": False}
     fd = open_dir(workspace, rel)
     if fd is None:
         return result
@@ -279,7 +299,7 @@ def pack(workspace, rel, out, title):
         listed = {e["file"] for e in entries}
         result["dropped"] += [{"file": plain(n), "why": "not in the manifest"} for n in names
                               if n != "manifest.json" and n not in listed]
-        images, total, pngs = {}, 0, 0
+        images, total, pngs, video = {}, 0, 0, None
         out.mkdir(parents=True, exist_ok=True)
         for e in entries:
             f = e["file"]
@@ -314,7 +334,7 @@ def pack(workspace, rel, out, title):
                 pngs += 1
                 images[f] = body
             elif kind == "webm":
-                (out / "evidence-video.webm").write_bytes(body)
+                video = (dict(e), body)
                 result["video"] = True
             else:
                 (out / "evidence-trace.zip").write_bytes(body)
@@ -325,10 +345,21 @@ def pack(workspace, rel, out, title):
     if len(result["dropped"]) > MAX_DROPPED:
         n = len(result["dropped"]) - MAX_DROPPED
         result["dropped"] = result["dropped"][:MAX_DROPPED] + [{"file": "...", "why": f"and {n} more files dropped"}]
+    if video and len(video[1]) <= MAX_EMBED:
+        result["video_in_report"] = True
+    elif video:
+        (out / "evidence-video.webm").write_bytes(video[1])
+        video = (video[0], None)
     if result["files"]:
-        (out / "evidence-report.html").write_text(report(title, result["files"], images, result["dropped"]))
+        (out / "evidence-report.html").write_text(report(title, result["files"], images, result["dropped"], video))
         result["report"] = True
     return result
+
+
+def uploads(result):
+    """Which files the job uploads: the video only when it isn't inside the report."""
+    return {"report": result["report"], "video": result["video"] and not result["video_in_report"],
+            "trace": result["trace"]}
 
 
 def main():
@@ -338,7 +369,7 @@ def main():
         result = pack(workspace, rel, out, " ".join(title.split())[:120])
     except Exception as e:  # noqa: BLE001 - the packer never fails the job: no evidence is a result
         result = {"files": [], "dropped": [{"file": plain(rel), "why": plain(str(e)) or type(e).__name__}],
-                  "report": False, "video": False, "trace": False}
+                  "report": False, "video": False, "video_in_report": False, "trace": False}
     out.mkdir(parents=True, exist_ok=True)
     for key, var in (("issue", "ISSUE_NUMBER"), ("run", "GITHUB_RUN_ID")):
         value = os.environ.get(var, "")
@@ -351,8 +382,8 @@ def main():
         print(f"  dropped {plain(d['file'])}: {plain(d['why'], MAX_WHY)}")
     if os.environ.get("GITHUB_OUTPUT"):
         with open(os.environ["GITHUB_OUTPUT"], "a") as o:
-            for k in ("report", "video", "trace"):
-                o.write(f"{k}={'yes' if result[k] else 'no'}\n")
+            for k, up in uploads(result).items():
+                o.write(f"{k}={'yes' if up else 'no'}\n")
             o.write(f"manifest={text}\n")
     return 0
 

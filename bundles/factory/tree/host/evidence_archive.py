@@ -12,7 +12,9 @@ The token is read-only: Actions read on those repositories, nothing else.
 
 For each repository it lists the completed runs of factory-implement.yml and factory-revise.yml on the default branch
 from the last `days` days (90 by default, GitHub's retention), every page, and takes only their evidence artifacts:
-evidence.json, evidence-report.html, evidence-video.webm and evidence-trace.zip. Any workflow can upload a file by
+evidence.json, evidence-report.html (which holds the run's video, unless it was too big) and evidence-video.webm, the
+video when it wasn't inside the report. The Playwright trace, a desktop debugging tool, isn't kept past GitHub's 90
+days (CD, 2026-11-22). Any workflow can upload a file by
 those names, so a run of another workflow, on another branch, from another repository (a fork) or started by another
 event is skipped. A run it has finished with, archived or holding no evidence, is listed in <root>/.seen-runs, so a
 later pull asks nothing more about it. The run's evidence.json names its issue (evidence.py writes it from the
@@ -40,7 +42,7 @@ WORKFLOWS = ("factory-implement.yml", "factory-revise.yml")
 # How each is started: implement by dispatch or a person's label, revise only by dispatch.
 EVENTS = {"factory-implement.yml": {"workflow_dispatch", "issues"}, "factory-revise.yml": {"workflow_dispatch"}}
 MAX_PAGES = 30
-EVIDENCE = ("evidence.json", "evidence-report.html", "evidence-video.webm", "evidence-trace.zip")
+EVIDENCE = ("evidence.json", "evidence-report.html", "evidence-video.webm")
 REPO = re.compile(r"[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}")
 MAX_FILE = 200 << 20
 
