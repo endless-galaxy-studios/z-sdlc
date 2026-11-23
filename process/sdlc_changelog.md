@@ -37,6 +37,23 @@ Each entry contains:
 
 ---
 
+## 2026-11-23: An adapter that keeps no agent-context-map skips migrate's map step, and its post-operation check knows the manifest isn't written yet
+
+**Origin:** A check of what `neuroloom-sdlc-plugin` needed after z-sdlc v2.9.0 to v2.9.8, the releases since the plugin last declared support. None of them holds a `[contract-change]`, so the adapter version gate passes, but two of the changes brought out older gaps between the adapter protocol and the one adapter.
+
+**What happened:**
+- **§3.3 had no adapter case.** v2.9.6 mapped `agent-communication-protocol.yaml` to `sdlc-compliance-auditor` and added an `sdlc-reviewer` role to `agent-context-map.yaml`, and the same release made §3.3 run for any mapping added to an existing role. A Neuroloom project has no map: its agents search by domain tag, and the plugin's post-operation check 7 fails if the map exists. §3.3 still told the run to read the map and, for a new role, to "add the role section as-is", which can create it. The plugin's transformer leaves §3.3 alone: its rows match `[sdlc-root]/`-prefixed paths, and §3.3 names the map bare. A Neuroloom-backed project's installed copy (v2.2.0) shows it unchanged.
+- **The post-operation phase's timing was stated two ways.** `process/adapter-lifecycle-protocol.md`'s phase table says it fires "before final manifest update", and §4.4a runs it before §4.5. The text under the table said "after all mutations are complete", and the plugin's audit read it that way: it expected the new `source_version` and hashes, and a `last_migration` field that §4.5 never writes. So a migration would report false regressions (warn-continue); this was found by reading the docs side by side, not in a run's report. v2.9.6 fixed the same thing for z-sdlc's own audit (§4.4's "The manifest §4.5 is about to write").
+
+**Changes made:**
+
+1. **`skills/sdlc-migrate/SKILL.md`** — §3.3 opens with an adapter delegation line: an adapter that declares `knowledge-update`, in a project with no `agent-context-map.yaml`, means the subsection is skipped and the map is never created. The adapter's handler doc says what stands in for it.
+2. **`process/adapter-lifecycle-protocol.md`** — `knowledge-update`'s "What upstream still handles" says the same. `post-operation` says the manifest isn't written yet in a migration, so an adapter checks it against what §4.5 will write (the target tag, the new hashes).
+
+**Rationale:** Conditioning the skip on the map's absence, not only on the adapter, keeps an adapter that does keep a map on the ordinary path. The plugin's paired changes (its audit compares against what §4.5 will write, its handler tells a migration to skip §3.3's map updates, a mapping row for the auditor's Communication Protocol line) are in its own changelog. A project runs the `sdlc-migrate` it has installed, so the §3.3 line takes effect from the migration after the one that installs it; until then the plugin's handler gives the same instruction. Not a `[contract-change]`: no knowledge-layer phrasing changed. Release type: patch.
+
+---
+
 ## 2026-11-22: Four knowledge entries the pilot project's verified sweep found wrong are corrected or removed
 
 **Origin:** The pilot project's migration to v2.9.8, reported in the same handoff as the Freeze test. CD asked for it to go upstream. On 2026-07-13, a CD-directed sweep of the pilot's knowledge store used two judges, with a third breaking ties, the shape of today's Promotion Verification Gate. It demoted four entries that came from upstream, and v2.9.8 still had them as they were. The pilot carries removal marks for them.

@@ -773,6 +773,8 @@ For each agent in `.claude/agents/`:
 
 ### 3.3 Update Agent-Context-Map (if needed)
 
+**Adapter delegation:** If the adapter declares a `knowledge-update` phase and the project has no `agent-context-map.yaml`, the adapter routes knowledge through its backend and keeps no map: skip this subsection, and never create the map. The adapter's handler doc says what stands in for it.
+
 The agent-context-map is **never overwritten** because projects have their own agent names. But it must be updated for five scenarios. A declined knowledge file (`declined_files`) is never wired in, under any of them:
 
 **New mappings for existing roles:** If z-sdlc added new YAML files that are relevant to existing agents, or mapped an existing file to a role (a path added to a role's list in the source's `agent-context-map.yaml` since `source_version`):

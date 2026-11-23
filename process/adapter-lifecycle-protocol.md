@@ -134,7 +134,7 @@ When an adapter declares this phase, upstream skips §2.1b entirely for knowledg
 
 This eliminates the materialization round-trip. No flat files are created, diffed, or cleaned up. The backend's own storage semantics handle what upstream's key-level merge does for flat-file projects.
 
-**What upstream still handles:** `agent-context-map.yaml` structural updates (new agent entries, wiring changes) remain upstream's responsibility unless the adapter also transforms these during `post-file-write`.
+**What upstream still handles:** `agent-context-map.yaml` structural updates (new agent entries, wiring changes) remain upstream's responsibility unless the adapter also transforms these during `post-file-write`. A project whose adapter declares this phase and that has no map (the adapter routes knowledge through its backend) has nothing to update: `sdlc-migrate` §3.3 skips, and never creates the map.
 
 ### Phase: `post-file-write`
 
@@ -177,7 +177,7 @@ Files not matching the filter are written by upstream with no adapter callout.
 | **Default (no adapter)** | No-op |
 | **Purpose** | Run adapter-specific integrity verification |
 
-The adapter runs its own verification gates after all mutations are complete. Based on the Neuroloom model, this includes:
+The adapter runs its own verification gates after the file writes and knowledge updates are complete. In `sdlc-migrate` the manifest is not: §4.5 writes it after this phase, so `.sdlc-manifest.json` still holds the previous version's values, and an adapter checking it compares against what §4.5 will write (the run's `[target_tag]`, the new hashes of the files the run wrote), as §4.4's audit does. Based on the Neuroloom model, this includes:
 
 - **Contract residue scan** — grep all written files for untransformed phrasing-contract anchors (e.g., residual `[sdlc-root]/knowledge/` references that should have been transformed)
 - **Backend call retention** — verify aggregate backend-native call count across all files hasn't decreased from pre-migration baseline
