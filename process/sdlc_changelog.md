@@ -37,6 +37,22 @@ Each entry contains:
 
 ---
 
+## 2026-11-22: The factory's Freeze test expects each stack profile's own files, and freezes every profile the bundle ships
+
+**Origin:** The pilot project's migration to v2.9.8, reported by its session in a handoff. The project is on the `dotnet-node` profile.
+
+**What happened:** `test_agent_job.Freeze` compared the frozen copy of the project's stack profile with a fixed list of six files. v2.9.8 added `profiles/dotnet-node/excludes`, which `freeze` copies like every file at the profile's top level, and the list wasn't updated. So the test failed in every `dotnet-node` project: 1 of the pilot's 835 factory tests, in the `factory-checks` job its CI runs, which held its migration PR. Nobody upstream saw it. The bundle's tests run against a project's own `factory.json`, and the incubator, the import's proof and z-sdlc's own runs all use a Python profile, which has only the six files. Reproduced with v2.9.8's tree on `dotnet-node`.
+
+**Changes made:**
+
+1. **`bundles/factory/tree/tests/test_agent_job.py`:**
+   - The Freeze test expects the files in the project's own profile folder, not a fixed list.
+   - A new test freezes every profile the bundle ships, from a copy of the tree set to each in turn. It checks that each has the six files every profile needs, and that its frozen copy holds exactly its files, byte for byte.
+
+**Rationale:** A test that pins one profile's file list breaks on whichever profile changes next. Freezing each shipped profile catches a file added to one profile wherever the tests run: in z-sdlc, the incubator or any project, not only in the projects on that profile. Passes on all three profiles. Release type: patch.
+
+---
+
 ## 2026-11-22: The browser evidence report holds the video, so its one link plays on a phone, and the archive keeps the report and a video too big for it
 
 **Origin:** CD's design request, relayed by the session testing the pilot project's browser evidence. CD chose it over a hosted viewer: "maintaining no code is a plus, and we can just archive the report". CD approved the design and the archive keeping a separate video too: "approved, keep the big videos too".

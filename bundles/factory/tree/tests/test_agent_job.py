@@ -22,6 +22,15 @@ def git(*args, cwd):
     return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True).stdout
 
 
+# What every stack profile has; a profile may add more (dotnet-node's excludes), and freeze copies all of it.
+REQUIRED_PROFILE_FILES = ("Dockerfile", "install.sh", "services", "test-services.sh", "verify", "with-test-services")
+
+
+def profile_files(factory, profile):
+    """The files freeze copies from a profile: every one at its top level."""
+    return sorted(p.name for p in (factory / "profiles" / profile).iterdir() if p.is_file())
+
+
 class AgentJob(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -64,11 +73,29 @@ class Freeze(AgentJob):
         # The project's stack profile, at the same path as in the repository: its services list among it, which
         # the sandbox check reads out of the agent's reach.
         profile = self.checks / "profiles" / PROFILE
-        self.assertEqual(sorted(p.name for p in profile.iterdir()),
-                         ["Dockerfile", "install.sh", "services", "test-services.sh", "verify", "with-test-services"])
+        self.assertEqual(sorted(p.name for p in profile.iterdir()), profile_files(FACTORY, PROFILE))
         for name in ("install.sh", "test-services.sh", "verify", "with-test-services"):
             self.assertTrue(os.access(profile / name, os.X_OK), name)
         self.assertEqual(stat.S_IMODE((self.checks / "run_metrics.py").stat().st_mode), 0o644)
+
+    def test_freezes_every_shipped_profile_whole(self):
+        # Each profile the bundle ships, not only this project's: a file added to one (dotnet-node's excludes, say)
+        # is caught wherever the tests run, not only in the projects on that profile.
+        for name in sorted(p.name for p in (FACTORY / "profiles").iterdir() if p.is_dir()):
+            with self.subTest(profile=name):
+                self.assertLessEqual(set(REQUIRED_PROFILE_FILES), set(profile_files(FACTORY, name)))
+                tree = self.root / f"tree-{name}"
+                shutil.copytree(FACTORY, tree, ignore=shutil.ignore_patterns("tests", "host", "__pycache__"))
+                config = json.loads((tree / "factory.json").read_text())
+                config["stack"]["profile"] = name
+                (tree / "factory.json").write_text(json.dumps(config))
+                checks = self.root / f"checks-{name}"
+                r = self.run_script("freeze", script=tree / "agent_job.sh", env={**self.env, "CHECKS": str(checks)})
+                self.assertEqual(r.returncode, 0, r.stderr)
+                frozen = checks / "profiles" / name
+                self.assertEqual(sorted(p.name for p in frozen.iterdir()), profile_files(FACTORY, name))
+                for p in frozen.iterdir():
+                    self.assertEqual(p.read_bytes(), (FACTORY / "profiles" / name / p.name).read_bytes(), p.name)
 
     def test_a_missing_named_file_fails(self):
         self.assertNotEqual(self.run_script("freeze", "no-such.settings.json").returncode, 0)
