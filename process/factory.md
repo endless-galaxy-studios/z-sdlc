@@ -701,10 +701,14 @@ new profile adds its own.
 - **`dotnet-node`:** `*.csproj` (and `*.fsproj`, `*.vbproj`), their `.user` files (MSBuild imports
   `<project>.user` when it exists), `*.props`, `*.targets`, `*.rsp` (`Directory.Build.*`,
   `Directory.Packages.props` and `Directory.Solution.*` among them), `*.sln`, `*.slnx`, `*.slnf`,
-  `global.json`, `nuget.config`, `NuGet.config` and `NuGet.Config`, `.config/dotnet-tools.json` and a
-  root `dotnet-tools.json`, `*.runsettings`, `xunit.runner.json`, `.editorconfig`, `.globalconfig`,
-  and the Node files below. A project file can run code during `dotnet restore`, so owning `*.csproj`
-  makes a new project or package CD's change; the implement sandbox can't fetch a package anyway.
+  `global.json`, `nuget.config`, `NuGet.config` and `NuGet.Config`, NuGet's lock files
+  (`packages.lock.json`, and `packages.*.lock.json` where projects share a folder: restore uses one just
+  because it exists and fetches exactly its versions, transitive ones included, while the project's
+  dependencies are unchanged), and any lock file a `NuGetLockFilePath` names,
+  `.config/dotnet-tools.json` and a root `dotnet-tools.json`, `*.runsettings`, `xunit.runner.json`,
+  `.editorconfig`, `.globalconfig`, and the Node files below. A project file can run code during
+  `dotnet restore`, so owning `*.csproj` makes a new project or package CD's change; the implement
+  sandbox can't fetch a package anyway.
 - **Node, in both:** `package.json` (`install` runs its lifecycle scripts), `.npmrc`, the eslint
   (`eslint.config.*`, `.eslintrc*`), TypeScript (`tsconfig*.json`), Vite and Vitest
   (`vite.config.*`, `vitest.config.*`, and `vitest.workspace.*` or `vitest.projects.*`, which choose the

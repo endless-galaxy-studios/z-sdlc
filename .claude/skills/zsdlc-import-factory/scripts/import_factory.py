@@ -115,6 +115,8 @@ global.json @owner
 nuget.config @owner
 NuGet.config @owner
 NuGet.Config @owner
+packages.lock.json @owner
+packages.*.lock.json @owner
 .config/dotnet-tools.json @owner
 dotnet-tools.json @owner
 *.runsettings @owner

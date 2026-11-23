@@ -119,6 +119,7 @@ DOTNET_BUILD_FILES = (
     "Directory.Build.props", "Directory.Build.targets", "src/Directory.Build.rsp", "Directory.Packages.props",
     "Directory.Solution.props", "Directory.Solution.targets", "build/common.targets", "App.sln", "App.slnx",
     "App.slnf", "global.json", "dotnet-tools.json", "nuget.config", "NuGet.config", "NuGet.Config",
+    "packages.lock.json", "src/App/packages.App.lock.json",
     ".config/dotnet-tools.json", "tests/test.runsettings", "tests/xunit.runner.json", ".editorconfig",
     "src/.globalconfig")
 # profile: (the files in stack.python, which holds the .NET solution for dotnet-node; the files in stack.node).

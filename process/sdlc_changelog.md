@@ -37,6 +37,22 @@ Each entry contains:
 
 ---
 
+## 2026-11-23: CODEOWNERS covers NuGet's lock files in a dotnet-node project
+
+**Origin:** The pilot project (`dotnet-node`), closing its CODEOWNERS follow-up (handoff `pilot-nuget-lock-file-build-files`). Its software-architect review of the CODEOWNERS change found the gap.
+
+**What happened:** § What CODEOWNERS must cover lists the files a profile's tools load just because they exist. Its `dotnet-node` list had no NuGet lock file, and neither did the guard's samples (`implement_guard.DOTNET_BUILD_FILES`). NuGet's docs ("Locking dependencies"): "Once a project has `packages.lock.json` file in its root directory, the lock file is always used with restore even if the property `RestorePackagesWithLockFile` is not set". While the project's dependencies are unchanged, "it just restores the packages mentioned in the lock file. There is no re-evaluation of package dependencies". Projects that share a folder use `packages.<project_name>.lock.json`. So a lock file a factory commit adds chooses the exact versions restore fetches within the ranges the project already requests, transitive packages included: an older, vulnerable one within range, say. That restore runs in CI and in a revise run's install outside the sandbox. `agent_config` doesn't name the file, so the guard refused it only where a project's CODEOWNERS happened to own it. The pilot had no lock file and no lock-file setting, so nothing it owned covered the name. It now owns both names.
+
+**Changes made:**
+
+1. **`bundles/factory/tree/implement_guard.py`**: `DOTNET_BUILD_FILES` gains `packages.lock.json` and `src/App/packages.App.lock.json`. A `dotnet-node` project's seeded CODEOWNERS test reads them through `profile_build_files`, so on migration it fails until CODEOWNERS owns both names. § After migrating's CODEOWNERS item already tells CD to run it.
+2. **`process/factory.md`** § Stack Profiles, What CODEOWNERS must cover: the `dotnet-node` list names `packages.lock.json` and `packages.*.lock.json`, and says why. A project that sets a custom path (`NuGetLockFilePath`) owns the file it names too, as `python-node` does an in-tree build backend.
+3. **`bundles/factory/tree/tests/test_implement_guard.py`**: the test's list of the globs adds both. So does the proof's CODEOWNERS (`.claude/skills/zsdlc-import-factory/scripts/import_factory.py`). Without the two globs, neither new sample is protected.
+
+**Rationale:** A NuGet lock file is owned the same way as `package-lock.json`, `pnpm-lock.yaml` and `uv.lock`: through CODEOWNERS and each profile's samples, not by name in `agent_config`. That answers the handoff's open question. `agent_config` holds what agents read as instructions, in every profile. The lock files are build inputs of one profile, and the seeded test already makes each `dotnet-node` project own them. Owning `*.csproj` already makes adding a package CD's change. The incubator isn't `dotnet-node`, so its CODEOWNERS needs nothing. The guard and its test go to it with the next hand-back. Release type: patch.
+
+---
+
 ## 2026-11-23: Two stale claims left in the security taxonomy's corrected entries: PCI DSS's version and a SOC 2 pen-test minimum
 
 **Origin:** The pilot project's migration to v2.9.9 (handoff `pilot-v2.9.9-migration-two-stale-lines`). The pilot checked each entry v2.9.9 corrected against its 2026-07-13 judges' reasons, not only the lines that release changed. CD asked for the fix to go upstream, and the pilot keeps its removal marks on the two keys until a release has it.
