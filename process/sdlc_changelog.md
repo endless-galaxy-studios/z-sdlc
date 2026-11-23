@@ -37,6 +37,32 @@ Each entry contains:
 
 ---
 
+## 2026-11-22: Four knowledge entries the pilot project's verified sweep found wrong are corrected or removed
+
+**Origin:** The pilot project's migration to v2.9.8, reported in the same handoff as the Freeze test. CD asked for it to go upstream. On 2026-07-13, a CD-directed sweep of the pilot's knowledge store used two judges, with a third breaking ties, the shape of today's Promotion Verification Gate. It demoted four entries that came from upstream, and v2.9.8 still had them as they were. The pilot carries removal marks for them.
+
+**What happened:**
+- **`security-review-taxonomy.yaml` `iso_27001`:** "114 controls across 14 domains" is ISO/IEC 27001:2013's structure. The 2022 edition has 93 Annex A controls in 4 themes, and certificates to the 2013 edition lapsed at the end of October 2025.
+- **`evidence_collection.retention_period`:** "Minimum 12 months for SOC 2 / ISO 27001; 13 months for PCI DSS" was wrong both ways. PCI DSS v4.0's Requirement 10.5.1 asks for 12 months, the latest 3 immediately available. SOC 2 and ISO 27001 set no fixed period.
+- **`security_tooling` and its comment block contradicted themselves.** SAST was "high false positive rate", yet "tool findings are treated as machine-verified: they skip agent triage and go directly to FIX". That's a stronger rule than `review-fix-loop.md`'s own, which weighs a tool-corroborated finding more but still triages it. The entry also called the share of agent reports that were false a "false positive rate", and said tools have "zero false negatives for their rule sets".
+- **`gotchas.yaml` `playwright-cli-open-url`:** "URL may not be applied on open command in some versions" names no version and can't be tested.
+
+**Changes made:**
+
+1. **`knowledge/architecture/security-review-taxonomy.yaml`:**
+   - `iso_27001` has the 2022 structure, its four themes with their control counts in place of the 2013 domains (`key_themes` for `key_domains`), and when the 2013 edition lapsed.
+   - `retention_period` gives PCI DSS's 12 months, 3 immediately available, and says SOC 2 and ISO 27001 set none.
+   - `security_tooling`'s comment block, `principle`, `agent_vs_tool_reliability` and `integration_with_review_loop` are corrected:
+     - Tool findings are reproducible, naming their rule and location, and have higher confidence.
+     - They're triaged like any other finding, with more weight, as `review-fix-loop.md` § Security finding calibration says.
+     - SAST has false positives and misses variants its rules don't match.
+     - Semgrep's 85% is the share of agent reports that were false.
+2. **`knowledge/testing/gotchas.yaml`** — `playwright-cli-open-url` removed.
+
+**Rationale:** `security_tooling`'s guidance is sound: run tools before agent review, and use both. So it's corrected rather than removed, and no longer overrides the review loop's triage. Removing the Playwright entry makes the pilot's removal mark an orphan, which its next migration drops. Its other three marks keep those entries out of the pilot until it drops them to take the corrected text. `project-section-markers.md` and `deep-verify.md` still use `gotchas[id=playwright-cli-open-url]` as an example of a mark's target, which is what the pilot's mark was. Release type: patch.
+
+---
+
 ## 2026-11-22: discipline_capture.md names sdlc-design-consult as the design bundle's skill
 
 **Origin:** The pilot project's migration to v2.9.8, reported in the same handoff as the Freeze test. CD asked for it to go upstream.

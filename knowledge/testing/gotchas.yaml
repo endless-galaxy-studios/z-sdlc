@@ -1,7 +1,7 @@
 # Cross-Project Gotchas
 # Failure patterns learned from test runs. Read before every test session.
 # Each entry: symptom, cause, resolution, prevention.
-# Last updated: 2026-03-22
+# Last updated: 2026-11-22
 
 id: gotchas
 name: "Cross-Project Gotchas"
@@ -64,14 +64,6 @@ gotchas:
     resolution: "Check Vite console output for actual port"
     prevention: "Use explicit --port flag or check process list"
     applies_to: "all Vite projects"
-
-  - id: playwright-cli-open-url
-    severity: low
-    symptom: "playwright-cli open <url> lands on about:blank"
-    cause: "URL may not be applied on open command in some versions"
-    resolution: "Use goto after open to navigate"
-    prevention: "Always follow open with goto <url>"
-    applies_to: "Playwright CLI"
 
   - id: invisible-overlay-intercepts-pointers
     severity: medium
