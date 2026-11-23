@@ -15,7 +15,7 @@
 #   probe        what an agent job needs works here: the test database through the sandbox's proxy,
 #                a .NET build from the restored packages, and the Node toolchain, loading the recorded Vite
 #                and Vitest configs as they do (factory-smoke's implement-tools probe, in the sandbox); prints
-#                probe-ok when all do
+#                what HOME it has, and probe-ok when all do
 #   --print      print the commands and run nothing (to run a narrower one, such as a single test)
 # Runs every area asked for, even after one fails, and exits 1 if any did.
 # Every .NET build here runs in one process (-m:1): MSBuild's worker nodes talk over Unix sockets,
@@ -46,6 +46,10 @@ pin eslint_config; eslint=$flag
 pin vite_config; vite=$flag
 pin vitest_config; vitest=$flag
 configs="/usr/local/bin/python3 -I $here/node_configs.py check $node_dir $here/verify.conf eslint vitest vite"
+# What HOME a sandboxed command has, for factory-smoke's log: a relative one made ASP.NET Core write .aspnet/ in the
+# checkout in the pilot project's first implement run, as reproduced with HOME=. (install.sh's LOCALAPPDATA,
+# profiles/dotnet-node/excludes).
+home='h=${HOME-}; if [ -z "$h" ]; then echo "home: unset or empty"; else s=relative; case $h in /*) s=absolute ;; esac; if [ -d "$h" ]; then s="$s, exists"; else s="$s, missing"; fi; if [ -w "$h" ]; then s="$s, writable"; else s="$s, not writable"; fi; echo "home: $h ($s)"; fi; if getent passwd "$(id -u)" > /dev/null 2>&1; then echo "uid $(id -u): has a passwd entry"; else echo "uid $(id -u): no passwd entry"; fi'
 
 print=no
 areas=()
@@ -62,7 +66,7 @@ command_for() {
   case "$1" in
     dotnet) echo "$wrap bash -c 'cd $dotnet_dir && dotnet test --no-restore -c Release -m:1 --filter \"Category!=Nightly&Category!=External\"'" ;;
     node) echo "$configs && cd $node_dir && $bin/eslint .$eslint && $bin/tsc -b && $bin/vitest run$vitest && $bin/vite build$vite" ;;
-    probe) echo "$wrap pg_isready -q -h 127.0.0.1 -p 5432 && echo db-ok && (cd $dotnet_dir && dotnet build --no-restore -c Release -m:1 -v quiet -nologo > /dev/null) && echo dotnet-ok && (cd $node_dir && $bin/tsc --version) && /usr/local/bin/python3 -I $here/node_configs.py load $node_dir $here/verify.conf && echo probe-ok" ;;
+    probe) echo "{ $home; } && $wrap pg_isready -q -h 127.0.0.1 -p 5432 && echo db-ok && (cd $dotnet_dir && dotnet build --no-restore -c Release -m:1 -v quiet -nologo > /dev/null) && echo dotnet-ok && (cd $node_dir && $bin/tsc --version) && /usr/local/bin/python3 -I $here/node_configs.py load $node_dir $here/verify.conf && echo probe-ok" ;;
   esac
 }
 

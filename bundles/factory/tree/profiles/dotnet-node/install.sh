@@ -15,13 +15,18 @@ dotnet_dir=$1 node_dir=$2
 # untracked file would stop the run's publish) live in the workspace's .factory/. No build or
 # compiler server may outlive a command, and nothing on first run writes outside the workspace
 # (telemetry, the HTTPS development certificate). NuGet's audit needs the network: it runs here,
-# and is off in the sandbox, where a restore can only work from these packages.
+# and is off in the sandbox, where a restore can only work from these packages. ASP.NET Core keeps its
+# data protection keys under $LOCALAPPDATA/ASP.NET when it's set, before it tries HOME (its
+# DefaultKeyStorageDirectories): with a relative HOME in the sandbox it made .aspnet/ in the server's
+# working directory, which stopped the pilot project's first implement run's publish (reproduced with
+# HOME=.; an empty or unset HOME gives in-memory keys and no folder).
 factory=$GITHUB_WORKSPACE/.factory
-install -d "$factory/dotnet-home" "$factory/nuget" "$factory/xdg-data" "$factory/pnpm-store"
+install -d "$factory/dotnet-home" "$factory/nuget" "$factory/xdg-data" "$factory/local-app-data" "$factory/pnpm-store"
 settings=(
   "DOTNET_CLI_HOME=$factory/dotnet-home"
   "NUGET_PACKAGES=$factory/nuget"
   "XDG_DATA_HOME=$factory/xdg-data"
+  "LOCALAPPDATA=$factory/local-app-data"
   DOTNET_NOLOGO=1
   DOTNET_CLI_TELEMETRY_OPTOUT=1
   DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1

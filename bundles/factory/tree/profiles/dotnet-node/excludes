@@ -1,0 +1,9 @@
+# Tool state this profile's tools write in the checkout, never the run's work (agent_job.sh excludes): kept out of
+# the agent's git status and out of the bundle step's check for uncommitted changes. One plain pattern a line.
+#
+# ASP.NET Core keeps its data protection keys and its development certificate's trust under HOME's .aspnet/. In the
+# pilot project's first implement run, a .aspnet/ appeared beside the server project once its end-to-end specs had
+# started the server, and stopped the publish. A relative HOME does that, as reproduced with HOME=.; install.sh's
+# LOCALAPPDATA now sends the keys into .factory/, and this catches anything else that resolves the home the same
+# way. verify probe prints what HOME a sandboxed command has.
+.aspnet/

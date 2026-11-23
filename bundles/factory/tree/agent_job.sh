@@ -15,9 +15,13 @@
 #   workspace           install the profile's test-services wrapper and verify at /opt/factory, with
 #                       verify.conf (the stack's directories, and the config file each Node tool loads,
 #                       which verify pins), run its install.sh (the dependencies), point the project's
-#                       paths (stack.env) into the workspace, set the factory's git identity and record
-#                       the hooks' hashes. Run
+#                       paths (stack.env) into the workspace, set the factory's git identity, exclude
+#                       what's never the run's work (excludes) and record the hooks' hashes. Run
 #                       after services, and after any secret is out of the environment.
+#   excludes <profile>  exclude what's never the run's work from git status: each name the sandbox mounts
+#                       over at the workspace's root that doesn't exist there, and the tool state the
+#                       profile names (profiles/<profile>/excludes). In .git/info/exclude, for the agent's
+#                       git status, and in $CHECKS/excludes, for bundle's check (workspace runs it)
 #   browser <stage> <settings>
 #                       the browser route (D6): when factory.json's browser block lists the stage (smoke
 #                       always counts), add the browser host's front end for the project's Playwright to
@@ -38,7 +42,9 @@
 #                       before the job runs git in the agent's repository again
 #   bundle <base> <bundle> <status> <publishing status> ...
 #                       count the commits since <base>; when <status> is one that publishes, require a
-#                       commit, write <bundle> and refuse uncommitted changes
+#                       commit, write <bundle>, remove the sandbox's empty placeholders at the root and
+#                       refuse uncommitted changes, but for $CHECKS/excludes. It first prints what the
+#                       sandbox left at the root.
 #   stats               the run's cost, turns and models (from EXEC, the execution file) as the step
 #                       output stats, for the agent record the publish guard checks
 #   lost <who>          an agent step that ended with no result: keep its session log (session_log.sh,
@@ -64,6 +70,38 @@ stack() {
   node_dir=$(jq -r .stack.node "$here/factory.json")
   env_file=$(jq -r .stack.env_file "$here/factory.json")
   database=$(jq -r .stack.database "$here/factory.json")
+}
+# The names the sandbox mounts over at the workspace's root (Claude Code 2.1.330's sandbox). Where none exists it
+# makes an empty file there to mount on, which sandboxed `git status` lists as untracked while a command runs, and
+# removes it when the command ends, unless the sandbox is killed: both seen in the pilot project's first implement
+# run, whose agent saw all nine in every `git status` and whose bundle step found none.
+ROOT_MOUNTS=".bash_profile .bashrc .gitconfig .profile .ripgreprc .zprofile .zshrc .idea .vscode"
+# Excluded where none exists, so the agent never stages one, or spends turns on a file it can't remove. No trailing
+# slash: the placeholder is a file, which /.vscode/ wouldn't match. Only where none exists: a project's own stays seen.
+# Then the profile's tool state, which its tools write in the checkout (ASP.NET Core's .aspnet/, say). The same
+# patterns go in $CHECKS/excludes, which the sandbox can't write, since whether Claude Code keeps the job's lines in
+# .git/info/exclude when it writes its own isn't seen yet: bundle's check reads that copy.
+excludes() {
+  local profile=$1 p patterns=()
+  for p in $ROOT_MOUNTS; do
+    if [ ! -e "$p" ] && [ ! -L "$p" ]; then patterns+=("/$p"); fi
+  done
+  if [ -f "$here/profiles/$profile/excludes" ]; then
+    while IFS= read -r p; do
+      case $p in ''|'#'*) continue ;; esac
+      [[ $p =~ ^[A-Za-z0-9._/*-]+$ ]] || { echo "::error::profiles/$profile/excludes: not a plain pattern: $p"; exit 1; }
+      patterns+=("$p")
+    done < "$here/profiles/$profile/excludes"
+  fi
+  mkdir -p .git/info
+  # A last line without its newline would take the first pattern onto it.
+  if [ -s .git/info/exclude ] && [ -n "$(tail -c 1 .git/info/exclude)" ]; then echo >> .git/info/exclude; fi
+  : > "$CHECKS/excludes"
+  for p in ${patterns[@]+"${patterns[@]}"}; do
+    grep -qxF -- "$p" .git/info/exclude 2> /dev/null || echo "$p" >> .git/info/exclude
+    echo "$p" >> "$CHECKS/excludes"
+  done
+  chmod 644 "$CHECKS/excludes"
 }
 cmd=${1:-}
 if [ $# -gt 0 ]; then shift; fi
@@ -128,8 +166,14 @@ case "$cmd" in
     app
     git config user.name "$app_login"
     git config user.email "$app_id+$app_login@users.noreply.github.com"
+    excludes "$profile"
     # quiesce compares the hooks after the agent (the sandbox can't write them; this proves it).
     find .git/hooks -type f -exec sha256sum {} + | sort > "$CHECKS/git-hooks.sha256"
+    ;;
+
+  excludes)
+    [[ ${1:-} =~ ^[a-z0-9-]+$ ]] && [ -d "$here/profiles/$1" ] || { echo "::error::excludes: no profile ${1:-}"; exit 2; }
+    excludes "$1"
     ;;
 
   browser)
@@ -223,8 +267,29 @@ case "$cmd" in
   bundle)
     base=$1 bundle=$2 status=$3
     shift 3
-    # Hooks and fsmonitor off, and never into a nested repository (git_guard.sh ran first).
+    # Hooks and fsmonitor off, and never into a nested repository (git_guard.sh ran first). The status check reads the
+    # frozen copy of the job's excludes, whatever .git/info/exclude now holds.
     g() { git -c core.hooksPath=/dev/null -c core.fsmonitor=false -c diff.ignoreSubmodules=all "$@"; }
+    gx() { g -c core.excludesFile="$CHECKS/excludes" "$@"; }
+    # For the job log, in every run: what the sandbox left at the root, and the exclude's patterns, which show whether
+    # Claude Code keeps the job's lines (not seen yet: D2 rule 4), and whether a placeholder outlives its command.
+    # Only the fixed names, and patterns of plain characters, are printed: the log reads workflow commands.
+    seen=""
+    for p in $ROOT_MOUNTS; do
+      if [ -L "$p" ]; then st=symlink
+      elif [ -f "$p" ]; then st="file of $(wc -c < "$p" | tr -d ' ') bytes"
+      elif [ -d "$p" ]; then st=directory
+      elif [ -e "$p" ]; then st=other
+      else st=absent; fi
+      seen="$seen $p: $st;"
+    done
+    echo "At the root after the agent:${seen%;}"
+    if [ -f .git/info/exclude ] && [ ! -L .git/info/exclude ]; then
+      echo ".git/info/exclude: $(wc -l < .git/info/exclude | tr -d ' ') lines, $(grep -c '^#' .git/info/exclude || true) of them comments. Its patterns:"
+      grep -v '^#' .git/info/exclude | grep -xE '[A-Za-z0-9._/*!-]{1,100}' | head -40 | sed 's/^/  /' || true
+    else
+      echo ".git/info/exclude: none"
+    fi
     n=$(g rev-list --count "$base..HEAD")
     echo "Commits since the base: $n" >> "$GITHUB_STEP_SUMMARY"
     publishes=no
@@ -237,16 +302,21 @@ case "$cmd" in
     g bundle create -q "$bundle" "$base..HEAD"
     # The bundle is uploaded either way, so the commits survive for CD; publish won't run.
     echo "bundle=yes" >> "$GITHUB_OUTPUT"
-    # The sandbox mounts over these names at the workspace's root and removes the empty mount points it made when a
-    # command ends, unless the sandbox was killed first (quiesce kills one that outlived the agent). An empty, untracked
-    # one is that placeholder: remove it. One with content, or tracked, is left for the check below.
-    for p in .bash_profile .bashrc .gitconfig .profile .ripgreprc .zprofile .zshrc .idea .vscode; do
-      if [ -L "$p" ] || g ls-files --error-unmatch -- "$p" > /dev/null 2>&1; then continue
-      elif [ -f "$p" ] && [ ! -s "$p" ]; then rm -f -- "$p"; echo "removed the sandbox's empty placeholder $p"
-      elif [ -d "$p" ] && [ -z "$(ls -A -- "$p")" ]; then rmdir -- "$p"; echo "removed the sandbox's empty placeholder $p/"
+    # The sandbox's mount points at the root (ROOT_MOUNTS): one a killed sandbox left (quiesce kills one that outlived
+    # the agent) is an empty, untracked placeholder, so remove it. A tracked one is the check's below; any other
+    # untracked one fails it too, named here when only the job's excludes hide it, and not when the project ignores it.
+    left=""
+    for p in $ROOT_MOUNTS; do
+      if g ls-files --error-unmatch -- "$p" > /dev/null 2>&1; then continue
+      elif [ ! -L "$p" ] && [ -f "$p" ] && [ ! -s "$p" ]; then rm -f -- "$p"; echo "removed the sandbox's empty placeholder $p"
+      elif [ ! -L "$p" ] && [ -d "$p" ] && [ -z "$(ls -A -- "$p")" ]; then
+        rmdir -- "$p"; echo "removed the sandbox's empty placeholder $p/"
+      elif [ -e "$p" ] || [ -L "$p" ]; then
+        case $(gx check-ignore -v -- "$p" 2> /dev/null || true) in .git/info/exclude:*|"$CHECKS/excludes":*) left="$left $p" ;; esac
       fi
     done
-    changes=$(g status --porcelain --ignore-submodules=all)
+    # Every untracked file, not only its directory, so a failure names what wrote it.
+    changes=$(gx status --porcelain --untracked-files=all --ignore-submodules=all; for p in $left; do echo "?? $p"; done)
     if [ -n "$changes" ]; then
       echo "incomplete=yes" >> "$GITHUB_OUTPUT"
       echo "::error::status $status but the agent left uncommitted changes:"; printf '%s\n' "$changes" | head -20 || true
@@ -274,7 +344,7 @@ case "$cmd" in
     ;;
 
   *)
-    echo "usage: agent_job.sh freeze|mcp|services|workspace|browser|issue-context|schema|advisor|revise-context|quiesce|bundle|stats|lost|metrics ..." >&2
+    echo "usage: agent_job.sh freeze|mcp|services|workspace|excludes|browser|issue-context|schema|advisor|revise-context|quiesce|bundle|stats|lost|metrics ..." >&2
     exit 2
     ;;
 esac

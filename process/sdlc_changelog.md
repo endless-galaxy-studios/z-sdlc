@@ -37,6 +37,58 @@ Each entry contains:
 
 ---
 
+## 2026-11-22: Tool state a profile's tools write in the checkout is excluded, and the bundle step's check reads the job's own copy of the excludes
+
+**Origin:** The pilot project's first publishing run, an implement run started by CD's merge of its plan PR. It failed in the bundle step, as the session testing the pilot's browser evidence reported.
+
+**What happened:**
+- **The placeholders behaved as read from the binary.** Inside the agent's sandboxed commands, `git status` listed all nine of the sandbox's root mount points every time, the agent staged none, and none reached the bundle step: Claude Code removes them when each command ends. That run was on v2.9.7, so neither the exclude nor the bundle step's cleanup was there yet.
+- **The bundle step failed on something new:** `?? src/<server project>/.aspnet/`. The agent created none of it knowingly. It appeared after the end-to-end specs started the server with `dotnet run` (in the reproduce run too, which has no bundle step). Outside Windows, ASP.NET Core's `DefaultKeyStorageDirectories`, read in its source, keeps the data protection keys under `$LOCALAPPDATA/ASP.NET/` when that is set, else under `.aspnet/` in the user's home, checked with `!= null`. The testing session reproduced it with the server in .NET's runtime image, as a user with no passwd entry. An empty or unset HOME gave in-memory keys and no folder, while `HOME=.` wrote the run's exact path, `.aspnet/DataProtection-Keys/key-….xml` in the server's working directory. So the sandboxed command's HOME was likely relative, though the agent step's own HOME was `/github/home`. Nobody has seen HOME's value in a sandboxed command. Every implement, execute and revise run that starts the server would fail the same way.
+
+**Changes made:**
+
+1. **`bundles/factory/tree/agent_job.sh`:**
+   - `mounts` becomes `excludes <profile>`, which `workspace` runs. It excludes the sandbox's root mount points where none exists, then the tool state the stack profile names in `profiles/<profile>/excludes`, refusing a line that isn't a plain pattern. It writes them to `.git/info/exclude`, for the agent's `git status`, and to `$CHECKS/excludes`, which the sandbox can't write.
+   - `bundle`'s check for uncommitted changes reads that frozen copy (`core.excludesFile`), whatever `.git/info/exclude` holds after the agent. It lists every untracked file by its path, so a failure names what wrote it.
+2. **`profiles/dotnet-node`:**
+   - `install.sh` sets `LOCALAPPDATA` to `.factory/local-app-data`, so the keys go into the factory's own directory, and Claude Code's own HOME is untouched.
+   - The new `excludes` names `.aspnet/`, for anything else that resolves the home the same way.
+   - `verify probe` first prints what HOME a sandboxed command has (unset, or its value, whether it's absolute, exists and is writable) and whether its user has a passwd entry. So `factory-smoke` shows it without failing on it.
+3. **`tests/test_agent_job.py`:**
+   - The `Excludes` tests: the profile's patterns, the frozen copy, a profile with none, and a bad profile name.
+   - A bundle test whose `.git/info/exclude` is emptied after `excludes`: the placeholder is still removed, a `.aspnet/` below the root still passes, and other untracked files are named by path.
+   - The probe's HOME report, run for each case.
+   - A first test of dotnet-node's `install.sh`: each tool-state variable, `LOCALAPPDATA` included, names a directory in `.factory/`.
+4. **`process/factory.md`** — D2 rule 4 says what the run saw, and that the check reads the frozen copy. § Stack Profiles has the `.aspnet/` finding, with its cause marked unconfirmed.
+
+**Rationale:** The exclude in the previous entry stays as a precaution. This run showed the agent ignoring the placeholders on its own, and Claude Code removing them. The check no longer depends on a file the session can reach, so a lost line can't fail a run. `LOCALAPPDATA` follows the profile's existing pattern, a tool's own variable pointing into `.factory/`, rather than setting HOME, which on the agent step would move Claude Code's own home too. The exclude covers whatever else resolves the home the same way. Smoke's printout will show what HOME a sandboxed command has, and whether it's relative. The pilot project unblocks itself now with `.aspnet/` in its `.gitignore`, which the check honours. Release type: patch.
+
+---
+
+## 2026-11-22: The sandbox's root mount points are excluded before the agent starts, and the kept browser recording is the one that shows the bug
+
+**Origin:** The pilot project's first real factory reproduce run, after its root `package.json` fix. It reproduced the bug, and the session testing the pilot's browser evidence reported two findings from it.
+
+**What happened:**
+- **The sandbox's mount points show as untracked.** The agent's first command, `git status --short` at the root, listed `.bash_profile`, `.bashrc`, `.gitconfig`, `.idea`, `.profile`, `.ripgreprc`, `.vscode`, `.zprofile` and `.zshrc` as untracked. These are the empty files the sandbox mounts over while a command runs, and nothing excludes them. Reproduce commits nothing, but implement and revise are told to leave the tree clean. An agent there could stage them (a committed `.vscode` fails the publish guard), or spend turns trying to remove files it can't.
+- **The kept recording didn't show the bug.** The spec had two tests, each driving two users' pages. The factory keeps one video and one trace, and they were the first test's. In that test the bug happened on the second user's page, but the recording was of the first user's, where it never shows on screen. That video's manifest entry still said `bug: true`, set from the test's outcome. The run's `shows` was cut, by the project's own helper, before it reached the bug. Only the screenshots showed it.
+
+**Changes made:**
+
+1. **`bundles/factory/tree/agent_job.sh`** — `mounts`, which `workspace` runs before the agent: each name the sandbox mounts over at the root that doesn't exist there goes in `.git/info/exclude`, anchored, with no trailing slash, since the placeholder is a file. A name the project has is left alone. `bundle` first prints what it finds at the root and the exclude's patterns, only fixed names and plain characters, since the log reads workflow commands. It still removes an empty, untracked placeholder, and names any other untracked one the exclude hides from `git status` as an uncommitted change, so one with content or a symlink still fails the check. One the project's own ignore rules cover doesn't fail. `mounts` adds a newline first when the file's last line has none. **`tests/test_agent_job.py`** — a `Mounts` test, and Bundle tests for both cases and for the printout.
+2. **`process/factory.md`:**
+   - D2 rule 4 says what the run saw, what `workspace` and `bundle` now do, and what's still unseen.
+   - D2 rule 2 says the env scrub doesn't list these names in `.git/info/exclude`; the job does.
+   - The `factory-sandbox` mirror says the files aren't the run's to stage, remove or ignore.
+   - The `factory-browser` mirror's rule 5 says three things. A file's `bug` is true only when that file itself shows the bug. Its `shows` opens with what the file shows, in at most 300 characters, since `evidence.py` drops the whole manifest for a longer one. The factory keeps the first video and trace the manifest lists, so they record one page of one test, and a spec with several tests or pages records the one where the bug happens.
+
+   **`skills/sdlc-implement`, `sdlc-revise` and `sdlc-reproduce`** — the copies of both mirrors.
+3. **`skills/sdlc-reproduce/SKILL.md`** — the helper reports which test and page the kept recording is of, and whether the bug is on screen in it. When it isn't, the result's `summary` says so, and names the screenshots that show it.
+
+**Rationale:** With the exclude, the agent's "leave the tree clean" check shouldn't see the mount points, so it doesn't depend on the agent's judgment. The orchestrator never sees the video, so the helper has to say in text what the video shows. Two things are still unseen: whether a placeholder survives into the bundle step, and whether Claude Code keeps the exclude's lines when it writes its own. Neither commit has run in a real stage. The bundle step's printout will show both in the first run of a stage that publishes, with no help from the agent, which was the testing session's suggestion. Making the recording show the bug is each project's helper's concern too; the pilot project takes up its side. Release type: patch.
+
+---
+
 ## 2026-11-22: The env scrub's empty root package.json: smoke loads the Node configs in the sandbox, and bootstrap.py asks for a root package.json
 
 **Origin:** The pilot project's first real factory reproduce run came back `blocked` before any browser session. CD decided the fix goes in the project and upstream, in z-sdlc's design.

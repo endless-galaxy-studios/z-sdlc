@@ -259,22 +259,103 @@ class Bundle(Repo):
 
     def test_the_sandboxs_empty_placeholders_are_removed_before_the_check(self):
         self.commit()
-        for name in (".bashrc", ".gitconfig", ".zshrc"):
+        # workspace excluded them before the agent started.
+        self.assertEqual(self.run_script("excludes", "dotnet-node", cwd=self.repo).returncode, 0)
+        for name in (".bashrc", ".gitconfig", ".zshrc", ".vscode"):
             (self.repo / name).write_text("")
-        (self.repo / ".vscode").mkdir()
+        (self.repo / ".idea").mkdir()
         r = self.bundle_run("done", "done")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        # What it found, before removing anything.
+        self.assertIn("At the root after the agent: .bash_profile: absent; .bashrc: file of 0 bytes;", r.stdout)
+        self.assertIn(".idea: directory; .vscode: file of 0 bytes", r.stdout)
+        self.assertIn("\n  /.bashrc\n", r.stdout)
         self.assertIn("removed the sandbox's empty placeholder .bashrc", r.stdout)
-        self.assertIn("removed the sandbox's empty placeholder .vscode/", r.stdout)
+        self.assertIn("removed the sandbox's empty placeholder .vscode\n", r.stdout)
+        self.assertIn("removed the sandbox's empty placeholder .idea/", r.stdout)
         self.assertFalse((self.repo / ".bashrc").exists())
-        # One with content, or anything else, still fails the check.
+        # One with content still fails the check, though the exclude hides it from git status.
         (self.repo / ".profile").write_text("export X=1\n")
         (self.repo / ".idea").mkdir()
         (self.repo / ".idea" / "workspace.xml").write_text("<x/>")
+        (self.repo / ".zshrc").symlink_to("/dev/null")
         r = self.bundle_run("done", "done")
         self.assertEqual(r.returncode, 1)
-        self.assertIn(".profile", r.stdout)
-        self.assertIn(".idea/", r.stdout)
+        self.assertIn(".profile: file of 11 bytes;", r.stdout)
+        self.assertIn(".zshrc: symlink;", r.stdout)
+        for name in (".profile", ".idea", ".zshrc"):
+            self.assertIn(f"?? {name}\n", r.stdout)
+        self.assertTrue((self.repo / ".zshrc").is_symlink())
+
+    def test_one_the_project_ignores_isnt_the_checks(self):
+        (self.repo / ".gitignore").write_text(".idea/\n")
+        git("add", ".gitignore", cwd=self.repo)
+        git("commit", "-q", "-m", "ignore", cwd=self.repo)
+        self.assertEqual(self.run_script("excludes", "dotnet-node", cwd=self.repo).returncode, 0)
+        (self.repo / ".idea").mkdir()
+        (self.repo / ".idea" / "workspace.xml").write_text("<x/>")
+        with open(self.repo / ".git/info/exclude", "a") as f:
+            f.write("::warning::planted\n")
+        r = self.bundle_run("done", "done")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn("::warning", r.stdout)
+
+
+class Excludes(Repo):
+    MOUNTS = ["/.bash_profile", "/.bashrc", "/.gitconfig", "/.profile", "/.ripgreprc", "/.zprofile", "/.idea", "/.vscode"]
+
+    def excludes(self, profile="dotnet-node"):
+        r = self.run_script("excludes", profile, cwd=self.repo)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_each_name_the_sandbox_mounts_over_is_excluded_where_none_exists(self):
+        (self.repo / ".zshrc").write_text("# the project's own\n")
+        exclude = self.repo / ".git/info/exclude"
+        before = exclude.read_text().splitlines() if exclude.exists() else []
+        for _ in range(2):
+            self.excludes()
+        lines = exclude.read_text().splitlines()
+        self.assertEqual(lines[:len(before)], before)
+        # The profile's tool state follows, and the frozen copy holds the same patterns.
+        self.assertEqual(lines[len(before):], self.MOUNTS + [".aspnet/"])
+        self.assertEqual((self.checks / "excludes").read_text().splitlines(), self.MOUNTS + [".aspnet/"])
+        # A last line without its newline keeps its own line.
+        exclude.write_text("/kept")
+        self.excludes()
+        self.assertEqual(exclude.read_text().splitlines()[:2], ["/kept", "/.bash_profile"])
+        exclude.write_text("\n".join(lines) + "\n")
+        # A profile with no tool state of its own.
+        self.excludes("python-node")
+        self.assertEqual((self.checks / "excludes").read_text().splitlines(), self.MOUNTS)
+        self.assertEqual(self.run_script("excludes", "../x", cwd=self.repo).returncode, 2)
+        # The placeholders are files: git status lists none of them, and still lists the same name below the root.
+        for name in (".bashrc", ".gitconfig", ".vscode", ".idea"):
+            (self.repo / name).write_text("")
+        (self.repo / "sub").mkdir()
+        (self.repo / "sub" / ".bashrc").write_text("")
+        self.assertEqual(git("status", "--porcelain", cwd=self.repo).split(), ["??", ".zshrc", "??", "sub/"])
+
+    def test_the_bundle_check_reads_the_frozen_copy(self):
+        self.commit()
+        self.excludes()
+        # Whatever the session leaves in .git/info/exclude, the check reads the job's own patterns.
+        (self.repo / ".git/info/exclude").write_text("")
+        (self.repo / ".bashrc").write_text("")
+        keys = self.repo / "src" / "Server" / ".aspnet" / "DataProtection-Keys"
+        keys.mkdir(parents=True)
+        (keys / "key-1.xml").write_text("<key/>")
+        r = self.bundle_run("done", "done")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("removed the sandbox's empty placeholder .bashrc", r.stdout)
+        # Still named: one with content at a mount point, and any other untracked file, each by its own path.
+        (self.repo / ".profile").write_text("export X=1\n")
+        (self.repo / "src" / "Server" / "obj").mkdir()
+        (self.repo / "src" / "Server" / "obj" / "out.txt").write_text("x")
+        r = self.bundle_run("done", "done")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("?? .profile\n", r.stdout)
+        self.assertIn("?? src/Server/obj/out.txt", r.stdout)
+        self.assertNotIn(".aspnet", r.stdout.split("uncommitted changes:")[1])
 
 
 class Quiesce(Repo):
@@ -565,6 +646,15 @@ class VerifyDotnetNode(Verify):
         probe = self.verify("--print", "probe").stdout
         self.assertIn("dotnet build --no-restore -c Release -m:1", probe)
         self.assertIn(f"node_configs.py load src/Web {self.dir}/verify.conf && echo probe-ok", probe)
+        # What HOME the sandbox gives, printed first, never failing the probe.
+        self.assertIn('probe: { h=${HOME-}; if [ -z "$h" ]; then echo "home: unset or empty"', probe)
+        for home, want in (("/srv/h", "home: /srv/h (absolute, missing, not writable)"), ("", "home: unset or empty"),
+                           ("rel", "home: rel (relative, missing, not writable)")):
+            cmd = probe.split("probe: ", 1)[1].split("; } && ")[0] + "; }"
+            out = subprocess.run(["bash", "-c", cmd], env={**os.environ, "HOME": home}, capture_output=True,
+                                 text=True).stdout.splitlines()
+            self.assertEqual(out[0], want)
+            self.assertRegex(out[1], r"^uid \d+: (has a|no) passwd entry$")
 
     def test_runs_every_area_and_reports_the_failures(self):
         (self.dir / "with-test-services").write_text('#!/usr/bin/env bash\nexec "$@"\n')
@@ -642,6 +732,35 @@ class VerifyPythonUvNode(Verify):
             self.assertIn("no database= line", r.stderr)
         # The python and node areas don't need one.
         self.assertEqual(self.verify("--print", "python", "node").returncode, 0)
+
+
+class InstallDotnetNode(unittest.TestCase):
+    """The dotnet-node profile's install.sh: .NET's and ASP.NET Core's state in .factory/, with stand-ins for dotnet
+    and pnpm that record their calls."""
+
+    def test_puts_the_tools_state_in_the_workspace(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            ws, bin_, calls, env_file = root / "ws", root / "bin", root / "calls", root / "github_env"
+            (ws / "web").mkdir(parents=True)
+            (ws / "web" / "pnpm-lock.yaml").write_text("")
+            bin_.mkdir()
+            for tool in ("dotnet", "pnpm"):
+                (bin_ / tool).write_text(f'#!/usr/bin/env bash\necho "{tool} $*" >> {calls}\n')
+                (bin_ / tool).chmod(0o755)
+            env_file.write_text("")
+            env = {**os.environ, "PATH": f"{bin_}:{os.environ['PATH']}", "GITHUB_WORKSPACE": str(ws),
+                   "GITHUB_ENV": str(env_file)}
+            r = subprocess.run(["bash", str(FACTORY / "profiles/dotnet-node/install.sh"), ".", "web"], cwd=ws, env=env,
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(calls.read_text().splitlines()[0], "dotnet restore --verbosity quiet")
+            settings = env_file.read_text().splitlines()
+            # ASP.NET Core's keys go under LOCALAPPDATA before HOME: in .factory/, never a relative .aspnet/.
+            for name in ("DOTNET_CLI_HOME", "NUGET_PACKAGES", "XDG_DATA_HOME", "LOCALAPPDATA"):
+                line = next(l for l in settings if l.startswith(f"{name}="))
+                self.assertTrue(line.startswith(f"{name}={ws}/.factory/"), line)
+                self.assertTrue(pathlib.Path(line.split("=", 1)[1]).is_dir(), line)
 
 
 class InstallPythonUvNode(unittest.TestCase):
