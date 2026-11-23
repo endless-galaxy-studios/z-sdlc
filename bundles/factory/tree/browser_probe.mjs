@@ -57,9 +57,9 @@ window.result = new Promise((resolve) => {
   ws.onerror = () => { clearTimeout(t); resolve({ renderer, ws: "error" }); };
 });
 </script>`;
-  const server = http.createServer((_req, res) => {
+  const server = http.createServer((req, res) => {
     res.writeHead(200, { "content-type": "text/html" });
-    res.end(page);
+    res.end(req.url === "/film" ? FILM_PAGE : page);
   });
   server.on("upgrade", (req, sock) => {
     const accept = createHash("sha1").update(req.headers["sec-websocket-key"] + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").digest("base64");
@@ -159,6 +159,80 @@ async function allowedHost() {
   }
 }
 
+// The filmed pass's overlay (evidence_film.mjs, D6 rule 7), which the job copies beside this file: the same stepped
+// move on a page with a canvas under a DOM button, in a plain context and a filmed one. The overlay must change no hit
+// test, no pointer coordinate and nothing an observer of <body> sees; it must draw the pointer; and a gesture must
+// hold each step. Timing is checked only from below: the remote browser makes everything slower, never faster.
+const FILM_PAGE = `<!doctype html><title>factory film probe</title><style>body{margin:0}canvas{position:absolute;left:0;top:0}
+#b{position:absolute;left:200px;top:200px;width:90px;height:32px}</style><canvas id=c width=640 height=480></canvas>
+<button id=b>Undo</button><script>
+window.__moves = []; window.__body = 0;
+addEventListener("pointermove", (e) => __moves.push([e.clientX, e.clientY, (document.elementFromPoint(e.clientX, e.clientY) || {}).id || "none", performance.now()]), { capture: true });
+new MutationObserver((r) => { __body += r.length; }).observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true });
+</script>`;
+// Checked after the gesture, with the pointer and the caption strip drawn: the pointer's tip, the button, and a point
+// under the strip at the bottom edge.
+const FILM_POINTS = [[400, 240], [245, 216], [10, 10], [300, 470], [630, 476]];
+
+async function filmChecks(browser, appUrl) {
+  let film;
+  try {
+    film = await import(new URL("./evidence_film.mjs", import.meta.url).href);
+  } catch (e) {
+    return out("film", "unchecked", `evidence_film.mjs didn't load beside the probe: ${e.message}`);
+  }
+  const pass = async (filmed) => {
+    const saved = [process.env.FACTORY_EVIDENCE_PACE, process.env.FACTORY_EVIDENCE_VIDEO];
+    [process.env.FACTORY_EVIDENCE_PACE, process.env.FACTORY_EVIDENCE_VIDEO] = filmed ? ["1", "1"] : ["0", "0"];
+    const context = await browser.newContext({ viewport: { width: 640, height: 480 } });
+    try {
+      const on = await film.filmContext(context);
+      const page = await context.newPage();
+      await page.goto(`${appUrl}film`, { timeout: 30000 });
+      await page.mouse.move(100, 210);
+      await page.evaluate(() => { window.__moves = []; window.__body = 0; });
+      await film.gesture(page, "the probe's stepped move", () => page.mouse.move(400, 240, { steps: 8 }));
+      const hits = await page.evaluate((pts) => pts.map(([x, y]) => (document.elementFromPoint(x, y) || {}).id || "none"), FILM_POINTS);
+      const r = await page.evaluate(() => ({ moves: window.__moves, body: window.__body,
+        host: document.documentElement.querySelectorAll(":scope > factory-film").length }));
+      let drawn = null;
+      if (on) {
+        const clip = { x: 398, y: 238, width: 12, height: 14 };
+        const shot = await page.screenshot({ clip });
+        await page.evaluate(() => { document.querySelector("factory-film").style.display = "none"; });
+        drawn = !shot.equals(await page.screenshot({ clip }));
+      }
+      return { on, hits, ...r, drawn };
+    } finally {
+      await context.close().catch(() => {});
+      [process.env.FACTORY_EVIDENCE_PACE, process.env.FACTORY_EVIDENCE_VIDEO] = saved;
+    }
+  };
+  try {
+    const plain = await pass(false), filmed = await pass(true);
+    if (plain.on || !filmed.on) return out("film", "unchecked", `filmContext filmed ${plain.on}/${filmed.on}, expected false/true`);
+    // Each step's own hit test, made in the page as the pointer arrived (the pointer drawn there in the filmed pass),
+    // and the points above once the gesture's caption is showing.
+    const targets = (r) => r.moves.map((m) => m[2]).concat(r.hits).join(",");
+    out("film-hits", targets(plain) === targets(filmed) ? "same" : "changed", `plain ${targets(plain)} filmed ${targets(filmed)}`);
+    const path = (r) => r.moves.map(([x, y]) => `${x},${y}`).join(" ");
+    out("film-path", path(plain) === path(filmed) && plain.moves.length === 8 ? "same" : "changed",
+      `${filmed.moves.length} moves: ${path(filmed)}`);
+    out("film-observed", filmed.body === 0 && plain.body === 0 && filmed.host === 1 ? "none" : "seen",
+      `body records plain ${plain.body} filmed ${filmed.body}; overlay elements under <html> ${filmed.host}`);
+    out("film-drawn", filmed.drawn ? "drawn" : "missing", "the pointer at the move's end");
+    const gaps = filmed.moves.slice(1).map((m, i) => m[3] - filmed.moves[i][3]);
+    const least = gaps.length ? Math.round(Math.min(...gaps)) : 0;
+    // Each step is held STEP_MS after the browser takes it, so the page sees them at least that far apart; half of it
+    // still tells paced from unpaced (a few ms), with room for the timers' slack.
+    const floor = film.STEP_MS / 2;
+    out("film-paced", gaps.length === 7 && least >= floor ? "paced" : "unpaced",
+      `shortest gap between steps ${least} ms (want at least ${floor})`);
+  } catch (e) {
+    out("film", "unchecked", e.message);
+  }
+}
+
 async function main() {
   const endpoint = process.env.FACTORY_BROWSER_WS_ENDPOINT;
   if (!endpoint) return out("connect", "failed", "FACTORY_BROWSER_WS_ENDPOINT is unset: run under with-browser");
@@ -213,6 +287,7 @@ async function main() {
     } catch (e) {
       out("evidence", "failed", e.message);
     }
+    await filmChecks(browser, appUrl);
 
     // The forced launch flags, from the browser's own command line. The resolver rule keeps every name the
     // browser would look up itself (a context proxy's, a STUN server's) off the host's resolver; the host's own

@@ -37,6 +37,76 @@ Each entry contains:
 
 ---
 
+## 2026-11-23: The factory films a spec's last run at a person's pace, with the pointer drawn, so CD can follow it
+
+**Origin:** CD, on the pilot project's evidence for a pointer bug: "i want to be able to read this report, watch the video and understand what's happening. things move fast (expected since it's just code running) but it's not human-like, and thus somewhat unverifiable for me looking at the change", and "i dont think the screenshots & annotations line up with what's actually happening". The pilot's session measured the runs and asked for a design. z-sdlc brought options (design `factory-evidence-legibility`), and CD chose a filmed pass after the proof, as bundle code (2026-11-23).
+
+**What happened:**
+- **Playwright doesn't draw the pointer** in `recordVideo` or a screenshot, so a caption like "pointer settled on the cell" couldn't be checked against the picture.
+- **The gesture couldn't be followed.** A stepped `page.mouse.move` sends its steps back to back: in Playwright 1.61.1's source, the server's `Mouse.move` loops with no wait. So a step takes only as long as the browser takes the input: 5 to 18 ms on a light page, about 50 ms on the pilot's canvas board. A state that lasts one step, like the popup opening while the pointer crosses the button, shows for a frame or two at most. The fix run's popup opened and closed between frames, and its video showed no change in its last 19 s.
+- **Playwright's own annotation feature can't fix it.**
+  - `showActions` awaits its duration (500 ms) before every input call. For a stepped move it fires once, with the end point, so its cursor glides to the end and the real steps then run undrawn.
+  - `showChapter` blocks for its duration plus a 300 ms fade, and blurs the page.
+- **The evidence itself misled.** A run with `--repeat-each=3` showed three identical sets of screenshots, and captions described the test's measurements rather than the picture.
+- **Rule 7's reason was half wrong.** It said "the trace already marks each action", but on a canvas app the trace's snapshots don't show the board, and the trace doesn't open on a phone.
+
+**Changes made:**
+
+1. **`bundles/factory/tree/evidence_film.mjs`** (new): the filmed pass, which a project's evidence helper loads.
+   - **`filmContext(context)`** draws the pointer from the page's own pointer events, a ring on each press, and a caption strip.
+     - It lives in a closed shadow root on a `<factory-film>` element under `<html>`, with `pointer-events: none`.
+     - Its listeners are passive and capture-phase, and it uses no page timer, so `page.clock` doesn't stop it.
+     - After `page.setContent` it listens again, since `document.open()` erases the window's listeners.
+   - **`caption(page, text)`** puts a step's words on the picture, cutting text past 300 characters so "Step n: " plus a full `shows` fits.
+   - **`gesture(page, label, fn)`** paces the bug's moves and presses: each step of a `page.mouse` move is held 80 ms, at most 1.5 s a move, and a press or key waits 400 ms first.
+     - A paced move sends Playwright's own interpolated points, one at a time, each held 80 ms after the browser takes it.
+     - Where a locator action moved the pointer since `page.mouse` last did, the start isn't known, so the move runs unpaced and says so.
+     - Nothing outside a gesture, or outside the filmed pass, waits.
+2. **Only where the project's evidence helper loads the module.** A stage runs the filmed pass only then; otherwise the proof's evidence ships, and the result says the video isn't paced. No helper loads it yet, and the skills reach projects on migration.
+3. **`with-browser --film`** sets `FACTORY_EVIDENCE_PACE=1` in a stage that records video. It also exports `FACTORY_EVIDENCE_FILM`, the module's path. `agent_job.sh workspace` installs the module read-only at `/opt/factory`.
+4. **`factory-smoke`'s browser probe** checks the overlay on the browser host, and `browser_check.py` requires each check.
+   - **What's checked:** the same stepped move, filmed and not, hits the same elements and sends the same pointer coordinates. Each step's hit test is made as the pointer arrives, where the filmed pass draws it, and the points under the drawn pointer and the caption strip are checked after the gesture. An observer of the body sees nothing (`film-hits`, `film-path`, `film-observed`). The pointer is drawn (`film-drawn`), and a filmed gesture's steps reach the page at least 40 ms apart, half the 80 ms hold (`film-paced`). Timing is checked only from below.
+   - **How:** smoke copies the module beside the probe.
+5. **`process/factory.md`**:
+   - **D6 rule 7:**
+     - The folder: the evidence helper empties it at each invocation, so the last invocation ships. The trace's limits are stated.
+     - The proof runs as CI runs it, unannotated, and a filmed pass runs last. What the module does, and what keeps it harmless.
+     - When the two passes disagree on the bug's own check, what each stage reports.
+   - **Rule 4** lists the film checks, **Costs** names the second run, and **§ After migrating** tells CD to adopt the module in the project's evidence helper.
+   - **§ Reproducing in a browser rule 5**, mirrored into `sdlc-reproduce`, `sdlc-implement` and `sdlc-revise`:
+     - captions say what the picture shows, and a measurement may follow, marked;
+     - the proof is followed by the filmed pass, and the spec wraps the bug's gesture;
+     - a repeated run keeps evidence from its first repeat only;
+     - a failing-then-fixed stage films the fixed code.
+6. **Tests:**
+   - `tests/test_evidence_film.py` (new): against a stand-in page. Only the filmed pass films; nothing waits outside a gesture; Playwright's points are sent one a step; presses wait; an unknown start runs unpaced; the cap; a throwing gesture stops pacing; bad text is refused; `setContent` listens again.
+   - `tests/test_browser.py`: `--film` paces only a stage that records video, and the verdict fixtures gain the film lines.
+
+**Proof:**
+- **Locally, Playwright 1.61.1 through a `connect` endpoint:**
+  - The same 12-step move on a canvas page with a DOM button sent identical pointer coordinates filmed and not, with steps about 83 ms apart instead of 5 to 18 ms. A frame-by-frame look at both videos shows the pointer walking across the board in the filmed one; in the plain one the gesture falls between frames.
+  - The probe's film checks all passed.
+  - **Under a paused `page.clock`** the pointer is still drawn, but a canvas that paints in `requestAnimationFrame` doesn't repaint: filmed, the pointer swept across four squares while the canvas still showed the first one highlighted, until the spec advanced the clock. Rule 7 says so, and a spec on a paused clock says it in its gesture's label.
+- **The import's two proofs pass.**
+- **The pilot's real case, filmed locally** (its session, on local branches, nothing pushed): the bug and the fix, each as a proof and then a filmed pass, through a local run-server.
+  - **Agreement:** each pair agreed on the verdict: the bug failed both passes and the fix passed both. All 12 points and their hit-test targets were identical within each pair, and the module logged nothing.
+  - **The film:** the drawn pointer steps across the board, over the Undo button and onto the target cell, and the captions read in order. The film also showed the bug run's first caption was wrong: the pointer wasn't where it said.
+  - **Timing:** the 12-step move took 0.57 s unpaced and 2.3 to 2.5 s filmed, with each step's own round trip about 130 to 160 ms (the trace snapshots each call).
+  - **One timing difference that changed no check:** a second update to the popup, about 110 ms after it opened, landed after the pointer had left the button in the proofs, and while it was still on the button in the filmed passes.
+  - **What it changed here:** long captions are cut instead of refused, and the rules let the module be loaded from a fixture, since the pilot's import guard refuses it in the helper.
+- **On the browser host, by hand** (CD's choice before tagging, 2026-11-23): the probe ran from the runner host against the browser host's 1.61 front end, with a 1.61.1 client.
+  - A first version held each step only for what its round trip didn't take, to shorten the pilot's 2.3 s move. There, `film-paced` failed: two steps reached the page 7 ms apart, since part of a round trip's delay can come after the page already has the event.
+  - With the whole 80 ms held after each step, all five film checks passed three runs in a row (shortest gap 87 to 88 ms, WebGL on the M1), and `browser_check.py` accepted them. Its only complaints were the canary credential, which a hand run doesn't hold and smoke supplies.
+  - The pilot's helper change is on a local branch only.
+
+**Rationale:**
+- **The proof stays the stage's outcome,** so the factory still agrees with CI. The filmed pass adds a picture CD can follow, and a second run that can expose speed-dependent behaviour.
+- **Disagreements and outcome mapping:** a disagreement counts only on the bug's own check: a timeout, a precondition, or a pixel comparison under the overlay doesn't. CD confirmed the outcome mapping proposed in the design (2026-11-23).
+- **Release type: minor.** This adds new contract surface: the `--film` flag, the module, and what an evidence helper calls.
+- **The browser-host job gains five required checks** that only a local Chromium has run. `factory-smoke` checks out a project's default branch, which gets them only by migrating to a release, so a browser host first runs them after a tag. Before tagging, the probe is run by hand on the runner host against the browser host, as on 2026-11-20 (CD, 2026-11-23), and the release waits for it to pass.
+
+---
+
 ## 2026-11-23: CODEOWNERS covers NuGet's lock files in a dotnet-node project
 
 **Origin:** The pilot project (`dotnet-node`), closing its CODEOWNERS follow-up (handoff `pilot-nuget-lock-file-build-files`). Its software-architect review of the CODEOWNERS change found the gap.
@@ -1575,7 +1645,7 @@ The first two projects had hidden this, because each fit a profile and the incub
    - **"Pin the release gate's commit"** holds only that token and the read token. It pins only where GitHub lists `update`, `non_fast_forward` and `deletion` covering the pin's name. It writes its outcome for the request step, which says it on the PR.
    - **The request step** no longer holds the contents token, and refuses unless the pin exists at the gate's commit.
 4. **`bundles/factory/tree/revise_gate.sh`:** it outputs a gate ID matching `^G[1-9][0-9]?$`, or stops.
-5. **Tests:**
+6. **Tests:**
    - `tests/test_release_gates.py` runs the job's three steps in order against the fake gh, which now records a created ref. New tests cover:
      - no pin without the ruleset, or when GitHub doesn't answer;
      - no pin for a broker that doesn't take release gates;
@@ -1644,7 +1714,7 @@ The first two projects had hidden this, because each fit a profile and the incub
 2. **`bundles/factory/seed/factory.json`:** `release.branch` is `release/production`, and its note says why and how. Only that value and its `_doc` changed, and the file's layout is untouched.
 3. **`process/production-gates.md`, `skills/sdlc-plan`, `skills/sdlc-lite-plan` and both plan templates:** a factory project's production follows a release branch by default, and empty is the fallback. Without a production tier, a Release section still releases.
 4. **`bundles/factory/tree/bootstrap.py`:** a missing release branch's problem says how to fix it.
-5. **Tests:**
+6. **Tests:**
    - `tests/test_bootstrap.py` starts from a project with no release block, whatever the project's own model is.
    - `tests/test_release_model.py` (new) checks that a `factory.json` with no `release` block is the fallback for the guard, the rendered workflows and the release refusals. It also covers what a release-branch project without a production tier can do.
    - The bundle's suite passes in an empty project with the new default (549 tests), and again with its `release` block removed, as an older project has it.
@@ -2097,7 +2167,7 @@ Then it grants back to the app's own roles what they use. Otherwise planning ref
    - `VerifyPythonUvNode`: the commands, every area's failures, discovery, `stack.python` without a `uv.lock`, the database line.
    - `InstallPythonUvNode`: stand-in `uv` and `pnpm` record the calls; the refusals.
    `test_sandbox_check.py` already covers every profile's `services`.
-4. **`process/factory.md`**:
+5. **`process/factory.md`**:
    - "Limits of this version" lists three profiles;
    - the profile table gets a row with what the project must meet;
    - the interface paragraph names `database=` and the profile's discovery;
@@ -2745,7 +2815,7 @@ The skill is safe to deliver before the code: without `gate` in the context, a r
    - **The tier's group** must be the only one with its name.
 3. **`bundles/factory/tree/host/setup-ci.sh`:** the old state's records move in as leftovers, never over a current record, only once the slots' new settings are in place, just before the restarts.
 4. **`bundles/factory/tree/host/setup.sh`:** the usage line's first run names the tier too, as the claim requires.
-5. **Tests:**
+6. **Tests:**
    - `private` visibility;
    - case;
    - no `GITHUB_REPOSITORY`;
@@ -3358,7 +3428,7 @@ The guard, hooks and check timer stay in the tree, held, as design inputs. The r
 1. **`bundles/factory/tree/host/setup.sh`**: `TIER=ci`. User `factory-ci`, nft table `factory_ci`, firewall unit and file, runner unit `factory-ci@N`, names `<prefix>-ci-N`, all suffixed for a second organization. Label `runners.ci`; group `runners.groups.ci` (default `factory-ci`), computed per tier now. Caps from host.conf's `CI_RUNNERS` (2), `CI_MEMORY_HIGH` (12G), `CI_MEMORY_MAX` (16G) and `CI_CPU_QUOTA` (800%), for the tier's runners together. Otherwise the strict tier's setup: firewall (internet, no host or LAN), rootless Docker, isolation self-check from inside a container, job container required. A `factory.json` without `runners.ci` is refused with the reason.
 2. **`bundles/factory/tree/bootstrap.py`**: once a workflow runs on `runners.ci`, the CI group, created with the repository and without a workflow restriction. An existing CI group restricted to workflows is reported with why it would strand pull requests, and left to CD.
 3. **`bundles/factory/tree/workflow_policy.py`**: CI-tier rules for any job on the label. It must be in one of the project's own workflows (never a factory one), run no agent, and run in a container (the existing rule: no service containers). It needs explicit read-only permissions and checkouts with `persist-credentials: false`. It holds no secret and no job token, except the job token as the container's pull credentials. `systempaths=unconfined` comes only with the factory seccomp profile. The label counts as a factory label, so it is never a hosted label or exemptible.
-4. **`process/factory.md`**: Enablement step 8 runs `TIER=ci`. Step 10's "The CI tier" covers the setup order (bootstrap creates the group before setup registers into it), why the group isn't workflow-restricted, the job rules, the seccomp profile as allowed but not required, and capacity. Docker's default seccomp is stricter, and enough for a browser run without its own sandbox, which is Playwright's default. Chromium's sandbox under `seccomp-bwrap.json` wasn't tested.
+5. **`process/factory.md`**: Enablement step 8 runs `TIER=ci`. Step 10's "The CI tier" covers the setup order (bootstrap creates the group before setup registers into it), why the group isn't workflow-restricted, the job rules, the seccomp profile as allowed but not required, and capacity. Docker's default seccomp is stricter, and enough for a browser run without its own sandbox, which is Playwright's default. Chromium's sandbox under `seccomp-bwrap.json` wasn't tested.
 5. **`render.py`** treats `runners.ci` and `runners.groups` as run-time settings. **Seeds:** `factory.json` gains `runners.ci: factory-ci`, and `host/host.conf` the `CI_*` settings. **Tests:** `test_host_setup.py` (the tier's names, caps, group, second organization, an old `factory.json`), `test_bootstrap.py` (the group made only once a workflow uses the label, without a workflow restriction; a restricted one left to CD), `test_render.py` (a compliant CI-tier job, each rule broken, a factory workflow on the label).
 
 **Rationale:** End-to-end suites need more machine than GitHub's standard runners, and pre-merge they run a pull request's code, agent-written for factory PRs. The factory already knows how to run untrusted code on its own hardware: a firewalled user, rootless Docker, a container per job, and nothing in the job worth taking. The CI tier is that, for the project's CI, without the agent machinery.

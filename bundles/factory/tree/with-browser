@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Run a command with the browser host's Playwright server reachable from inside the Bash sandbox (D6).
-# Usage: with-browser <command> [args...]
+# Usage: with-browser [--film] <command> [args...]
+#
+# --film runs the filmed pass (D6 rule 7): the stage's last run of a spec, at a person's pace, which the project's
+# evidence helper films with evidence_film.mjs (installed beside this file). It sets FACTORY_EVIDENCE_PACE=1 when the
+# stage records video; the proof runs before it use no flag.
 #
 # The browsers run on the browser host, never here. The command's Playwright client connects to the host's
 # front end for the project's Playwright version, and the front end makes every browser send all its traffic
@@ -21,7 +25,9 @@ set -euo pipefail
 
 conf=${FACTORY_BROWSER_CONF:-/opt/factory/browser.conf}
 unavailable() { printf 'UNAVAILABLE: browser host (%s)\n' "$1" >&2; exit 75; }
-[ $# -gt 0 ] || { echo "usage: with-browser <command> [args...]" >&2; exit 2; }
+film=0
+if [ "${1:-}" = --film ]; then film=1; shift; fi
+[ $# -gt 0 ] || { echo "usage: with-browser [--film] <command> [args...]" >&2; exit 2; }
 [ -r "$conf" ] || unavailable "this stage has no browser route: factory.json's browser block doesn't list it"
 host= port= port_base= version= client= allow= probe= video=
 while IFS='=' read -r k v; do
@@ -86,5 +92,9 @@ export FACTORY_BROWSER_PROBE=$probe
 # Whether this stage's reproducing and verifying runs record video (D6 rules 5 and 7): 1 for the stages, 0 for
 # smoke. The project's evidence helper, or a spec, turns on plain recordVideo when it's 1.
 export FACTORY_EVIDENCE_VIDEO=$([ "$video" = 1 ] && echo 1 || echo 0)
+# The filmed pass: the module the project's evidence helper loads, and whether this run is that pass (--film, in a
+# stage that records video). Without the flag the run is a proof, which nothing paces or draws on.
+export FACTORY_EVIDENCE_FILM="$(cd "$(dirname "$0")" && pwd)/evidence_film.mjs"
+export FACTORY_EVIDENCE_PACE=$([ "$film" = 1 ] && [ "$FACTORY_EVIDENCE_VIDEO" = 1 ] && echo 1 || echo 0)
 if [ -n "$allow" ]; then export NODE_USE_ENV_PROXY=1; fi
 exec "$@"

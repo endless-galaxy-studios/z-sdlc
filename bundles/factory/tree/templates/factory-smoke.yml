@@ -398,7 +398,8 @@ jobs:
           set -euo pipefail
           install -d -m 755 "$PROBE_DIR"
           .github/factory/agent_job.sh freeze implement-sandbox.settings.json
-          install -m 644 "$CHECKS/browser_probe.mjs" "$PROBE_DIR/"
+          # The probe checks the filmed pass's overlay too (evidence_film.mjs), from beside it.
+          install -m 644 "$CHECKS/browser_probe.mjs" "$CHECKS/evidence_film.mjs" "$PROBE_DIR/"
           echo "FACTORY_TOOL_ARGS=$(tr '\n' ' ' < .github/factory/bash-probe-tools.args)" >> "$GITHUB_ENV"
           "$CHECKS/agent_job.sh" services
           "$CHECKS/agent_job.sh" workspace

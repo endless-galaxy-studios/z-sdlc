@@ -151,6 +151,8 @@ case "$cmd" in
     # Every stage has the wrapper; without browser.conf (agent_job.sh browser) it reports the browser host
     # unavailable, so a run without the route says `blocked` rather than guessing.
     install -D -m 755 "$here/with-browser" /opt/factory/with-browser
+    # The filmed pass's overlay and pacing (D6 rule 7), which the project's evidence helper loads in with-browser --film.
+    install -D -m 644 "$here/evidence_film.mjs" /opt/factory/evidence_film.mjs
     printf 'python=%s\nnode=%s\ndatabase=%s\n' "$python_dir" "$node_dir" "$database" > /opt/factory/verify.conf
     # The config file each Node tool loads in the checkout, recorded before the agent starts: verify pins
     # them, and fails when a file added since would replace one (node_configs.py).

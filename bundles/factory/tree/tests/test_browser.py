@@ -312,7 +312,7 @@ class WrapperRoute(unittest.TestCase):
             self.fake.close()
         self.tmp.cleanup()
 
-    def run_wrapper(self, conf_text, proxy="", show=None):
+    def run_wrapper(self, conf_text, proxy="", show=None, flags=()):
         conf = pathlib.Path(self.tmp.name) / "browser.conf"
         conf.write_text(conf_text)
         env = {k: v for k, v in os.environ.items() if k.lower() not in ("http_proxy", "https_proxy", "all_proxy", "no_proxy")}
@@ -320,7 +320,7 @@ class WrapperRoute(unittest.TestCase):
         if proxy:
             env["HTTP_PROXY"] = proxy
         show = show or 'echo "$FACTORY_BROWSER_WS_ENDPOINT|$PW_TEST_CONNECT_WS_ENDPOINT|$FACTORY_BROWSER_CLIENT|$FACTORY_BROWSER_ALLOW|${NODE_USE_ENV_PROXY:-}"'
-        return subprocess.run(["bash", str(FACTORY / "with-browser"), "sh", "-c", show], capture_output=True, text=True,
+        return subprocess.run(["bash", str(FACTORY / "with-browser"), *flags, "sh", "-c", show], capture_output=True, text=True,
                               env=env, timeout=60)
 
     def test_outside_the_sandbox_it_reaches_the_front_end_directly(self):
@@ -360,6 +360,27 @@ class WrapperRoute(unittest.TestCase):
                 self.assertEqual(r.returncode, 0, r.stderr)
                 self.assertEqual(r.stdout.strip(), want)
 
+    def test_film_paces_only_a_stage_that_records_video(self):
+        # The filmed pass (D6 rule 7): --film sets FACTORY_EVIDENCE_PACE where the stage records video, never in smoke,
+        # and never without the flag; the module the helper loads is the one beside the wrapper.
+        self.fake = FakeFrontEnd()
+        base = f"host=127.0.0.1\nport={self.fake.front_port}\nversion=1.61.1\nclient=/w\nallow=\n"
+        for conf, flags, want in ((base + "video=1\n", ["--film"], "1"), (base + "video=1\n", [], "0"),
+                                  (base + "video=0\n", ["--film"], "0"), (base, ["--film"], "0")):
+            with self.subTest(conf=conf.splitlines()[-1], flags=flags):
+                r = self.run_wrapper(conf, show='echo "$FACTORY_EVIDENCE_PACE|$FACTORY_EVIDENCE_FILM"', flags=flags)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                pace, module = r.stdout.strip().split("|")
+                self.assertEqual(pace, want)
+                self.assertEqual(module, str((FACTORY / "evidence_film.mjs").resolve()))
+                self.assertTrue(pathlib.Path(module).is_file())
+
+    def test_film_alone_is_a_usage_error(self):
+        r = subprocess.run(["bash", str(FACTORY / "with-browser"), "--film"], capture_output=True, text=True,
+                           env={**os.environ, "FACTORY_BROWSER_CONF": "/nonexistent"}, timeout=30)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("usage: with-browser [--film]", r.stderr)
+
     def test_a_refusing_proxy_is_named(self):
         self.fake = FakeFrontEnd(refuse=True)
         r = self.run_wrapper(f"host=10.20.30.40\nport={free_port()}\nversion=1.61.1\nclient=/w\nallow=\n",
@@ -377,7 +398,8 @@ class ThisProject(unittest.TestCase):
         browser.block(json.loads((FACTORY / "factory.json").read_text()))
 
 
-# What the probe printed in the hand test on the runner host (2026-11-20), as the control and as sandboxed Bash.
+# What the probe printed in the hand test on the runner host (2026-11-20), as the control and as sandboxed Bash. The
+# film lines are from a local run against Playwright 1.61.1's own server (2026-11-23): no browser host has run them yet.
 CONTROL = """secret env github
 secret env oauth
 env-name present CLAUDE_CODE_OAUTH_TOKEN
@@ -390,6 +412,11 @@ gpu hardware ANGLE (Apple, ANGLE Metal Renderer: Apple M1, Unspecified Version)
 screenshot png 1903 bytes
 trace zip 5391 bytes
 video webm 2304 bytes
+film-hits same plain c,c,b,b,b,c,c,c,c,b,c,c,c filmed c,c,b,b,b,c,c,c,c,b,c,c,c
+film-path same 8 moves: 137.5,213.75 175,217.5 212.5,221.25 250,225 287.5,228.75 325,232.5 362.5,236.25 400,240
+film-observed none body records plain 0 filmed 0; overlay elements under <html> 1
+film-drawn drawn the pointer at the move's end
+film-paced paced shortest gap between steps 75 ms (want at least 40)
 flags present
 outside-name reached http://example.com/ 200
 outside-ip reached http://1.1.1.1/ 200
@@ -409,6 +436,11 @@ gpu hardware ANGLE (Apple, ANGLE Metal Renderer: Apple M1, Unspecified Version)
 screenshot png 1903 bytes
 trace zip 5403 bytes
 video webm 2432 bytes
+film-hits same plain c,c,b,b,b,c,c,c,c,b,c,c,c filmed c,c,b,b,b,c,c,c,c,b,c,c,c
+film-path same 8 moves: 137.5,213.75 175,217.5 212.5,221.25 250,225 287.5,228.75 325,232.5 362.5,236.25 400,240
+film-observed none body records plain 0 filmed 0; overlay elements under <html> 1
+film-drawn drawn the pointer at the move's end
+film-paced paced shortest gap between steps 75 ms (want at least 40)
 flags present
 outside-name refused http://example.com/ net::ERR_SOCKET_NOT_CONNECTED
 outside-ip refused http://1.1.1.1/ net::ERR_SOCKS_CONNECTION_FAILED

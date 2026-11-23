@@ -15,7 +15,9 @@ both:    the probe connected to the browser host's front end through with-browse
          (browser.allow), Node's fetch reaches it, through the sandbox's proxy in the agent run: the path a project's
          route helper depends on. With the entry's probe path, the probe's GET of it must answer 2xx, so the host
          serves what specs fetch; without one, any answer to a HEAD of its root counts. With none allowed, the probe
-         says so.
+         says so. The filmed pass's overlay (evidence_film.mjs): the same stepped move, filmed and not, hits the
+         same elements and sends the same pointer coordinates, an observer of the body sees nothing, the pointer is
+         drawn, and each step of a filmed gesture is held.
 control: run outside the sandbox, with network and a canary credential in its environment (never a real token:
          it runs the project's own Playwright). The outside world, by name and by address, must answer through the
          tunnel, and the canary must be found, which proves the agent run's refusals and its clean environment are
@@ -44,6 +46,11 @@ BOTH = {
     "loopback": "reached",
     "runserver-ws": "none",
     "hostile": "replaced",
+    "film-hits": "same",
+    "film-path": "same",
+    "film-observed": "none",
+    "film-drawn": "drawn",
+    "film-paced": "paced",
 }
 CONTROL = {"outside-name": "reached", "outside-ip": "reached", "credentials": "found", "narrow": "unchecked"}
 AGENT = {"outside-name": "refused", "outside-ip": "refused", "credentials": "clean", "narrow": "refused"}
@@ -63,6 +70,11 @@ WHY = {
     "hostile": "the browser host honoured a client's own browser or launch options",
     "narrow": "the sandbox's proxy didn't refuse the browser host's next port",
     "gpu": "WebGL renders in software",
+    "film-hits": "the filmed pass's overlay changed what elementFromPoint finds",
+    "film-path": "a filmed gesture sent the pointer along a different path than the same move unfilmed",
+    "film-observed": "the filmed pass's overlay showed up for an observer of the page's body",
+    "film-drawn": "the filmed pass drew no pointer",
+    "film-paced": "a filmed gesture didn't hold each step for a person to see",
     "allowed": "Node's fetch didn't reach the project's allowed outside host (browser.allow): a spec's context.route "
                "helper can't serve it",
 }
