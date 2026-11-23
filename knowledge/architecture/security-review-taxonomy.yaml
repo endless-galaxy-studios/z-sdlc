@@ -2,7 +2,7 @@
 # Cross-project general taxonomy for security reviews.
 # Project-specific findings, known vulnerabilities, accepted risks, and audit status
 # belong in the agent body (security-engineer/MEMORY.md).
-# Last updated: 2026-11-22
+# Last updated: 2026-11-23
 
 id: security-review-taxonomy
 name: "Security Review Taxonomy — 7 Domain Framework"
@@ -13,7 +13,7 @@ spec_relevant: false
 project_applicability:
   relevant_when: "Always relevant — all projects have security concerns"
   action_if_irrelevant: keep
-last_updated: 2026-11-22
+last_updated: 2026-11-23
 
 # ─────────────────────────────────────────────
 # Severity Scale
@@ -484,7 +484,7 @@ regulatory_compliance_frameworks:
     pci_dss:
       name: "PCI DSS (Payment Card Industry Data Security Standard)"
       scope: "Any organization that stores, processes, or transmits cardholder data"
-      version: "v4.0 (current as of 2024)"
+      version: "v4.0.1 (published June 2024; v4.0 was retired on 2024-12-31)"
       twelve_requirements:
         - "Install and maintain network security controls"
         - "Apply secure configurations to all system components"
@@ -526,11 +526,11 @@ evidence_collection:
           - "Privilege escalation events"
           - "Data export and bulk access events"
           - "Configuration changes"
-        retention_period: "PCI DSS v4.0 (Requirement 10.5.1): at least 12 months, the latest 3 immediately available. SOC 2 and ISO 27001 set no fixed period: SOC 2's evidence must cover the audit's period, and ISO 27001 leaves it to the organization's policy"
+        retention_period: "PCI DSS v4.0.1 (Requirement 10.5.1): at least 12 months, the latest 3 immediately available. SOC 2 and ISO 27001 set no fixed period: SOC 2's evidence must cover the audit's period, and ISO 27001 leaves it to the organization's policy"
       test_result_artifacts:
         description: "Automated test execution results as compliance evidence"
         examples:
-          - "Penetration test reports (annual minimum for SOC 2)"
+          - "Penetration test reports (SOC 2 sets no frequency: annual is common practice, and the period should follow the organization's risk assessment)"
           - "Vulnerability scan results (continuous or quarterly)"
           - "Security awareness training completion records"
       process_evidence:

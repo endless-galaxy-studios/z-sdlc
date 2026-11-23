@@ -37,6 +37,25 @@ Each entry contains:
 
 ---
 
+## 2026-11-23: Two stale claims left in the security taxonomy's corrected entries: PCI DSS's version and a SOC 2 pen-test minimum
+
+**Origin:** The pilot project's migration to v2.9.9 (handoff `pilot-v2.9.9-migration-two-stale-lines`). The pilot checked each entry v2.9.9 corrected against its 2026-07-13 judges' reasons, not only the lines that release changed. CD asked for the fix to go upstream, and the pilot keeps its removal marks on the two keys until a release has it.
+
+**What happened:**
+- **`pci_dss.version`** said "v4.0 (current as of 2024)". The PCI SSC published v4.0.1 in June 2024 and retired v4.0 on 2024-12-31, so v4.0.1 is the only active version. v4.0.1 added and removed no requirements, so the twelve listed under it stand. The sweep's first judge flagged this line, but the tie-break named only the ISO 27001 structure, which v2.9.9 fixed.
+- **`evidence_collection.test_result_artifacts`** listed "Penetration test reports (annual minimum for SOC 2)". SOC 2's Trust Services Criteria require no penetration test and set no frequency: CC4.1 names one only as an example in a point of focus. Annual testing is common practice and many auditors expect it, but it isn't a criterion. It's the same kind of error v2.9.9 fixed in that entry's retention period.
+
+**Changes made:**
+
+1. **`knowledge/architecture/security-review-taxonomy.yaml`**:
+   - `pci_dss.version` reads v4.0.1, with when it was published and when v4.0 was retired.
+   - `retention_period` cites v4.0.1 for Requirement 10.5.1, which reads the same in both versions.
+   - The pen-test example says SOC 2 sets no frequency: annual is common practice, and the period should follow the organization's risk assessment.
+
+**Rationale:** The version stays: `retention_period` cites it, and the date of v4.0's retirement tells a reader when to check it again. Neither standard's own text was readable here (the AICPA's criteria and PCI SSC's document library both need an account). The PCI facts come from the PCI SSC's own announcement, and the SOC 2 one from several auditors' and consultants' guides that agree. Release type: patch.
+
+---
+
 ## 2026-11-23: An adapter that keeps no agent-context-map skips migrate's map step, and its post-operation check knows the manifest isn't written yet
 
 **Origin:** A check of what `neuroloom-sdlc-plugin` needed after z-sdlc v2.9.0 to v2.9.8, the releases since the plugin last declared support. None of them holds a `[contract-change]`, so the adapter version gate passes, but two of the changes brought out older gaps between the adapter protocol and the one adapter.
