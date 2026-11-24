@@ -37,6 +37,65 @@ Each entry contains:
 
 ---
 
+## 2026-11-24: The "Watch" caption ends with its gesture, a locator move into a frame is seen, and keys are counted as Playwright sends them
+
+**Origin:** the pilot project's reviewers re-ran their probes against v2.12.1 while folding it into its PR #124, where #49 gets `; filmed at a person's pace where captioned "Watch"`. Their cases 2b, 7, the 2-step long move, 8a/8b and 9b were fixed; they sent what was left. CD: "build and release" (2026-11-24).
+
+**What happened:**
+- **The "Watch" caption outlived its gesture.** `gesture()` set it and never cleared it, so an input after the gesture sat under "Watch" until the next step's caption, and the claim's wording rests on that caption.
+- **A locator action into a frame went unseen.** The top page's last pointer event was from before the frame, so the module's start check passed, and the film interpolated from the wrong point. Reproduced here in a real Chromium: the top page received `pointerout` and `pointerover` at the frame's entry point (450, 280), while the module still checked against (100, 100).
+- **The sent counts had slack that hid locator keys.** `press("+")` counted 2 and sent 1. `type()` counted every character, though Playwright inserts characters that aren't on its US layout with no key. In the reviewers' probe 8h, three typed characters hid two locator keys.
+- **The new checks didn't run in smoke.** The tally, the document id and the frame test ran in a local Chromium, the same build as the browser host's, but `factory-smoke`'s film checks covered harmlessness and pacing only.
+- **Wording:**
+  - the header said nothing of a hover that goes out and back, or of actions that make no press, key or move;
+  - it didn't say the counts are upper bounds;
+  - the "not checked" list left out a press on a page that hasn't seen the pointer;
+  - § After migrating said a helper "needs nothing" when the words change, which isn't so for one that accepts only the words it knows.
+
+**Changes made:**
+
+1. **`bundles/factory/tree/evidence_film.mjs`**:
+   - **The gesture's end clears its "Watch" caption.** It leaves a step caption recorded inside the gesture alone, and gives an enclosing gesture's caption back.
+   - **The overlay also follows `pointerover` and `pointerout`,** which still say where the pointer went when it enters a frame. So a locator action into a frame reads as a move outside `page.mouse`, the next move runs unpaced, and the film sends the proof's points.
+   - **Keys are counted as Playwright sends them:**
+     - a chord split as Playwright splits it, so `"+"` alone is one key and `"Control++"` two;
+     - only typed characters on its US layout: printable ASCII, and `\n` or `\r` for Enter.
+   - **The header** says the counts are the most the calls could cause, lists what the module can't see at all (a hover out and back, `fill`, `selectOption`, `focus`, `setInputFiles`, `dispatchEvent`, anything inside a frame), and says unpaced outweighs unchecked. The "not checked" log names a page that hasn't seen the pointer since it loaded.
+2. **`bundles/factory/tree/browser_probe.mjs` and `browser_check.py`:** a new required check, `film-claims`. It runs a filmed context on a page of its own with a button, an input and a frame:
+   - a gesture made with `page.mouse` and `page.keyboard` (moves, clicks, typing, a chord) must count as paced;
+   - a locator click where the pointer already is must count as unpaced;
+   - a click over the frame must count as not checked.
+3. **`process/factory.md`:**
+   - **D6 rule 4** lists `film-claims`.
+   - **Rule 7:** the counting and its slack, the not-checked cases, the caption clearing, `pointerover` and `pointerout` for frames, and what the module can't see at all.
+   - **§ After migrating:** a helper that accepts only the words it knows adds the new ones.
+   - Mirror rule 5 is unchanged.
+4. **Tests:**
+   - `tests/test_evidence_film.py`:
+     - the stand-in page sends keys as Playwright does;
+     - `press("+")` then a locator key, and off-layout typing then two locator keys, count as unpaced;
+     - `"Control++"` counts as paced;
+     - the caption is cleared, kept when a step replaced it, and given back to an enclosing gesture.
+   - `tests/test_browser.py`: the verdict fixtures gain the `film-claims` line, and its failure forms fail.
+
+**Proof:**
+- **The bundle's own tests:** `test_evidence_film` (17) and `test_browser` (66, 3 skipped) pass.
+- **In a real Chromium** (Playwright 1.61.1, locally):
+  - After a locator click inside a frame, a paced move was counted as moved outside `page.mouse`, ran unpaced, and sent Playwright's own points from the frame.
+  - Every earlier case gave the same counts: the honest gestures, the locator click and key, the jump, the unplaced start, the iframe, a click that loads a page, and native and pointer-event drags.
+- **On the browser host, by hand,** from the runner host with a 1.61.1 client against the 1.61 front end (Chromium 149.0.7827.55, WebGL on the M1), three runs:
+  - All six film checks passed each time. `film-claims` counted 6 paced for `page.mouse` and `page.keyboard`, 1 unpaced for the locator click, and 2 not checked for the frame. `film-paced`'s shortest gap was 86 to 87 ms.
+  - `browser_check.py` accepted them. Its only complaints were the canary credential, which a hand run doesn't hold and smoke supplies.
+- **The import's two proofs pass.**
+
+**Rationale:**
+- **The caption is what the claim's words point at,** so it has to end where the gesture does.
+- **Counting what Playwright sends is the narrowest bound that's still safe.** It's the same split and the same layout table Playwright uses, so an honest gesture never reads as foreign, and there's no slack left for a foreign key to hide in.
+- **The checks run where the stages run.** `film-claims` puts the tally, the document and the frame test on the browser host at every smoke run, so a browser that stops counting is caught there, not in a video's claim.
+- **Release type: patch.** Fixes, a stricter smoke check and wording, with no new export.
+
+---
+
 ## 2026-11-23: The pace claim sees locator presses and keys, judges jumps by distance, and speaks for the gestures
 
 **Origin:** the pilot project's adoption of v2.12.0 in its PR #124. Its reviews found more ways `paceClaim` could vouch for a pace the video didn't show, and its session sent them here. Items 1 to 3 were reproduced here in a real Chromium. CD said yes to building them, to a 40 px jump distance, and to rewording the claim for the gestures (2026-11-23).

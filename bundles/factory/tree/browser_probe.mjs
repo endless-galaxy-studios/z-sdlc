@@ -59,7 +59,7 @@ window.result = new Promise((resolve) => {
 </script>`;
   const server = http.createServer((req, res) => {
     res.writeHead(200, { "content-type": "text/html" });
-    res.end(req.url === "/film" ? FILM_PAGE : page);
+    res.end(req.url === "/film" ? FILM_PAGE : req.url === "/film-claims" ? CLAIMS_PAGE : page);
   });
   server.on("upgrade", (req, sock) => {
     const accept = createHash("sha1").update(req.headers["sec-websocket-key"] + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").digest("base64");
@@ -170,6 +170,13 @@ window.__moves = []; window.__body = 0;
 addEventListener("pointermove", (e) => __moves.push([e.clientX, e.clientY, (document.elementFromPoint(e.clientX, e.clientY) || {}).id || "none", performance.now()]), { capture: true });
 new MutationObserver((r) => { __body += r.length; }).observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true });
 </script>`;
+// The pace claim's checks (paceCounts), on a page with a button, an input and a frame: what page.mouse and
+// page.keyboard send must count as paced, a locator click where the pointer already is as unpaced (the overlay's count
+// of the page's trusted presses), and a click over the frame as not checked.
+const CLAIMS_PAGE = `<!doctype html><title>factory film claims</title><style>body{margin:0}
+#b{position:absolute;left:200px;top:200px;width:90px;height:32px}#i{position:absolute;left:200px;top:300px;width:150px;height:24px}
+#f{position:absolute;left:400px;top:100px;width:200px;height:150px;border:0}</style><button id=b>Undo</button><input id=i>
+<iframe id=f srcdoc="<button style='width:100%;height:140px'>in a frame</button>"></iframe>`;
 // Checked after the gesture, with the pointer and the caption strip drawn: the pointer's tip, the button, and a point
 // under the strip at the bottom edge.
 const FILM_POINTS = [[400, 240], [245, 216], [10, 10], [300, 470], [630, 476]];
@@ -230,6 +237,53 @@ async function filmChecks(browser, appUrl) {
       `shortest gap between steps ${least} ms (want at least ${floor})`);
   } catch (e) {
     out("film", "unchecked", e.message);
+  }
+  await claimChecks(browser, appUrl, film);
+}
+
+async function claimChecks(browser, appUrl, film) {
+  const saved = [process.env.FACTORY_EVIDENCE_PACE, process.env.FACTORY_EVIDENCE_VIDEO];
+  [process.env.FACTORY_EVIDENCE_PACE, process.env.FACTORY_EVIDENCE_VIDEO] = ["1", "1"];
+  const counts = async (steps) => {
+    const context = await browser.newContext({ viewport: { width: 640, height: 480 } });
+    try {
+      await film.filmContext(context);
+      const page = await context.newPage();
+      await page.goto(`${appUrl}film-claims`, { timeout: 30000 });
+      await page.mouse.move(100, 100);
+      await film.gesture(page, "a probe case", () => steps(page));
+      return film.paceCounts(page);
+    } finally {
+      await context.close().catch(() => {});
+    }
+  };
+  try {
+    // Steps of about 30 px, under MAX_STEP_PX.
+    const honest = await counts(async (page) => {
+      await page.mouse.move(245, 216, { steps: 6 });
+      await page.mouse.click(245, 216);
+      await page.mouse.move(275, 312, { steps: 4 });
+      await page.mouse.click(275, 312);
+      await page.keyboard.type("ab");
+      await page.keyboard.press("Shift+C");
+    });
+    const locator = await counts(async (page) => {
+      await page.mouse.move(245, 216, { steps: 6 });
+      await page.locator("#b").click();
+    });
+    const frame = await counts(async (page) => {
+      await page.mouse.move(500, 175, { steps: 14 });
+      await page.mouse.click(500, 175);
+    });
+    const ok = honest.paced > 0 && honest.unpaced === 0 && honest.unchecked === 0
+      && locator.unpaced > 0 && frame.unpaced === 0 && frame.unchecked > 0;
+    const say = (c) => `${c.paced} paced, ${c.unpaced} unpaced, ${c.unchecked} not checked`;
+    out("film-claims", ok ? "checked" : "wrong",
+      `page.mouse and page.keyboard: ${say(honest)}; a locator click at the pointer: ${say(locator)}; a click over a frame: ${say(frame)}`);
+  } catch (e) {
+    out("film-claims", "unchecked", e.message);
+  } finally {
+    [process.env.FACTORY_EVIDENCE_PACE, process.env.FACTORY_EVIDENCE_VIDEO] = saved;
   }
 }
 

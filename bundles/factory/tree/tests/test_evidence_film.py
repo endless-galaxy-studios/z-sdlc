@@ -34,11 +34,15 @@ function stand(seen, moveMs = 0) {
   };
   const slowMove = async (...args) => { if (moveMs) await new Promise((ok) => setTimeout(ok, moveMs)); return lands("move")(...args); };
   const keyed = (name, keys) => async (...args) => { await rec(name)(...args); seen.keys += keys(args[0]); };
+  // The keydowns Playwright really sends: a chord's keys as it splits them, and one per typed character on its US
+  // layout (printable ASCII, \n, \r); any other character is inserted with no key.
+  const chord = (k) => k.split(/(?<=[^+])\+/).length;
+  const onLayout = (t) => [...t].filter((ch) => (ch >= " " && ch <= "~") || ch === "\n" || ch === "\r").length;
   return {
     calls, seen,
     mouse: { move: slowMove, click: lands("click", (o) => o?.clickCount ?? 1), dblclick: lands("dblclick", () => 2),
       down: async (...a) => { await rec("down")(...a); seen.downs += 1; }, up: rec("up"), wheel: rec("wheel") },
-    keyboard: { press: keyed("press", (k) => k.split("+").length), type: keyed("type", (t) => [...t].length),
+    keyboard: { press: keyed("press", chord), type: keyed("type", onLayout),
       down: keyed("kdown", () => 1), up: rec("kup"), insertText: rec("insertText") },
     async evaluate(fn, arg) {
       if (typeof fn === "function" && String(fn).includes("check(")) {
@@ -222,6 +226,26 @@ out.claims = {
   moveAfterLoad: await claimed(async (pg) => { load(pg); await pg.mouse.move(80, 80, { steps: 4 }); }),
   overAFrame: await claimed(async (pg) => { await pg.mouse.move(50, 50, { steps: 4 }); pg.seen.framed = true; await pg.mouse.click(50, 50); }),
   nothing: await claimed(async () => {}),
+  // Counted as Playwright sends them, so no slack hides a locator key.
+  plusKeyThenLocatorKey: await claimed(async (pg) => { await pg.keyboard.press("+"); locator(pg, null, { keys: 1 }); }),
+  typedOffLayoutThenLocatorKeys: await claimed(async (pg) => { await pg.keyboard.type("a\u00e9\t"); locator(pg, null, { keys: 2 }); }),
+  controlPlus: await claimed(async (pg) => { await pg.keyboard.press("Control++"); }),
+};
+
+// The gesture's "Watch" caption: cleared when it ends, kept when a step inside it replaced it, and an enclosing
+// gesture's given back.
+async function captionsOf(steps) {
+  const pg = stand({ value: null });
+  c.handler(pg);
+  await pg.mouse.move(0, 0);
+  pg.calls.length = 0;
+  await steps(pg);
+  return pg.calls.filter((x) => x[0] === "evaluate" && Array.isArray(x[1])).map((x) => x[1][1]);
+}
+out.captions = {
+  cleared: await captionsOf((pg) => film.gesture(pg, "a gesture", async () => {})),
+  stepInside: await captionsOf((pg) => film.gesture(pg, "a gesture", () => film.caption(pg, "Step 3: the popup open"))),
+  nested: await captionsOf((pg) => film.gesture(pg, "outer", () => film.gesture(pg, "inner", async () => {}))),
 };
 out.claims.untracked = film.paceClaim(stand({ value: null }));
 out.constants = { STEP_MS: film.STEP_MS, MOVE_CAP_MS: film.MOVE_CAP_MS, PRESS_MS: film.PRESS_MS };
@@ -269,7 +293,8 @@ class Film(unittest.TestCase):
             self.assertEqual(len(m), 4, "one step a call, with no steps option")
         gaps = [b[-1] - a[-1] for a, b in zip(moves, moves[1:])]
         self.assertGreaterEqual(min(gaps), self.step - 5)
-        self.assertEqual(inside["captions"], [["factory-film", "Watch: cross the button to the card"]])
+        # The gesture's caption, then the strip cleared when it ends.
+        self.assertEqual(inside["captions"], [["factory-film", "Watch: cross the button to the card"], ["factory-film", ""]])
 
     def test_a_press_waits_first(self):
         down, up, key = self.r["presses"]
@@ -359,6 +384,9 @@ class Film(unittest.TestCase):
             "clickWhileLoading": (n(2, 0, 1), "", "not checked"),
             "overAFrame": (n(1, 0, 2), "", "not checked"),
             "nothing": (n(), "", None),
+            "plusKeyThenLocatorKey": (n(1, 1), unpaced, "didn't send"),
+            "typedOffLayoutThenLocatorKeys": (n(1, 1), unpaced, "didn't send"),
+            "controlPlus": (n(1), paced, None),
         }
         self.assertEqual(sorted(want), sorted(k for k in claims if k != "untracked"))
         for case, (counts, claim, said) in want.items():
@@ -370,6 +398,13 @@ class Film(unittest.TestCase):
                 else:
                     self.assertEqual(claims[case]["said"], "")
         self.assertEqual(claims["untracked"], "")
+
+
+    def test_the_gestures_caption_ends_with_it(self):
+        captions = self.r["captions"]
+        self.assertEqual(captions["cleared"], ["Watch: a gesture", ""])
+        self.assertEqual(captions["stepInside"], ["Watch: a gesture", "Step 3: the popup open"])
+        self.assertEqual(captions["nested"], ["Watch: outer", "Watch: inner", "Watch: outer", ""])
 
 
 if __name__ == "__main__":
