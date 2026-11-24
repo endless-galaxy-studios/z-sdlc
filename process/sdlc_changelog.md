@@ -37,6 +37,72 @@ Each entry contains:
 
 ---
 
+## 2026-11-23: "Filmed at a person's pace" now means the pointer travelled, and the module says it
+
+**Origin:** the pilot project's adoption of v2.11.0. Reviews of its `paceCounts` port found two ways the counts could still back a false "filmed at a person's pace". An architect drove the real module with a stand-in page, and the pilot's session sent the findings here. CD: "do it, but just a minor release, no patch" (2026-11-23).
+
+**What happened:**
+- **A pointer action that went around `page.mouse` inside a gesture went uncounted.** Only `mouse.move` checked whether the module knew where the pointer was.
+  - `click`, `dblclick` and `down` counted themselves as paced. `click` also reset the module's known position, which hid an earlier locator move.
+  - A locator action after the gesture's last `page.mouse` call was never seen.
+  - Reproduced here, each as `{gestures: 1, paced: 1, unpaced: 0}`: a locator hover then `page.mouse.click`, and a stepped move then a locator click.
+- **A jump counted as paced.** A one-step `page.mouse.move(x, y)` (Playwright's default) and a `click(x, y)` away from the pointer both go to their target in one step. The module held them, so they counted as paced, but the drawn pointer jumped rather than travelled.
+- **Every helper restated the rule** "paced > 0 and unpaced = 0", so each copy could drift.
+
+**Changes made:**
+
+1. **`bundles/factory/tree/evidence_film.mjs`**:
+   - **Pointer checks.** Inside a gesture, `click`, `dblclick` and `down` check where the pointer is before they press, as a move already did. The gesture checks once more when it ends. A mismatch counts as unpaced.
+   - **Jumps.** A one-step move that goes more than a pixel, or a click aimed more than a pixel from the pointer, counts as unpaced. It's still held, and the paced loop is unchanged.
+   - **Logs.** Each case logs "[film] a move ran unpaced: ...", saying which case it was and how to fix the gesture.
+   - **What can't be checked makes no claim either way.** A page that hasn't seen the pointer since it loaded (a click that loaded a new page, say), or that can't be asked, counts as `unchecked` (a new count in `paceCounts`) and logs "[film] not checked: ...".
+   - **`paceClaim(page)`** (new) returns what the video's `shows` ends with:
+     - "; filmed at a person's pace" when an input was paced and every check passed;
+     - "; filmed, but a move ran at full speed" when one ran unpaced;
+     - "" when a check couldn't be made or nothing was paced.
+     `paceCounts` stays.
+   - **The limit, stated in the header:** a key sent through a locator moves no pointer, so it isn't seen.
+2. **`process/factory.md`**:
+   - **D6 rule 7:**
+     - A gesture's inputs are made with `page.mouse` (moves in steps, presses where a move ended) and `page.keyboard`.
+     - What counts as unpaced, what can't be checked, and the locator-key limit.
+     - A spec places the pointer with `page.mouse` before the gesture.
+     - A helper ends `shows` with `paceClaim`, so the rule lives in the module.
+   - **§ After migrating:** a helper that worked the suffix out itself moves to `paceClaim`, and a locator action or jump in a spec's gesture now keeps its video from claiming the pace.
+   - **§ Reproducing in a browser rule 5**, mirrored into `sdlc-reproduce`, `sdlc-implement` and `sdlc-revise`:
+     - only `page.mouse` and `page.keyboard` inside a gesture, with moves in steps and presses where a move ended;
+     - the pointer is placed with `page.mouse` before the gesture;
+     - a "ran unpaced" log means fixing the gesture, and a "not checked" log needs no fix.
+3. **`tests/test_evidence_film.py`**:
+   - The stand-in page now sees the pointer where Playwright's mouse sends it, as the overlay does. A test sets that position itself to stand for a locator action.
+   - `paceClaim` is checked across ten cases:
+     - a stepped move, and one followed by a click there;
+     - a locator hover then a click, or then a press;
+     - a stepped move then a locator click;
+     - a one-step move across the page, and one in place;
+     - a click away from the pointer;
+     - keys only, and an empty gesture;
+     - a click that loads a new page, a page that can't be asked mid-load, and a move after a load.
+   - A page nobody filmed gets "".
+
+**Proof:**
+- **The bundle's own tests:** `test_evidence_film` (16) and `test_browser` (66, 3 skipped) pass.
+- **In a real Chromium** (Playwright 1.61.1, locally): the same cases gave the same counts and claims.
+  - A stepped move to a fractional point, a stepped move then a click there, and a stepped move then a click and typing were all paced.
+  - A locator hover then a click, a stepped move then a locator click, and a one-step move across the page were all unpaced, each with its log.
+  - **A paced stepped move then a click on a link that loads a new page:** a first version counted the end check that couldn't be made as unpaced, so all four runs claimed "a move ran at full speed" for an honest gesture. Split into `unchecked`, all four runs made no claim.
+- **The probe's film checks, locally:** all five passed (shortest gap 82 and 83 ms over two runs) and nothing was logged. `browser_probe.mjs`, `browser_check.py` and the paced loop didn't change, so the browser host wasn't run by hand again.
+- **The import's two proofs pass.**
+
+**Rationale:**
+- **The claim has to be one a viewer could check.** "At a person's pace" means the pointer was drawn travelling at that pace, not only held back.
+  - The module says it only when it can vouch for every pointer input in the gestures.
+  - It says "a move ran at full speed" only when it saw one, since that sends the stage to fix the gesture.
+  - When it can't check, it says nothing about pace.
+- **Release type: minor**, as CD chose. `paceClaim` is a new export that helpers call.
+
+---
+
 ## 2026-11-23: A filmed pass no longer costs the proof its evidence, and a helper can tell whether it paced
 
 **Origin:** the pilot project's adoption of v2.10.0. Reviews of its evidence-helper port found four gaps on z-sdlc's side, and its session sent them here. CD: "build the fixes and release it" (2026-11-23).

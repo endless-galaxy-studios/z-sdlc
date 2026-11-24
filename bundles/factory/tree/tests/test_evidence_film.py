@@ -23,13 +23,19 @@ process.stderr.write = ((write) => (chunk, ...rest) => { errors.push(String(chun
 function stand(seen, moveMs = 0) {
   const calls = [];
   const rec = (name) => async (...args) => { calls.push([name, ...args.map((a) => (typeof a === "function" ? "fn" : a)), now()]); };
-  const slowMove = async (...args) => { if (moveMs) await new Promise((ok) => setTimeout(ok, moveMs)); return rec("move")(...args); };
+  // The page sees the pointer where Playwright's mouse sends it, as the overlay's last() would; a test sets seen.value
+  // itself to stand for a locator action, which goes around page.mouse.
+  const lands = (name) => async (x, y, ...rest) => { await rec(name)(x, y, ...rest); seen.value = { x, y }; };
+  const slowMove = async (...args) => { if (moveMs) await new Promise((ok) => setTimeout(ok, moveMs)); return lands("move")(...args); };
   return {
     calls, seen,
-    mouse: { move: slowMove, click: rec("click"), dblclick: rec("dblclick"), down: rec("down"), up: rec("up"), wheel: rec("wheel") },
+    mouse: { move: slowMove, click: lands("click"), dblclick: lands("dblclick"), down: rec("down"), up: rec("up"), wheel: rec("wheel") },
     keyboard: { press: rec("press"), type: rec("type"), down: rec("kdown"), up: rec("kup"), insertText: rec("insertText") },
     async evaluate(fn, arg) {
-      if (typeof fn === "function" && String(fn).includes("last()")) return this.seen.value;
+      if (typeof fn === "function" && String(fn).includes("last()")) {
+        if (this.seen.fail) throw new Error("Execution context was destroyed");
+        return this.seen.value;
+      }
       calls.push(["evaluate", typeof fn === "string" ? "script" : arg, now()]);
     },
     async setContent() { calls.push(["setContent", now()]); },
@@ -168,6 +174,33 @@ errors.length = 0;
 await film.gesture(counted, "a move with a fractional steps option", async () => { await counted.mouse.move(60, 60, { steps: 2.5 }); });
 out.counts.fractional = counts();
 out.counts.fractionalSaid = errors.join("");
+
+// What can't be called paced, and what paceClaim says. Each case on a page of its own, starting where the page saw it.
+async function claimed(steps) {
+  const pg = stand({ value: null });
+  c.handler(pg);
+  await pg.mouse.move(0, 0);
+  errors.length = 0;
+  await film.gesture(pg, "a case", () => steps(pg));
+  return { counts: { ...film.paceCounts(pg) }, claim: film.paceClaim(pg), said: errors.join("") };
+}
+out.claims = {
+  stepped: await claimed(async (pg) => { await pg.mouse.move(50, 50, { steps: 4 }); }),
+  steppedThenClickThere: await claimed(async (pg) => { await pg.mouse.move(50, 50, { steps: 4 }); await pg.mouse.click(50, 50); }),
+  hoverThenClick: await claimed(async (pg) => { pg.seen.value = { x: 5, y: 5 }; await pg.mouse.click(100, 100); }),
+  hoverThenDown: await claimed(async (pg) => { pg.seen.value = { x: 5, y: 5 }; await pg.mouse.down(); await pg.mouse.up(); }),
+  steppedThenLocatorClick: await claimed(async (pg) => { await pg.mouse.move(50, 50, { steps: 4 }); pg.seen.value = { x: 300, y: 300 }; }),
+  oneStepAcross: await claimed(async (pg) => { await pg.mouse.move(400, 300); }),
+  oneStepInPlace: await claimed(async (pg) => { await pg.mouse.move(0.5, 0); }),
+  clickAway: await claimed(async (pg) => { await pg.mouse.move(50, 50, { steps: 4 }); await pg.mouse.click(200, 200); }),
+  keysOnly: await claimed(async (pg) => { await pg.keyboard.press("a"); }),
+  nothing: await claimed(async () => {}),
+  // A click that loads a new page: the new document hasn't seen the pointer, or can't be asked mid-load.
+  clickThatLoads: await claimed(async (pg) => { await pg.mouse.move(50, 50, { steps: 4 }); await pg.mouse.click(50, 50); pg.seen.value = null; }),
+  clickWhileLoading: await claimed(async (pg) => { await pg.mouse.move(50, 50, { steps: 4 }); await pg.mouse.click(50, 50); pg.seen.fail = true; }),
+  moveAfterLoad: await claimed(async (pg) => { pg.seen.value = null; await pg.mouse.move(80, 80, { steps: 4 }); }),
+};
+out.claims.untracked = film.paceClaim(stand({ value: null }));
 out.constants = { STEP_MS: film.STEP_MS, MOVE_CAP_MS: film.MOVE_CAP_MS, PRESS_MS: film.PRESS_MS };
 console.log(JSON.stringify(out));
 """
@@ -261,14 +294,46 @@ class Film(unittest.TestCase):
 
     def test_pace_counts_say_what_the_gestures_paced(self):
         counts = self.r["counts"]
-        zero = {"gestures": 0, "paced": 0, "unpaced": 0}
+        zero = {"gestures": 0, "paced": 0, "unpaced": 0, "unchecked": 0}
         self.assertEqual(counts["untracked"], zero)
         self.assertEqual(counts["outside"], zero, "nothing outside a gesture counts")
-        self.assertEqual(counts["paced"], {"gestures": 1, "paced": 1, "unpaced": 0})
-        self.assertEqual(counts["presses"], {"gestures": 2, "paced": 3, "unpaced": 0})
-        self.assertEqual(counts["unknownStart"], {"gestures": 3, "paced": 3, "unpaced": 1})
-        self.assertEqual(counts["fractional"], {"gestures": 4, "paced": 3, "unpaced": 2})
+        self.assertEqual(counts["paced"], {"gestures": 1, "paced": 1, "unpaced": 0, "unchecked": 0})
+        self.assertEqual(counts["presses"], {"gestures": 2, "paced": 3, "unpaced": 0, "unchecked": 0})
+        self.assertEqual(counts["unknownStart"], {"gestures": 3, "paced": 3, "unpaced": 1, "unchecked": 0})
+        self.assertEqual(counts["fractional"], {"gestures": 4, "paced": 3, "unpaced": 2, "unchecked": 0})
         self.assertIn("isn't a whole number", counts["fractionalSaid"])
+
+
+    def test_pace_claim_says_paced_only_when_every_pointer_input_travelled_at_a_persons_pace(self):
+        claims = self.r["claims"]
+        paced, unpaced = "; filmed at a person's pace", "; filmed, but a move ran at full speed"
+        want = {
+            "stepped": ({"gestures": 1, "paced": 1, "unpaced": 0, "unchecked": 0}, paced, None),
+            "steppedThenClickThere": ({"gestures": 1, "paced": 2, "unpaced": 0, "unchecked": 0}, paced, None),
+            # Something other than page.mouse moved the pointer: checked before a press, and when the gesture ends.
+            "hoverThenClick": ({"gestures": 1, "paced": 0, "unpaced": 1, "unchecked": 0}, unpaced, "moved outside page.mouse"),
+            "hoverThenDown": ({"gestures": 1, "paced": 0, "unpaced": 2, "unchecked": 0}, unpaced, "moved outside page.mouse"),
+            "steppedThenLocatorClick": ({"gestures": 1, "paced": 1, "unpaced": 1, "unchecked": 0}, unpaced, "during the gesture"),
+            # A jump: held, but the pointer doesn't travel.
+            "oneStepAcross": ({"gestures": 1, "paced": 0, "unpaced": 1, "unchecked": 0}, unpaced, "jumped"),
+            "oneStepInPlace": ({"gestures": 1, "paced": 1, "unpaced": 0, "unchecked": 0}, paced, None),
+            "clickAway": ({"gestures": 1, "paced": 1, "unpaced": 1, "unchecked": 0}, unpaced, "jumped"),
+            "keysOnly": ({"gestures": 1, "paced": 1, "unpaced": 0, "unchecked": 0}, paced, None),
+            "nothing": ({"gestures": 1, "paced": 0, "unpaced": 0, "unchecked": 0}, "", None),
+            # What can't be checked makes no claim either way; a move that ran unpaced for it still says so.
+            "clickThatLoads": ({"gestures": 1, "paced": 2, "unpaced": 0, "unchecked": 1}, "", "not checked"),
+            "clickWhileLoading": ({"gestures": 1, "paced": 2, "unpaced": 0, "unchecked": 1}, "", "not checked"),
+            "moveAfterLoad": ({"gestures": 1, "paced": 0, "unpaced": 1, "unchecked": 0}, unpaced, "since it loaded"),
+        }
+        for case, (counts, claim, said) in want.items():
+            with self.subTest(case=case):
+                self.assertEqual(claims[case]["counts"], counts)
+                self.assertEqual(claims[case]["claim"], claim)
+                if said:
+                    self.assertIn(said, claims[case]["said"])
+                else:
+                    self.assertEqual(claims[case]["said"], "")
+        self.assertEqual(claims["untracked"], "")
 
 
 if __name__ == "__main__":
