@@ -24,31 +24,35 @@ function stand(seen, moveMs = 0) {
   // seen stands for the page's overlay: where it last saw the pointer (value), the trusted presses and keys it has
   // received, which document it is, and whether the pointer is over a frame. The page sees what Playwright's mouse and
   // keyboard send; a test changes seen itself to stand for a locator action, or a load.
-  Object.assign(seen, { downs: 0, keys: 0, doc: "first", framed: false, ...seen });
+  // framed: the pointer is over a frame; pathFramed: the points asked about are; focusFramed: the focus is in a frame.
+  // A press over a frame, or a key into one, never reaches this page's counts.
+  Object.assign(seen, { downs: 0, keys: 0, doc: "first", framed: false, pathFramed: false, focusFramed: false, ...seen });
   const calls = [];
   const rec = (name) => async (...args) => { calls.push([name, ...args.map((a) => (typeof a === "function" ? "fn" : a)), now()]); };
   const lands = (name, downs = () => 0) => async (x, y, ...rest) => {
     await rec(name)(x, y, ...rest);
     seen.value = { x, y };
-    seen.downs += downs(rest[0]);
+    if (!seen.framed && !seen.pathFramed) seen.downs += downs(rest[0]);
   };
   const slowMove = async (...args) => { if (moveMs) await new Promise((ok) => setTimeout(ok, moveMs)); return lands("move")(...args); };
-  const keyed = (name, keys) => async (...args) => { await rec(name)(...args); seen.keys += keys(args[0]); };
+  const keyed = (name, keys) => async (...args) => { await rec(name)(...args); if (!seen.focusFramed) seen.keys += keys(args[0]); };
   // The keydowns Playwright really sends: a chord's keys as it splits them, and one per typed character on its US
   // layout (printable ASCII, \n, \r); any other character is inserted with no key.
   const chord = (k) => k.split(/(?<=[^+])\+/).length;
   const onLayout = (t) => [...t].filter((ch) => (ch >= " " && ch <= "~") || ch === "\n" || ch === "\r").length;
   return {
     calls, seen,
-    mouse: { move: slowMove, click: lands("click", (o) => o?.clickCount ?? 1), dblclick: lands("dblclick", () => 2),
-      down: async (...a) => { await rec("down")(...a); seen.downs += 1; }, up: rec("up"), wheel: rec("wheel") },
+    // Playwright's client dblclick is this mouse's click with clickCount 2.
+    mouse: { move: slowMove, click: lands("click", (o) => o?.clickCount ?? 1),
+      dblclick(x, y, o) { return this.click(x, y, { ...o, clickCount: 2 }); },
+      down: async (...a) => { await rec("down")(...a); if (!seen.framed) seen.downs += 1; }, up: rec("up"), wheel: rec("wheel") },
     keyboard: { press: keyed("press", chord), type: keyed("type", onLayout),
       down: keyed("kdown", () => 1), up: rec("kup"), insertText: rec("insertText") },
     async evaluate(fn, arg) {
       if (typeof fn === "function" && String(fn).includes("check(")) {
         if (this.seen.fail) throw new Error("Execution context was destroyed");
-        const { value, downs, keys, doc, framed } = this.seen;
-        return { last: value, downs, keys, doc, framed };
+        const { value, downs, keys, doc, framed, pathFramed, focusFramed } = this.seen;
+        return { last: value, downs, keys, doc, framed, pathFramed: arg[3].length > 0 && pathFramed, focusFramed };
       }
       calls.push(["evaluate", typeof fn === "string" ? "script" : arg, now()]);
     },
@@ -230,7 +234,25 @@ out.claims = {
   plusKeyThenLocatorKey: await claimed(async (pg) => { await pg.keyboard.press("+"); locator(pg, null, { keys: 1 }); }),
   typedOffLayoutThenLocatorKeys: await claimed(async (pg) => { await pg.keyboard.type("a\u00e9\t"); locator(pg, null, { keys: 2 }); }),
   controlPlus: await claimed(async (pg) => { await pg.keyboard.press("Control++"); }),
+  // A double-click goes through Playwright's click once, counted once.
+  dblclick: await claimed(async (pg) => { await pg.mouse.move(50, 50, { steps: 4 }); await pg.mouse.dblclick(50, 50); }),
+  dblclickThenLocatorClicks: await claimed(async (pg) => { await pg.mouse.move(50, 50, { steps: 4 }); await pg.mouse.dblclick(50, 50); locator(pg, null, { downs: 2 }); }),
+  // Frames: a path across one runs unpaced; a press or key into one is left out of the counts, and not checked.
+  pathCrossesAFrame: await claimed(async (pg) => { pg.seen.pathFramed = true; await pg.mouse.move(50, 50, { steps: 4 }); }),
+  clickIntoAFrame: await claimed(async (pg) => { await pg.mouse.move(50, 50, { steps: 4 }); pg.seen.pathFramed = true; await pg.mouse.click(70, 70); }),
+  typedIntoAFrame: await claimed(async (pg) => { pg.seen.focusFramed = true; await pg.keyboard.type("ab"); }),
+  typedIntoAFrameThenLocatorKeys: await claimed(async (pg) => { pg.seen.focusFramed = true; await pg.keyboard.type("ab"); locator(pg, null, { keys: 2 }); }),
 };
+{
+  // The double-click's wait comes once: PRESS_MS, not twice.
+  const pg = stand({ value: null });
+  c.handler(pg);
+  await pg.mouse.move(0, 0);
+  const t0 = now();
+  await film.gesture(pg, "a double-click", () => pg.mouse.dblclick(0, 0));
+  out.dblclickMs = now() - t0;
+  out.dblclickCalls = pg.calls.filter((x) => x[0] === "click").map((x) => x[3]);
+}
 
 // The gesture's "Watch" caption: cleared when it ends, kept when a step inside it replaced it, and an enclosing
 // gesture's given back.
@@ -387,6 +409,12 @@ class Film(unittest.TestCase):
             "plusKeyThenLocatorKey": (n(1, 1), unpaced, "didn't send"),
             "typedOffLayoutThenLocatorKeys": (n(1, 1), unpaced, "didn't send"),
             "controlPlus": (n(1), paced, None),
+            "dblclick": (n(2), paced, None),
+            "dblclickThenLocatorClicks": (n(2, 1), unpaced, "didn't send"),
+            "pathCrossesAFrame": (n(0, 1), unpaced, "crosses a frame"),
+            "clickIntoAFrame": (n(1, 0, 1), "", "not checked"),
+            "typedIntoAFrame": (n(1, 0, 1), "", "not checked"),
+            "typedIntoAFrameThenLocatorKeys": (n(1, 1, 1), unpaced, "didn't send"),
         }
         self.assertEqual(sorted(want), sorted(k for k in claims if k != "untracked"))
         for case, (counts, claim, said) in want.items():
@@ -405,6 +433,11 @@ class Film(unittest.TestCase):
         self.assertEqual(captions["cleared"], ["Watch: a gesture", ""])
         self.assertEqual(captions["stepInside"], ["Watch: a gesture", "Step 3: the popup open"])
         self.assertEqual(captions["nested"], ["Watch: outer", "Watch: inner", "Watch: outer", ""])
+
+
+    def test_a_double_click_goes_through_playwrights_click_once(self):
+        self.assertEqual(self.r["dblclickCalls"], [{"clickCount": 2}])
+        self.assertLess(self.r["dblclickMs"], 2 * self.press, "waited once, not twice")
 
 
 if __name__ == "__main__":

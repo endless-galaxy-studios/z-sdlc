@@ -524,8 +524,8 @@ class ThisProject(unittest.TestCase):
 
 # What the probe printed in the hand test on the runner host (2026-11-20), as the control and as sandboxed Bash. The
 # film lines are from a local run against Playwright 1.61.1's own server (2026-11-23); the browser host's hand run the
-# same day passed the same checks three times, with film-paced's shortest gap 87 to 88 ms. film-claims is from a local
-# run on 2026-11-24.
+# same day passed the same checks three times, with film-paced's shortest gap 87 to 88 ms. film-claims and
+# film-caption are from a local run on 2026-11-24.
 CONTROL = """secret env github
 secret env oauth
 env-name present CLAUDE_CODE_OAUTH_TOKEN
@@ -543,7 +543,8 @@ film-path same 8 moves: 137.5,213.75 175,217.5 212.5,221.25 250,225 287.5,228.75
 film-observed none body records plain 0 filmed 0; overlay elements under <html> 1
 film-drawn drawn the pointer at the move's end
 film-paced paced shortest gap between steps 75 ms (want at least 40)
-film-claims checked page.mouse and page.keyboard: 6 paced, 0 unpaced, 0 not checked; a locator click at the pointer: 1 paced, 1 unpaced, 0 not checked; a click over a frame: 1 paced, 0 unpaced, 2 not checked
+film-claims checked paced/unpaced/not checked: mouse+keys 7/0/0, locator-click 1/1/0, dblclick+locator 2/1/0, frame-click 1/0/2, frame-locator+move 0/1/0, across-frame 1/1/0
+film-caption cleared the "Watch" caption showed during the gesture and was gone after it
 flags present
 outside-name reached http://example.com/ 200
 outside-ip reached http://1.1.1.1/ 200
@@ -568,7 +569,8 @@ film-path same 8 moves: 137.5,213.75 175,217.5 212.5,221.25 250,225 287.5,228.75
 film-observed none body records plain 0 filmed 0; overlay elements under <html> 1
 film-drawn drawn the pointer at the move's end
 film-paced paced shortest gap between steps 75 ms (want at least 40)
-film-claims checked page.mouse and page.keyboard: 6 paced, 0 unpaced, 0 not checked; a locator click at the pointer: 1 paced, 1 unpaced, 0 not checked; a click over a frame: 1 paced, 0 unpaced, 2 not checked
+film-claims checked paced/unpaced/not checked: mouse+keys 7/0/0, locator-click 1/1/0, dblclick+locator 2/1/0, frame-click 1/0/2, frame-locator+move 0/1/0, across-frame 1/1/0
+film-caption cleared the "Watch" caption showed during the gesture and was gone after it
 flags present
 outside-name refused http://example.com/ net::ERR_SOCKET_NOT_CONNECTED
 outside-ip refused http://1.1.1.1/ net::ERR_SOCKS_CONNECTION_FAILED
@@ -621,10 +623,11 @@ class Verdict(unittest.TestCase):
                             ("websocket", "websocket failed timeout"),
                             ("video", "video bad 0 bytes"),
                             ("credentials", "credentials found 2 secrets checked"),
-                            ("film-claims", "film-claims wrong page.mouse and page.keyboard: 6 paced, 0 unpaced, 0 not checked; "
-                                            "a locator click at the pointer: 1 paced, 0 unpaced, 0 not checked; "
-                                            "a click over a frame: 1 paced, 0 unpaced, 2 not checked"),
-                            ("film-claims", "film-claims unchecked boom")):
+                            ("film-claims", "film-claims wrong paced/unpaced/not checked: dblclick+locator 3/0/0 WRONG "
+                                            "(logged nothing), across-frame 2/0/0 WRONG (logged nothing), mouse+keys 8/0/0"),
+                            ("film-claims", "film-claims unchecked boom"),
+                            ("film-caption", "film-caption left the \"Watch\" caption showed during the gesture and was "
+                                             "still there after it")):
             with self.subTest(line=line):
                 self.assertTrue(browser_check.judge(swap(AGENT, check, line), "agent"))
 

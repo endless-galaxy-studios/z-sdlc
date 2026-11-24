@@ -17,9 +17,11 @@ both:    the probe connected to the browser host's front end through with-browse
          serves what specs fetch; without one, any answer to a HEAD of its root counts. With none allowed, the probe
          says so. The filmed pass's overlay (evidence_film.mjs): the same stepped move, filmed and not, hits the
          same elements and sends the same pointer coordinates, an observer of the body sees nothing, the pointer is
-         drawn, and each step of a filmed gesture is held. Its pace checks (film-claims): what page.mouse and
-         page.keyboard send counts as paced, a locator click where the pointer already is as unpaced, and a click
-         over a frame as not checked.
+         drawn, and each step of a filmed gesture is held. Its pace checks (film-claims), by count and logged
+         reason: what page.mouse and page.keyboard send (a double-click too) counts as paced; a locator click where
+         the pointer already is, after a double-click too, as unpaced; a click over a frame as not checked; a locator
+         click in a frame then a move, and a move across a frame, as unpaced. The gesture's "Watch" caption is gone
+         after it (film-caption).
 control: run outside the sandbox, with network and a canary credential in its environment (never a real token:
          it runs the project's own Playwright). The outside world, by name and by address, must answer through the
          tunnel, and the canary must be found, which proves the agent run's refusals and its clean environment are
@@ -54,6 +56,7 @@ BOTH = {
     "film-drawn": "drawn",
     "film-paced": "paced",
     "film-claims": "checked",
+    "film-caption": "cleared",
 }
 CONTROL = {"outside-name": "reached", "outside-ip": "reached", "credentials": "found", "narrow": "unchecked"}
 AGENT = {"outside-name": "refused", "outside-ip": "refused", "credentials": "clean", "narrow": "refused"}
@@ -80,6 +83,8 @@ WHY = {
     "film-paced": "a filmed gesture didn't hold each step for a person to see",
     "film-claims": "the filmed pass's pace checks didn't tell what page.mouse and page.keyboard sent from what went "
                    "around them, so a video's claim to be filmed at a person's pace can't be trusted",
+    "film-caption": "a gesture's \"Watch\" caption didn't show during it, or stayed after it, so what followed read as "
+                    "part of the gesture",
     "allowed": "Node's fetch didn't reach the project's allowed outside host (browser.allow): a spec's context.route "
                "helper can't serve it",
 }

@@ -37,6 +37,66 @@ Each entry contains:
 
 ---
 
+## 2026-11-24: A double-click counts once, a move across a frame runs unpaced, and presses and keys into a frame leave no slack
+
+**Origin:** the pilot project's architect ran the v2.12.2 module in a real Chromium (Playwright 1.61.1, headless) while the pilot folded it into its PR #124. Every v2.12.1 finding checked out: 8c fixed for same-origin and cross-site frames, 8h's key counts exact, the caption cleared. It sent new findings; the pilot has no iframes or double-clicks, so none affected #124. CD: "do it" (2026-11-24).
+
+**What happened:**
+- **A double-click was counted twice.** Playwright's client `Mouse.dblclick` calls `this.click(x, y, { ...options, clickCount: 2 })`, which is the module's own patched `click`. So a double-click allowed 4 presses where the page received 2, checked the pointer twice and waited 800 ms. The architect's run F2: a double-click then two locator clicks at the pointer still claimed paced.
+- **A paced move across a frame was claimed paced.** The top page sees none of the pointer inside a frame, so the drawn pointer froze for about 480 ms, then jumped 210 px (runs C and C-xsite).
+- **Presses and keys into a frame left slack.** They counted as sent, but the top page never received them, so as many foreign ones could hide. Run K: `type("ab")` into a frame's input, then two locator keys in the top page, claimed paced.
+- **Smoke left the browser-dependent cases out.** It didn't cover the frame-entry fix, the caption or a double-click, and its locator case passed whichever check fired.
+- **Wording:** the header said a wheel waits `PRESS_MS`; it waits `STEP_MS` before and after. It also didn't state the frame limits above.
+
+**Changes made:**
+
+1. **`bundles/factory/tree/evidence_film.mjs`**:
+   - **A double-click goes through Playwright's click once.** The module's `dblclick` counts, checks and waits, then lets Playwright's own `dblclick` call the patched `click` uncounted. The trace keeps Playwright's "Double click".
+   - **A move whose path crosses a frame runs unpaced.** One call to the overlay's `check` asks whether any step point is over a frame.
+   - **A press over a frame, or a click aimed into one, is left out of the sent count and marked not checked.** So is a key sent while the focus is in a frame (`check` reports `document.activeElement`).
+   - **The header** gives the wheel's real wait and states the frame cases.
+2. **`bundles/factory/tree/browser_probe.mjs` and `browser_check.py`:**
+   - **`film-claims` checks each case's logged reason as well as its counts.** It gains:
+     - a double-click, then a locator click at the pointer;
+     - a locator click in the frame, then a move;
+     - a move across the frame.
+
+     The frame click now approaches the frame's edge and clicks just inside, since a move into the frame would cross it. The six cases fit in the probe's 300-character line, failing cases first.
+   - **A new required check, `film-caption`:** by the strip's pixels, the "Watch" caption shows during the gesture and is gone after it.
+3. **`process/factory.md`:** D6 rule 4 lists the cases and `film-caption`. Rule 7 adds the frame crossing, and presses and keys into a frame left out of the counts. Mirror rule 5 is unchanged.
+4. **Tests:**
+   - `tests/test_evidence_film.py`:
+     - the stand-in's `dblclick` calls its `click` as Playwright's does;
+     - presses over a frame and keys into one never reach its counts;
+     - new cases: a double-click, a double-click then two locator clicks, a path across a frame, a click into a frame, and typing into a frame with and without locator keys after it;
+     - a double-click goes through `click` once and waits once.
+   - `tests/test_browser.py`: the verdict fixtures gain the new `film-claims` line and `film-caption`, and their failure forms fail.
+
+**Proof:**
+- **The bundle's own tests:** `test_evidence_film` (18) and `test_browser` (66, 3 skipped) pass.
+- **The architect's four scripts, against this module in a local Chromium** (read before running: each starts a local Chromium and a local web server):
+  - F2 now reads "full speed", with the "didn't send" reason.
+  - C and C-xsite run unpaced, with "crosses a frame".
+  - K reads "full speed".
+  - A, B, A-xsite and B-xsite stay fixed.
+  - The hover that comes back (G, B4) is the stated limit.
+- **The new probe against the v2.12.2 module fails as it should:** `film-claims wrong`, with dblclick+locator 3/0/0 and across-frame 2/0/0, each logging nothing.
+- **On the browser host, by hand,** from the runner host with a 1.61.1 client against the 1.61 front end (Chromium 149.0.7827.55, WebGL on the M1), three runs:
+  - all seven film checks passed each time;
+  - `film-claims` read mouse+keys 7/0/0, locator-click 1/1/0, dblclick+locator 2/1/0, frame-click 1/0/2, frame-locator+move 0/1/0, across-frame 1/1/0;
+  - `film-caption` was cleared;
+  - `film-paced`'s shortest gap was 87 to 88 ms.
+
+  `browser_check.py`'s only complaints were the canary credential, which a hand run doesn't hold and smoke supplies.
+- **The import's two proofs pass.**
+
+**Rationale:**
+- **The probe has to fail the module it replaces.** A check that passes whichever rule fires can't tell a fixed bug from a lucky one. So `film-claims` now names the reason it expects, and was run against v2.12.2 to see it fail.
+- **A frame is a place the top page can't see.** What goes into one is left out of the counts rather than trusted, so it can neither hide a foreign input nor vouch for a pace no one could watch.
+- **Release type: patch.** Fixes, stricter smoke checks and wording, with no new export.
+
+---
+
 ## 2026-11-24: The "Watch" caption ends with its gesture, a locator move into a frame is seen, and keys are counted as Playwright sends them
 
 **Origin:** the pilot project's reviewers re-ran their probes against v2.12.1 while folding it into its PR #124, where #49 gets `; filmed at a person's pace where captioned "Watch"`. Their cases 2b, 7, the 2-step long move, 8a/8b and 9b were fixed; they sent what was left. CD: "build and release" (2026-11-24).

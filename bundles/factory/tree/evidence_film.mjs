@@ -9,7 +9,8 @@
 //   - gesture(page, label, fn), which the spec wraps around the moves and presses that show the bug: inside it, each
 //     step of a page.mouse move is held STEP_MS after the browser takes it, so the page sees the steps at least that
 //     far apart (the module adds at most MOVE_CAP_MS to a move; a slow browser's own time per step comes on top),
-//     and a press, click, key or wheel waits PRESS_MS first. Nothing outside a gesture waits;
+//     a press, click or key waits PRESS_MS first, and a wheel STEP_MS before and after. Nothing outside a gesture
+//     waits;
 //   - paceClaim(page) when it saves the video: what the video's `shows` ends with, which says the gestures (the parts
 //     captioned "Watch") were filmed at a person's pace only when every input in them was paced and the pointer was
 //     drawn travelling (paceCounts(page) gives the counts).
@@ -43,10 +44,13 @@
 //   - a jump: a move with a step longer than MAX_STEP_PX, or a click that far from the pointer;
 //   - a move whose start can't be checked (the page hasn't seen the pointer since it loaded, or it's over a frame):
 //     it runs unpaced, so the proof's points aren't changed;
+//   - a move whose path crosses a frame, where the top page can't see the pointer, so the drawn pointer would stall
+//     and then jump: it runs unpaced;
 //   - a move whose steps isn't a whole number.
 // A press, a click or the gesture's end that can't be checked (the page hasn't seen the pointer since it loaded, loaded
-// during the gesture, has the pointer over a frame, or couldn't be asked) logs "[film] not checked: ..." and makes no
-// claim either way. Unpaced outweighs unchecked: one unpaced input makes the claim "full speed". So a spec places the
+// during the gesture, has the pointer over a frame, or couldn't be asked), and a key sent while the focus is in a frame,
+// log "[film] not checked: ..." and make no claim either way. A press or key that goes into a frame is left out of the
+// counts, since the top page never receives it, so it leaves no slack for a foreign one to hide in. Unpaced outweighs unchecked: one unpaced input makes the claim "full speed". So a spec places the
 // pointer with page.mouse outside any gesture before it starts, uses only page.mouse and page.keyboard inside it, with
 // moves in steps of at most MAX_STEP_PX, and ends it before the input that loads a new page. The gesture's end clears
 // its "Watch" caption, so nothing after it sits under one. What this module can't see at all:
@@ -152,10 +156,16 @@ function overlay(captionAt) {
       last: () => (last ? { x: last.x, y: last.y } : null),
       // For the module's checks: where the page last saw the pointer, the trusted presses and keys it has received,
       // which document this is, and whether (x, y) is over a frame, whose own events this document never sees.
-      check: (x, y) => ({
-        last: last ? { x: last.x, y: last.y } : null, downs, keys, doc,
-        framed: /^(IFRAME|FRAME|OBJECT|EMBED)$/.test(document.elementFromPoint(x, y)?.tagName ?? ""),
-      }),
+      // Also whether any of a move's step points, or a click's target, is over a frame, and whether the focus is in one.
+      check: (x, y, points = []) => {
+        const frame = (tag) => /^(IFRAME|FRAME|OBJECT|EMBED)$/.test(tag ?? "");
+        const over = (px, py) => frame(document.elementFromPoint(px, py)?.tagName);
+        return {
+          last: last ? { x: last.x, y: last.y } : null, downs, keys, doc,
+          framed: over(x, y), pathFramed: points.some(([px, py]) => over(px, py)),
+          focusFramed: frame(document.activeElement?.tagName),
+        };
+      },
       caption: (t) => {
         text = String(t);
         if (mount()) strip.textContent = text;
@@ -187,7 +197,8 @@ const JUMP = `a move ran unpaced: the pointer jumped (a step longer than ${MAX_S
 const AFTER = "a move ran unpaced: the pointer was moved outside page.mouse during the gesture (a locator action?)";
 const AROUND = "a move ran unpaced: the page received a press or key that page.mouse and page.keyboard didn't send (a locator action?)";
 const UNCHECKED_MOVE = "a move ran unpaced: the page hasn't seen the pointer (since it loaded, or it's over a frame), so its start can't be checked: place it with page.mouse outside a gesture first, and end a gesture before the input that loads a new page";
-const UNCHECKED = "not checked: the page hasn't seen the pointer since it loaded, loaded during the gesture, has the pointer over a frame, or couldn't be asked, so this makes no claim about pace";
+const UNCHECKED = "not checked: the page hasn't seen the pointer since it loaded, loaded during the gesture, has the pointer or the focus in a frame, or couldn't be asked, so this makes no claim about pace";
+const CROSSES = "a move ran unpaced: its path crosses a frame, where this page can't see the pointer, so the drawn pointer would stall and then jump: go around the frame";
 const far = (at, x, y) => Math.abs(x - at.x) > 1 || Math.abs(y - at.y) > 1;
 // Playwright's own split of a chord ("Shift+A", "Control++"): a "+" with nothing before it is the key itself.
 function chord(key) {
@@ -209,7 +220,7 @@ const jumps = (at, x, y, steps = 1) => Math.hypot(x - at.x, y - at.y) / steps > 
 // Track where page.mouse last sent the pointer, and pace its calls inside a gesture.
 function track(page) {
   if (pages.has(page)) return;
-  const state = { at: { x: 0, y: 0 }, moved: false, pacing: 0, sentDowns: 0, sentKeys: 0, text: "",
+  const state = { at: { x: 0, y: 0 }, moved: false, pacing: 0, sentDowns: 0, sentKeys: 0, text: "", passthrough: 0,
     gestures: 0, paced: 0, unpaced: 0, unchecked: 0 };
   pages.set(page, state);
   const mouse = page.mouse, keyboard = page.keyboard;
@@ -222,14 +233,16 @@ function track(page) {
     return sleep(ms);
   };
   // A press or click inside a gesture checks the pointer first: something other than page.mouse may have moved it,
-  // and a click aimed more than MAX_STEP_PX from it (x, y given) jumps there.
+  // and a click aimed more than MAX_STEP_PX from it (x, y given) jumps there. Returns whether the press reaches the top
+  // page, which a press over a frame doesn't, so the caller counts it as sent only then.
   const pressCounts = async (x, y) => {
-    if (state.pacing === 0) return;
-    const { where } = await pointerCheck(page, state);
-    if (where === "outside") {
+    if (state.pacing === 0) return true;
+    const c = await pointerCheck(page, state, x === undefined ? [] : [[x, y]]);
+    const intoFrame = c.why === "framed" || c.pathFramed;
+    if (c.where === "outside") {
       state.unpaced += 1;
       log(OUTSIDE);
-    } else if (where === "unchecked") {
+    } else if (c.where === "unchecked" || intoFrame) {
       state.unchecked += 1;
       log(UNCHECKED);
     } else if (x !== undefined && jumps(state.at, x, y)) {
@@ -238,6 +251,7 @@ function track(page) {
     } else {
       state.paced += 1;
     }
+    return !intoFrame;
   };
   const setContent = page.setContent.bind(page);
   page.setContent = async (...args) => {
@@ -250,9 +264,18 @@ function track(page) {
     const steps = options.steps ?? 1;
     const wholeSteps = Number.isInteger(steps) && steps >= 1;
     if (state.pacing > 0 && !wholeSteps) log("a move ran unpaced: its steps option isn't a whole number of at least 1");
-    const where = state.pacing > 0 && wholeSteps ? (await pointerCheck(page, state)).where : null;
+    // The step points a paced move would send, for the check: any over a frame, and the move runs unpaced.
+    const from0 = state.at;
+    const points = state.pacing > 0 && wholeSteps ? Array.from({ length: steps }, (_, k) => (k + 1 === steps ? [x, y]
+      : [from0.x + (x - from0.x) * ((k + 1) / steps), from0.y + (y - from0.y) * ((k + 1) / steps)])) : [];
+    const c = state.pacing > 0 && wholeSteps ? await pointerCheck(page, state, points) : null;
+    let where = c ? c.where : null;
     if (where === "outside") log(OUTSIDE);
     if (where === "unchecked") log(UNCHECKED_MOVE);
+    if (where === "known" && c.pathFramed) {
+      log(CROSSES);
+      where = "crosses";
+    }
     if (where === "known") {
       const from = state.at, hold = Math.min(STEP_MS, MOVE_CAP_MS / steps);
       // A step longer than MAX_STEP_PX is a jump: held, but the pointer is drawn at points, not travelling.
@@ -281,8 +304,9 @@ function track(page) {
     state.moved = true;
   };
   mouse.click = async (x, y, options) => {
-    state.sentDowns += Math.max(1, options?.clickCount ?? 1);
-    await pressCounts(x, y);
+    // Playwright's own dblclick calls this click: the dblclick below counted and paced it already.
+    if (state.passthrough > 0) return m.click(x, y, options);
+    if (await pressCounts(x, y)) state.sentDowns += Math.max(1, options?.clickCount ?? 1);
     await pause(PRESS_MS);
     await m.click(x, y, options);
     state.at = { x, y };
@@ -290,15 +314,23 @@ function track(page) {
     await pause(STEP_MS);
   };
   mouse.dblclick = async (x, y, options) => {
-    state.sentDowns += 2;
-    await pressCounts(x, y);
+    if (await pressCounts(x, y)) state.sentDowns += 2;
     await pause(PRESS_MS);
-    await m.dblclick(x, y, options);
+    state.passthrough += 1;
+    try {
+      await m.dblclick(x, y, options);
+    } finally {
+      state.passthrough -= 1;
+    }
     state.at = { x, y };
     state.moved = true;
     await pause(STEP_MS);
   };
-  mouse.down = async (options) => { state.sentDowns += 1; await pressCounts(); await pause(PRESS_MS); await m.down(options); };
+  mouse.down = async (options) => {
+    if (await pressCounts()) state.sentDowns += 1;
+    await pause(PRESS_MS);
+    await m.down(options);
+  };
   mouse.up = async (options) => { await m.up(options); await pause(STEP_MS); };
   mouse.wheel = async (dx, dy) => { await pause(STEP_MS, true); await m.wheel(dx, dy); await pause(STEP_MS); };
   // The keydown events each call causes, as Playwright sends them: one per key of a chord (split as Playwright splits
@@ -310,7 +342,15 @@ function track(page) {
   for (const name of ["press", "type", "down", "up", "insertText"]) {
     const original = keyboard[name].bind(keyboard);
     keyboard[name] = async (...args) => {
-      state.sentKeys += keydowns[name](args[0]);
+      const n = keydowns[name](args[0]);
+      // Keys go where the focus is: into a frame, the top page never receives them, so they're left out of the count
+      // (no slack for a foreign key) and can't be checked.
+      if (state.pacing > 0 && n > 0 && (await pointerCheck(page, state)).focusFramed) {
+        state.unchecked += 1;
+        log(UNCHECKED);
+      } else {
+        state.sentKeys += n;
+      }
       await pause(PRESS_MS, true);
       return original(...args);
     };
@@ -322,18 +362,20 @@ function track(page) {
 // wrong point. "unchecked": the page can't say, since it hasn't seen the pointer (since it loaded: Playwright's pointer
 // may be anywhere), the pointer is over a frame, or the page couldn't be asked. With the page's tally of presses, keys
 // and document (null when it couldn't be asked). The caller logs.
-async function pointerCheck(page, state) {
+async function pointerCheck(page, state, points = []) {
   let seen;
   try {
-    seen = await page.evaluate(([k, x, y]) => window[Symbol.for(k)]?.check(x, y) ?? null, [KEY, state.at.x, state.at.y]);
+    seen = await page.evaluate(([k, x, y, pts]) => window[Symbol.for(k)]?.check(x, y, pts) ?? null,
+      [KEY, state.at.x, state.at.y, points]);
   } catch {
     seen = null;
   }
-  if (seen == null) return { where: "unchecked", why: "unasked", tally: null };
+  if (seen == null) return { where: "unchecked", why: "unasked", tally: null, pathFramed: false, focusFramed: false };
   const tally = { downs: seen.downs, keys: seen.keys, doc: seen.doc };
-  if (seen.framed) return { where: "unchecked", why: "framed", tally };
-  if (seen.last === null) return { where: "unchecked", why: "unseen", tally };
-  return { where: far(state.at, seen.last.x, seen.last.y) ? "outside" : "known", why: null, tally };
+  const more = { tally, pathFramed: !!seen.pathFramed, focusFramed: !!seen.focusFramed };
+  if (seen.framed) return { where: "unchecked", why: "framed", ...more };
+  if (seen.last === null) return { where: "unchecked", why: "unseen", ...more };
+  return { where: far(state.at, seen.last.x, seen.last.y) ? "outside" : "known", why: null, ...more };
 }
 
 /**

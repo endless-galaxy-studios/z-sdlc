@@ -170,9 +170,11 @@ window.__moves = []; window.__body = 0;
 addEventListener("pointermove", (e) => __moves.push([e.clientX, e.clientY, (document.elementFromPoint(e.clientX, e.clientY) || {}).id || "none", performance.now()]), { capture: true });
 new MutationObserver((r) => { __body += r.length; }).observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true });
 </script>`;
-// The pace claim's checks (paceCounts), on a page with a button, an input and a frame: what page.mouse and
-// page.keyboard send must count as paced, a locator click where the pointer already is as unpaced (the overlay's count
-// of the page's trusted presses), and a click over the frame as not checked.
+// The pace claim's checks (paceCounts and the reasons the module logs), on a page with a button, an input and a frame:
+// what page.mouse and page.keyboard send (a double-click included) must count as paced; a locator click where the
+// pointer already is, also after a double-click, as unpaced (the overlay's count of the page's trusted presses); a
+// click over the frame as not checked; a locator click in the frame then a move, and a move across the frame, as
+// unpaced; and the gesture's "Watch" caption must be gone after it, by the strip's pixels.
 const CLAIMS_PAGE = `<!doctype html><title>factory film claims</title><style>body{margin:0}
 #b{position:absolute;left:200px;top:200px;width:90px;height:32px}#i{position:absolute;left:200px;top:300px;width:150px;height:24px}
 #f{position:absolute;left:400px;top:100px;width:200px;height:150px;border:0}</style><button id=b>Undo</button><input id=i>
@@ -244,45 +246,96 @@ async function filmChecks(browser, appUrl) {
 async function claimChecks(browser, appUrl, film) {
   const saved = [process.env.FACTORY_EVIDENCE_PACE, process.env.FACTORY_EVIDENCE_VIDEO];
   [process.env.FACTORY_EVIDENCE_PACE, process.env.FACTORY_EVIDENCE_VIDEO] = ["1", "1"];
-  const counts = async (steps) => {
+  const write = process.stderr.write;
+  // One filmed gesture on its own page, with the module's counts and the reasons it logged.
+  const run = async (steps, after) => {
     const context = await browser.newContext({ viewport: { width: 640, height: 480 } });
+    const said = [];
     try {
       await film.filmContext(context);
       const page = await context.newPage();
       await page.goto(`${appUrl}film-claims`, { timeout: 30000 });
       await page.mouse.move(100, 100);
-      await film.gesture(page, "a probe case", () => steps(page));
-      return film.paceCounts(page);
+      process.stderr.write = (chunk) => { said.push(String(chunk)); return true; };
+      try {
+        await film.gesture(page, "a probe case", () => steps(page));
+      } finally {
+        process.stderr.write = write;
+      }
+      return { ...film.paceCounts(page), said: said.join(""), extra: after ? await after(page) : null };
     } finally {
+      process.stderr.write = write;
       await context.close().catch(() => {});
     }
   };
+  // The caption strip's pixels at the bottom edge, with the overlay shown and then hidden.
+  const strip = { x: 0, y: 440, width: 640, height: 40 };
+  const hidden = async (page) => {
+    await page.evaluate(() => { document.querySelector("factory-film").style.display = "none"; });
+    const shot = await page.screenshot({ clip: strip });
+    await page.evaluate(() => { document.querySelector("factory-film").style.display = ""; });
+    return shot;
+  };
   try {
-    // Steps of about 30 px, under MAX_STEP_PX.
-    const honest = await counts(async (page) => {
-      await page.mouse.move(245, 216, { steps: 6 });
-      await page.mouse.click(245, 216);
-      await page.mouse.move(275, 312, { steps: 4 });
-      await page.mouse.click(275, 312);
-      await page.keyboard.type("ab");
-      await page.keyboard.press("Shift+C");
-    });
-    const locator = await counts(async (page) => {
-      await page.mouse.move(245, 216, { steps: 6 });
-      await page.locator("#b").click();
-    });
-    const frame = await counts(async (page) => {
-      await page.mouse.move(500, 175, { steps: 14 });
-      await page.mouse.click(500, 175);
-    });
-    const ok = honest.paced > 0 && honest.unpaced === 0 && honest.unchecked === 0
-      && locator.unpaced > 0 && frame.unpaced === 0 && frame.unchecked > 0;
-    const say = (c) => `${c.paced} paced, ${c.unpaced} unpaced, ${c.unchecked} not checked`;
-    out("film-claims", ok ? "checked" : "wrong",
-      `page.mouse and page.keyboard: ${say(honest)}; a locator click at the pointer: ${say(locator)}; a click over a frame: ${say(frame)}`);
+    // Steps of about 30 px, under MAX_STEP_PX. Each case: [name, steps, what it must count, the reason it must log].
+    let during = null;
+    const cases = [
+      ["mouse+keys", async (page) => {
+        during = await page.screenshot({ clip: strip });
+        await page.mouse.move(245, 216, { steps: 6 });
+        await page.mouse.click(245, 216);
+        await page.mouse.dblclick(245, 216);
+        await page.mouse.move(275, 312, { steps: 4 });
+        await page.mouse.click(275, 312);
+        await page.keyboard.type("ab");
+        await page.keyboard.press("Shift+C");
+      }, (c) => c.paced > 0 && c.unpaced === 0 && c.unchecked === 0, null],
+      ["locator-click", async (page) => {
+        await page.mouse.move(245, 216, { steps: 6 });
+        await page.locator("#b").click();
+      }, (c) => c.unpaced > 0, "didn't send"],
+      ["dblclick+locator", async (page) => {
+        await page.mouse.move(245, 216, { steps: 6 });
+        await page.mouse.dblclick(245, 216);
+        await page.locator("#b").click();
+      }, (c) => c.unpaced > 0, "didn't send"],
+      // Up to the frame's edge (x 400), then a click just inside it: a move into the frame would cross it.
+      ["frame-click", async (page) => {
+        await page.mouse.move(390, 175, { steps: 10 });
+        await page.mouse.click(410, 175);
+      }, (c) => c.unpaced === 0 && c.unchecked > 0, "not checked"],
+      ["frame-locator+move", async (page) => {
+        await page.frameLocator("#f").locator("button").click();
+        await page.mouse.move(100, 300, { steps: 16 });
+      }, (c) => c.unpaced > 0, "moved outside page.mouse"],
+      ["across-frame", async (page) => {
+        await page.mouse.move(380, 175, { steps: 10 });
+        await page.mouse.move(620, 175, { steps: 8 });
+      }, (c) => c.unpaced > 0, "crosses a frame"],
+    ];
+    const results = [];
+    let captionShown = null, captionAfter = null;
+    for (const [name, steps, want, reason] of cases) {
+      const c = await run(steps, name === "mouse+keys"
+        ? async (page) => {
+          const after = await page.screenshot({ clip: strip });
+          const bare = await hidden(page);
+          return { shown: !during.equals(bare), cleared: after.equals(bare) };
+        } : null);
+      if (c.extra) [captionShown, captionAfter] = [c.extra.shown, c.extra.cleared];
+      const ok = want(c) && (reason === null ? c.said === "" : c.said.includes(reason));
+      results.push({ name, ok, text: `${name} ${c.paced}/${c.unpaced}/${c.unchecked}${ok ? "" : ` WRONG (${c.said.trim().split("\n").map((l) => l.slice(7, 40)).join("; ") || "logged nothing"})`}` });
+    }
+    // Failing cases first, so the 300-character line keeps them.
+    results.sort((a, b) => Number(a.ok) - Number(b.ok));
+    out("film-claims", results.every((r) => r.ok) ? "checked" : "wrong",
+      `paced/unpaced/not checked: ${results.map((r) => r.text).join(", ")}`);
+    out("film-caption", captionShown && captionAfter ? "cleared" : "left",
+      `the "Watch" caption ${captionShown ? "showed during the gesture" : "didn't show during the gesture"} and ${captionAfter ? "was gone after it" : "was still there after it"}`);
   } catch (e) {
     out("film-claims", "unchecked", e.message);
   } finally {
+    process.stderr.write = write;
     [process.env.FACTORY_EVIDENCE_PACE, process.env.FACTORY_EVIDENCE_VIDEO] = saved;
   }
 }
