@@ -248,6 +248,15 @@ out.claims = {
   farClickIntoAFrame: await claimed(async (pg) => { await pg.mouse.move(50, 50, { steps: 4 }); pg.seen.pathFramed = true; await pg.mouse.click(450, 50); }),
 };
 {
+  // Typing inside a gesture goes a character at a time: Playwright's own delay, STEP_MS; outside, as given.
+  const pg = stand({ value: null });
+  c.handler(pg);
+  await pg.mouse.move(0, 0);
+  await pg.keyboard.type("ab");
+  await film.gesture(pg, "typing", async () => { await pg.keyboard.type("cd"); await pg.keyboard.type("ef", { delay: 200 }); });
+  out.typed = pg.calls.filter((x) => x[0] === "type").map((x) => x.slice(1, -1));
+}
+{
   // The double-click's wait comes once: PRESS_MS, not twice.
   const pg = stand({ value: null });
   c.handler(pg);
@@ -415,7 +424,7 @@ class Film(unittest.TestCase):
             "controlPlus": (n(1), paced, None),
             "dblclick": (n(2), paced, None),
             "dblclickThenLocatorClicks": (n(2, 1), unpaced, "didn't send"),
-            "pathCrossesAFrame": (n(0, 1), unpaced, "across a frame"),
+            "pathCrossesAFrame": (n(0, 1), unpaced, "lands on a frame"),
             "clickIntoAFrame": (n(1, 0, 1), "", "not checked"),
             "typedIntoAFrame": (n(1, 0, 1), "", "not checked"),
             "typedIntoAFrameThenLocatorKeys": (n(1, 1, 1), unpaced, "didn't send"),
@@ -446,6 +455,10 @@ class Film(unittest.TestCase):
     def test_a_double_click_goes_through_playwrights_click_once(self):
         self.assertEqual(self.r["dblclickCalls"], [{"clickCount": 2}])
         self.assertLess(self.r["dblclickMs"], 2 * self.press, "waited once, not twice")
+
+
+    def test_typing_inside_a_gesture_goes_a_character_at_a_time(self):
+        self.assertEqual(self.r["typed"], [["ab"], ["cd", {"delay": self.step}], ["ef", {"delay": 200}]])
 
 
 if __name__ == "__main__":

@@ -37,6 +37,72 @@ Each entry contains:
 
 ---
 
+## 2026-11-24: Typing in a gesture goes a character at a time, and smoke's frame cases get a line of their own
+
+**Origin:** the pilot project's architect re-ran its real-Chromium probes against v2.12.4 while the pilot folded it into its PR #124:
+- P10, P13 and S1 to S3 were fixed;
+- P11 and P12 were as designed;
+- the new probe failed against v2.12.3 as it should.
+
+It sent the remaining low items, and the pilot has no iframes or shadow DOM. CD: "build it as 2.12.5 then we'll merge it into #124" (2026-11-24). The scope was what z-sdlc recommended. It leaves out counting the page's pointermoves against the steps sent, since Chromium merges moves within a frame, and judging a jump from a start inside a frame, which reads "not checked" and is safe.
+
+**What happened:**
+- **`keyboard.type` paced one keystroke, not the string.** It waited `PRESS_MS` once, then Playwright typed every character at full speed, and the call counted as one paced input. So a typed string could sit under "filmed at a person's pace".
+- **Smoke checked a click back out of a frame only through the stand-in.** Its reason check only tested that a reason was present. Nothing in smoke checked that a bare `down` is judged by where the pointer is.
+- **Wording:**
+  - the header and rule 7 said "into or across a frame", though only the step points are checked;
+  - they didn't say what a frame in a closed shadow root costs;
+  - rule 4's smoke bullet said keys into the shadow-hosted frame count as unpaced, though keys alone are not checked, and only a locator key after them is unpaced;
+  - the probe's comment above `CLAIMS_PAGE` listed only the first cases.
+
+**Changes made:**
+
+1. **`bundles/factory/tree/evidence_film.mjs`**:
+   - **Inside a gesture, `keyboard.type` passes Playwright's own `delay`** (`STEP_MS`, or the spec's own if longer), so a typed string goes a character at a time.
+   - **The header:**
+     - says only the step points are checked, so a frame narrower than a step is missed;
+     - says what a closed-root frame costs: a move across it stays paced while the pointer stalls, and a press or key into it counts as sent;
+     - gives typing's pace.
+   - **The crossing log** reads "a step point lands on a frame".
+2. **`bundles/factory/tree/browser_probe.mjs` and `browser_check.py`:**
+   - **Smoke's cases split into two required lines,** so each fits the probe's 300-character line: `film-claims` for the cases without a frame, and `film-frames` (new) for the ten with one.
+   - **A case can require a reason to be absent.**
+   - **New cases:**
+     - `mouse+keys` gains a bare `down` and `up` where a move ended;
+     - `click-out`: a click just inside the frame, then back out. It must be not checked and log no "didn't send";
+     - `down+locator`: a bare `down` over the frame, then a locator click, must count as unpaced, since the `down` was left out of the sent count.
+   - **The comment above the page** describes the cases as they are.
+3. **`process/factory.md`:**
+   - **D6 rule 4** lists both lines' cases, with "keys into it, then a locator key".
+   - **Rule 7:** the step points, the closed-root cost, and typing's pace.
+   - **Costs** counts each typed character's hold.
+   - Mirror rule 5 is unchanged.
+4. **Tests:**
+   - `tests/test_evidence_film.py`: typing inside a gesture passes `delay: STEP_MS` (or a longer one given), and outside it passes nothing.
+   - `tests/test_browser.py`: the verdict fixtures carry both lines, and `film-frames`' failure forms fail.
+
+**Proof:**
+- **The bundle's own tests:** `test_evidence_film` (19) and `test_browser` (66, 3 skipped) pass.
+- **In a real Chromium** (Playwright 1.61.1, locally):
+  - typing "abcd" inside a gesture put keydowns 82 to 83 ms apart, against 0 to 1 ms outside one;
+  - the click-out case against v2.12.3 counted a press as unpaced, with "didn't send", and against this module made no claim and logged no such reason.
+- **The new probe against the v2.12.3 module** gives `film-frames wrong`. Before its 300-character line ends it lists across (for v2.12.3's older log wording), shadow-across, shadow-key+locator and far-click; click-out's failure there was shown on its own, above.
+- **On the browser host, by hand,** from the runner host with a 1.61.1 client against the 1.61 front end (Chromium 149.0.7827.55, WebGL on the M1), three runs:
+  - all eight film checks passed each time;
+  - `film-claims` read mouse+keys 8/0/0, locator-click 1/1/0, dblclick+locator 2/1/0;
+  - `film-frames` passed its ten cases;
+  - `film-paced`'s shortest gap was 86 to 89 ms.
+
+  `browser_check.py`'s only complaints were the canary credential, which a hand run doesn't hold and smoke supplies.
+- **The import's two proofs pass.**
+
+**Rationale:**
+- **Typing is part of what CD watches.** A string that appears at once under "at a person's pace" is the claim the filmed pass exists to make true. Playwright's own `delay` paces it with no new code path.
+- **A reason that mustn't appear is as much a check as one that must.** The click back out of a frame was fixed by what it no longer logs.
+- **Release type: patch.** A fix, stricter smoke cases and wording, with no new export.
+
+---
+
 ## 2026-11-24: Frames are found inside open shadow roots, a click is judged by where it lands, and a jump into a frame reads as a jump
 
 **Origin:** the pilot project's architect re-ran its real-Chromium probes against v2.12.3 while the pilot folded it into its PR #124. F, F2, C, C-xsite, K and H were fixed, and the new smoke probe passed in its Chromium 149. It sent new findings; the pilot's client has no frames, so none affected #124. CD said yes to building them (2026-11-24).

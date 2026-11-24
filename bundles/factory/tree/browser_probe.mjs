@@ -170,11 +170,10 @@ window.__moves = []; window.__body = 0;
 addEventListener("pointermove", (e) => __moves.push([e.clientX, e.clientY, (document.elementFromPoint(e.clientX, e.clientY) || {}).id || "none", performance.now()]), { capture: true });
 new MutationObserver((r) => { __body += r.length; }).observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true });
 </script>`;
-// The pace claim's checks (paceCounts and the reasons the module logs), on a page with a button, an input and a frame:
-// what page.mouse and page.keyboard send (a double-click included) must count as paced; a locator click where the
-// pointer already is, also after a double-click, as unpaced (the overlay's count of the page's trusted presses); a
-// click over the frame as not checked; a locator click in the frame then a move, and a move across the frame, as
-// unpaced; and the gesture's "Watch" caption must be gone after it, by the strip's pixels.
+// The pace claim's checks (paceCounts and the reasons the module logs), on a page with a button, an input, a frame with
+// an input of its own, and a second frame inside an open shadow root. Each case below says what it must count and the
+// reason it must log (or not): film-claims holds the cases without a frame, film-frames the ones with, and
+// film-caption checks by the strip's pixels that a gesture's "Watch" caption is gone after it.
 const CLAIMS_PAGE = `<!doctype html><title>factory film claims</title><style>body{margin:0}
 #b{position:absolute;left:200px;top:200px;width:90px;height:32px}#i{position:absolute;left:200px;top:300px;width:150px;height:24px}
 #f{position:absolute;left:400px;top:100px;width:200px;height:150px;border:0}#w{position:absolute;left:20px;top:340px;display:block}
@@ -292,6 +291,8 @@ async function claimChecks(browser, appUrl, film) {
         await page.mouse.move(245, 216, { steps: 6 });
         await page.mouse.click(245, 216);
         await page.mouse.dblclick(245, 216);
+        await page.mouse.down();
+        await page.mouse.up();
         await page.mouse.move(275, 312, { steps: 4 });
         await page.mouse.click(275, 312);
         await page.keyboard.type("ab");
@@ -306,26 +307,28 @@ async function claimChecks(browser, appUrl, film) {
         await page.mouse.dblclick(245, 216);
         await page.locator("#b").click();
       }, (c) => c.unpaced > 0, "didn't send"],
-      // Up to the frame's edge (x 400), then a click just inside it: a move into the frame would cross it.
-      ["frame-click", async (page) => {
+    ];
+    // A frame's cases. Up to the frame's edge (x 400), then a click just inside it: a move into the frame would cross it.
+    const frameCases = [
+      ["click", async (page) => {
         await page.mouse.move(390, 175, { steps: 10 });
         await page.mouse.click(410, 175);
       }, (c) => c.unpaced === 0 && c.unchecked > 0, "not checked"],
-      ["frame-locator+move", async (page) => {
+      ["locator+move", async (page) => {
         await page.frameLocator("#f").locator("button").click();
         await page.mouse.move(100, 300, { steps: 16 });
       }, (c) => c.unpaced > 0, "moved outside page.mouse"],
-      ["across-frame", async (page) => {
+      ["across", async (page) => {
         await page.mouse.move(380, 175, { steps: 10 });
         await page.mouse.move(620, 175, { steps: 8 });
-      }, (c) => c.unpaced > 0, "across a frame"],
+      }, (c) => c.unpaced > 0, "lands on a frame"],
       // A frame takes these, so they're left out of the sent counts: the locator's press or key then reads as foreign.
-      ["frame-key+locator", async (page) => {
+      ["key+locator", async (page) => {
         await page.frameLocator("#f").locator("#fi").focus();
         await page.keyboard.type("ab");
         await page.locator("#i").press("x");
       }, (c) => c.unpaced > 0, "didn't send"],
-      ["frame-click+locator", async (page) => {
+      ["click+locator", async (page) => {
         await page.mouse.move(390, 175, { steps: 10 });
         await page.mouse.click(410, 175);
         await page.locator("#b").click();
@@ -335,38 +338,59 @@ async function claimChecks(browser, appUrl, film) {
         await page.mouse.move(10, 300, { steps: 8 });
         await page.mouse.move(10, 400, { steps: 4 });
         await page.mouse.move(200, 400, { steps: 8 });
-      }, (c) => c.unpaced > 0, "across a frame"],
+      }, (c) => c.unpaced > 0, "lands on a frame"],
       ["shadow-key+locator", async (page) => {
         await page.frameLocator("#w iframe").locator("#si").focus();
         await page.keyboard.type("ab");
         await page.locator("#i").press("x");
       }, (c) => c.unpaced > 0, "didn't send"],
       // A click far into a frame jumped there: the jump is checked before the frame.
-      ["far-click-frame", async (page) => {
+      ["far-click", async (page) => {
         await page.mouse.click(500, 175);
       }, (c) => c.unpaced > 0, "jumped"],
+      // A click back out of the frame reaches the page and is counted as sent: no press reads as a locator's.
+      ["click-out", async (page) => {
+        await page.mouse.move(390, 175, { steps: 10 });
+        await page.mouse.click(410, 175);
+        await page.mouse.click(385, 175);
+      }, (c) => c.unpaced === 0 && c.unchecked > 0, ["not checked", "didn't send"]],
+      // A bare down is judged by where the pointer is: over the frame it's left out of the sent count, so the
+      // locator's click then reads as foreign.
+      ["down+locator", async (page) => {
+        await page.mouse.move(390, 175, { steps: 10 });
+        await page.mouse.click(410, 175);
+        await page.mouse.down();
+        await page.mouse.up();
+        await page.locator("#b").click();
+      }, (c) => c.unpaced > 0, "didn't send"],
     ];
-    const results = [];
     let captionShown = null, captionAfter = null;
-    for (const [name, steps, want, reason] of cases) {
-      const c = await run(steps, name === "mouse+keys"
-        ? async (page) => {
-          const after = await page.screenshot({ clip: strip });
-          const bare = await hidden(page);
-          return { shown: !during.equals(bare), cleared: after.equals(bare) };
-        } : null);
-      if (c.extra) [captionShown, captionAfter] = [c.extra.shown, c.extra.cleared];
-      const ok = want(c) && (reason === null ? c.said === "" : c.said.includes(reason));
-      results.push({ name, ok, text: `${name} ${c.paced}/${c.unpaced}/${c.unchecked}${ok ? "" : ` WRONG (${c.said.trim().split("\n").map((l) => l.slice(7, 40)).join("; ") || "logged nothing"})`}` });
-    }
-    // Failing cases first, so the 300-character line keeps them.
-    results.sort((a, b) => Number(a.ok) - Number(b.ok));
-    out("film-claims", results.every((r) => r.ok) ? "checked" : "wrong",
-      `paced/unpaced/not checked: ${results.map((r) => r.text).join(", ")}`);
+    // reason: a string the log must hold, null for a silent log, or [a string it must hold, one it mustn't].
+    const judge = async (group, list) => {
+      const results = [];
+      for (const [name, steps, want, reason] of list) {
+        const c = await run(steps, name === "mouse+keys"
+          ? async (page) => {
+            const after = await page.screenshot({ clip: strip });
+            const bare = await hidden(page);
+            return { shown: !during.equals(bare), cleared: after.equals(bare) };
+          } : null);
+        if (c.extra) [captionShown, captionAfter] = [c.extra.shown, c.extra.cleared];
+        const [must, mustNot] = Array.isArray(reason) ? reason : [reason, null];
+        const ok = want(c) && (must === null ? c.said === "" : c.said.includes(must)) && !(mustNot && c.said.includes(mustNot));
+        results.push({ name, ok, text: `${name} ${c.paced}/${c.unpaced}/${c.unchecked}${ok ? "" : ` WRONG (${c.said.trim().split("\n").map((l) => l.slice(7, 40)).join("; ") || "logged nothing"})`}` });
+      }
+      // Failing cases first, so the 300-character line keeps them.
+      results.sort((a, b) => Number(a.ok) - Number(b.ok));
+      out(group, results.every((r) => r.ok) ? "checked" : "wrong", `paced/unpaced/not checked: ${results.map((r) => r.text).join(", ")}`);
+    };
+    await judge("film-claims", cases);
+    await judge("film-frames", frameCases);
     out("film-caption", captionShown && captionAfter ? "cleared" : "left",
       `the "Watch" caption ${captionShown ? "showed during the gesture" : "didn't show during the gesture"} and ${captionAfter ? "was gone after it" : "was still there after it"}`);
   } catch (e) {
     out("film-claims", "unchecked", e.message);
+    out("film-frames", "unchecked", e.message);
   } finally {
     process.stderr.write = write;
     [process.env.FACTORY_EVIDENCE_PACE, process.env.FACTORY_EVIDENCE_VIDEO] = saved;

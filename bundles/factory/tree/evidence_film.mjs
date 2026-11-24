@@ -9,8 +9,8 @@
 //   - gesture(page, label, fn), which the spec wraps around the moves and presses that show the bug: inside it, each
 //     step of a page.mouse move is held STEP_MS after the browser takes it, so the page sees the steps at least that
 //     far apart (the module adds at most MOVE_CAP_MS to a move; a slow browser's own time per step comes on top),
-//     a press, click or key waits PRESS_MS first, and a wheel STEP_MS before and after. Nothing outside a gesture
-//     waits;
+//     a press, click or key waits PRESS_MS first, a typed string then goes STEP_MS a character (Playwright's own
+//     delay), and a wheel waits STEP_MS before and after. Nothing outside a gesture waits;
 //   - paceClaim(page) when it saves the video: what the video's `shows` ends with, which says the gestures (the parts
 //     captioned "Watch") were filmed at a person's pace only when every input in them was paced and the pointer was
 //     drawn travelling (paceCounts(page) gives the counts).
@@ -44,8 +44,9 @@
 //   - a jump: a move with a step longer than MAX_STEP_PX, or a click that far from the pointer;
 //   - a move whose start can't be checked (the page hasn't seen the pointer since it loaded, or it's over a frame):
 //     it runs unpaced, so the proof's points aren't changed;
-//   - a move whose path goes into or across a frame, where the top page can't see the pointer, so the drawn pointer
-//     would stall and then jump: it runs unpaced;
+//   - a move with a step point on a frame, where the top page can't see the pointer, so the drawn pointer would
+//     stall and then jump: it runs unpaced. Only the step points are checked: a frame narrower than a step, between
+//     two of them, isn't seen;
 //   - a move whose steps isn't a whole number.
 // A press, a click or the gesture's end that can't be checked (the page hasn't seen the pointer since it loaded, loaded
 // during the gesture, has the pointer over a frame, or couldn't be asked), and a key sent while the focus is in a frame,
@@ -61,7 +62,9 @@
 //   - a locator action that makes no press, key or pointer move: fill (an input event only), selectOption, focus,
 //     setInputFiles, dispatchEvent;
 //   - anything inside a frame: the overlay runs in the top document only;
-//   - a frame inside a closed shadow root, which can't be looked into: it reads as its host.
+//   - a frame inside a closed shadow root, which can't be looked into: it reads as its host, so a move across it
+//     stays paced while the drawn pointer stalls, and a press or key into it counts as sent, which leaves room for one
+//     nobody sent.
 // It loads nothing and imports only Node's own timers. The job installs it read-only at /opt/factory.
 // A test outside the project's import() reach (vitest can't import() a file outside the project) can load it with
 // createRequire: that's require() of an ES module, on by default from Node 22.12, and it holds while this module has
@@ -208,7 +211,7 @@ const AFTER = "a move ran unpaced: the pointer was moved outside page.mouse duri
 const AROUND = "a move ran unpaced: the page received a press or key that page.mouse and page.keyboard didn't send (a locator action?)";
 const UNCHECKED_MOVE = "a move ran unpaced: the page hasn't seen the pointer (since it loaded, or it's over a frame), so its start can't be checked: place it with page.mouse outside a gesture first, and end a gesture before the input that loads a new page";
 const UNCHECKED = "not checked: the page hasn't seen the pointer since it loaded, loaded during the gesture, has the pointer or the focus in a frame, or couldn't be asked, so this makes no claim about pace";
-const CROSSES = "a move ran unpaced: its path goes into or across a frame, where this page can't see the pointer, so the drawn pointer would stall and then jump: go around the frame";
+const CROSSES = "a move ran unpaced: a step point lands on a frame, where this page can't see the pointer, so the drawn pointer would stall and then jump: go around the frame";
 const far = (at, x, y) => Math.abs(x - at.x) > 1 || Math.abs(y - at.y) > 1;
 // Playwright's own split of a chord ("Shift+A", "Control++"): a "+" with nothing before it is the key itself.
 function chord(key) {
@@ -354,6 +357,9 @@ function track(page) {
     const original = keyboard[name].bind(keyboard);
     keyboard[name] = async (...args) => {
       const n = keydowns[name](args[0]);
+      // A typed string goes a character at a time, each held STEP_MS (Playwright's own delay, between a key's down and
+      // its up), so the film shows it typed rather than appearing at once.
+      if (name === "type" && state.pacing > 0) args[1] = { ...args[1], delay: Math.max(args[1]?.delay ?? 0, STEP_MS) };
       // Keys go where the focus is: into a frame, the top page never receives them, so they're left out of the count
       // (no slack for a foreign key) and can't be checked.
       if (state.pacing > 0 && n > 0 && (await pointerCheck(page, state)).focusFramed) {
