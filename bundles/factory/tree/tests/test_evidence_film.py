@@ -131,6 +131,43 @@ out.longCaption = [long.length, long.endsWith("\u2026")];
 page.calls.length = 0;
 await page.setContent("<p>x</p>");
 out.setContent = page.calls.map((x) => x[0]);
+// Text is measured in characters (code points), as evidence.py measures `shows`, and printable as Python means it.
+const face = "\u{1F600}";
+out.astral = [];
+for (const [what, call] of [["300 faces", () => film.gesture(stand({ value: null }), face.repeat(300), async () => {})],
+                            ["301 faces", () => film.gesture(stand({ value: null }), face.repeat(301), async () => {})],
+                            ["a no-break space", () => film.gesture(stand({ value: null }), "a\u00a0b", async () => {})],
+                            ["a lone surrogate", () => film.gesture(stand({ value: null }), "a\ud83d", async () => {})],
+                            ["plain spaces", () => film.gesture(stand({ value: null }), "a b  c", async () => {})]]) {
+  try { await call(); out.astral.push([what, "accepted"]); } catch (e) { out.astral.push([what, e.constructor.name]); }
+}
+page.calls.length = 0;
+await film.caption(page, face.repeat(301));
+const cut = page.calls.find((x) => x[0] === "evaluate")[1][1];
+out.astralCaption = [[...cut].length, cut.endsWith("\u2026"), /\p{Cs}/u.test(cut), [...cut].slice(0, -1).every((ch) => ch === face)];
+
+// paceCounts: what the gestures on a page paced, and which moves ran unpaced.
+const counted = stand({ value: null });
+c.handler(counted);
+const counts = () => ({ ...film.paceCounts(counted) });
+out.counts = { untracked: { ...film.paceCounts(stand({ value: null })) } };
+await counted.mouse.move(30, 30, { steps: 3 });
+await counted.keyboard.press("a");
+out.counts.outside = counts();
+counted.seen.value = { x: 30, y: 30 };
+await film.gesture(counted, "a paced move", async () => { await counted.mouse.move(40, 40, { steps: 2 }); });
+out.counts.paced = counts();
+counted.seen.value = { x: 40, y: 40 };
+await film.gesture(counted, "a press and a key", async () => { await counted.mouse.down(); await counted.mouse.up(); await counted.keyboard.press("b"); });
+out.counts.presses = counts();
+counted.seen.value = { x: 1, y: 1 };
+await film.gesture(counted, "a move from where a locator left the pointer", async () => { await counted.mouse.move(50, 50, { steps: 2 }); });
+out.counts.unknownStart = counts();
+counted.seen.value = { x: 50, y: 50 };
+errors.length = 0;
+await film.gesture(counted, "a move with a fractional steps option", async () => { await counted.mouse.move(60, 60, { steps: 2.5 }); });
+out.counts.fractional = counts();
+out.counts.fractionalSaid = errors.join("");
 out.constants = { STEP_MS: film.STEP_MS, MOVE_CAP_MS: film.MOVE_CAP_MS, PRESS_MS: film.PRESS_MS };
 console.log(JSON.stringify(out));
 """
@@ -213,6 +250,25 @@ class Film(unittest.TestCase):
 
     def test_set_content_listens_again(self):
         self.assertEqual(self.r["setContent"], ["setContent", "evaluate"])
+
+
+    def test_text_is_measured_in_characters_and_printable_as_the_manifest_means_it(self):
+        self.assertEqual(self.r["astral"], [["300 faces", "accepted"], ["301 faces", "TypeError"],
+                                            ["a no-break space", "TypeError"], ["a lone surrogate", "TypeError"],
+                                            ["plain spaces", "accepted"]])
+        # 299 whole faces and the ellipsis: the cut never splits a surrogate pair.
+        self.assertEqual(self.r["astralCaption"], [300, True, False, True])
+
+    def test_pace_counts_say_what_the_gestures_paced(self):
+        counts = self.r["counts"]
+        zero = {"gestures": 0, "paced": 0, "unpaced": 0}
+        self.assertEqual(counts["untracked"], zero)
+        self.assertEqual(counts["outside"], zero, "nothing outside a gesture counts")
+        self.assertEqual(counts["paced"], {"gestures": 1, "paced": 1, "unpaced": 0})
+        self.assertEqual(counts["presses"], {"gestures": 2, "paced": 3, "unpaced": 0})
+        self.assertEqual(counts["unknownStart"], {"gestures": 3, "paced": 3, "unpaced": 1})
+        self.assertEqual(counts["fractional"], {"gestures": 4, "paced": 3, "unpaced": 2})
+        self.assertIn("isn't a whole number", counts["fractionalSaid"])
 
 
 if __name__ == "__main__":

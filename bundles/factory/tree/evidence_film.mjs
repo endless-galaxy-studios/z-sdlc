@@ -9,8 +9,12 @@
 //   - gesture(page, label, fn), which the spec wraps around the moves and presses that show the bug: inside it, each
 //     step of a page.mouse move is held STEP_MS after the browser takes it, so the page sees the steps at least that
 //     far apart (the module adds at most MOVE_CAP_MS to a move; a slow browser's own time per step comes on top),
-//     and a press, click, key or wheel waits PRESS_MS first. Nothing outside a gesture waits.
+//     and a press, click, key or wheel waits PRESS_MS first. Nothing outside a gesture waits;
+//   - paceCounts(page) when it saves the video: how many of the gestures' inputs it paced, and how many moves ran
+//     unpaced, so the video's `shows` says "filmed at a person's pace" only when that's true.
 // Outside the filmed pass every function does nothing (gesture just runs fn), so the proof pass is unchanged.
+// Text (a caption, a label) is measured as evidence.py measures a manifest's `shows`: in characters (code points), at
+// most MAX_TEXT, printable, with no space but the plain one.
 //
 // What keeps it harmless (factory-smoke's browser probe checks the first three on the browser host):
 //   - Everything it draws is in a closed shadow root on a <factory-film> element under <html>, outside <body>, with
@@ -24,6 +28,9 @@
 //     moved the pointer since, which this module can't see), the move runs unpaced instead.
 //   - A top-layer element (an open <dialog>, a popover) paints above it: the pointer goes under an open modal.
 // It loads nothing and imports only Node's own timers. The job installs it read-only at /opt/factory.
+// A test outside the project's import() reach (vitest can't import() a file outside the project) can load it with
+// createRequire: that's require() of an ES module, on by default from Node 22.12, and it holds while this module has
+// no top-level await.
 
 import { setTimeout as sleep } from "node:timers/promises";
 
@@ -110,13 +117,19 @@ function overlay(captionAt) {
 }
 
 const contexts = new WeakSet();
-const pages = new WeakMap(); // page -> { at: {x, y} | null, moved: boolean, pacing: number }
+// page -> { at: {x, y}, moved, pacing (gestures running), gestures, paced, unpaced (the counts paceCounts gives) }
+const pages = new WeakMap();
+
+// Python's str.isprintable, which evidence.py applies to `shows`: no control, format, unassigned or private-use
+// character, no lone surrogate, and no separator but the plain space.
+const UNPRINTABLE = /(?! )[\p{C}\p{Z}]/u;
 
 function checkText(what, text, { shorten = false } = {}) {
-  if (typeof text !== "string" || (!shorten && text.length > MAX_TEXT) || /[\p{C}\p{Zl}\p{Zp}]/u.test(text)) {
+  const chars = typeof text === "string" ? [...text] : null;
+  if (chars === null || (!shorten && chars.length > MAX_TEXT) || UNPRINTABLE.test(text)) {
     throw new TypeError(`[film] ${what} must be one printable line of at most ${MAX_TEXT} characters`);
   }
-  return text.length > MAX_TEXT ? `${text.slice(0, MAX_TEXT - 1)}\u2026` : text;
+  return chars.length > MAX_TEXT ? `${chars.slice(0, MAX_TEXT - 1).join("")}\u2026` : text;
 }
 
 const log = (message) => process.stderr.write(`[film] ${message}\n`);
@@ -124,12 +137,17 @@ const log = (message) => process.stderr.write(`[film] ${message}\n`);
 // Track where page.mouse last sent the pointer, and pace its calls inside a gesture.
 function track(page) {
   if (pages.has(page)) return;
-  const state = { at: { x: 0, y: 0 }, moved: false, pacing: 0 };
+  const state = { at: { x: 0, y: 0 }, moved: false, pacing: 0, gestures: 0, paced: 0, unpaced: 0 };
   pages.set(page, state);
   const mouse = page.mouse, keyboard = page.keyboard;
   const m = { move: mouse.move.bind(mouse), click: mouse.click.bind(mouse), dblclick: mouse.dblclick.bind(mouse),
     down: mouse.down.bind(mouse), up: mouse.up.bind(mouse), wheel: mouse.wheel.bind(mouse) };
-  const pause = (ms) => (state.pacing > 0 ? sleep(ms) : undefined);
+  // A press, click, key or wheel inside a gesture is always paced: it waits before it goes.
+  const pause = (ms, first = false) => {
+    if (state.pacing === 0) return undefined;
+    if (first) state.paced += 1;
+    return sleep(ms);
+  };
   const setContent = page.setContent.bind(page);
   page.setContent = async (...args) => {
     const result = await setContent(...args);
@@ -139,7 +157,10 @@ function track(page) {
 
   mouse.move = async (x, y, options = {}) => {
     const steps = options.steps ?? 1;
-    if (state.pacing > 0 && Number.isInteger(steps) && steps >= 1 && (await startKnown(page, state))) {
+    const wholeSteps = Number.isInteger(steps) && steps >= 1;
+    if (state.pacing > 0 && !wholeSteps) log("a move ran unpaced: its steps option isn't a whole number of at least 1");
+    if (state.pacing > 0 && wholeSteps && (await startKnown(page, state))) {
+      state.paced += 1;
       const from = state.at, hold = Math.min(STEP_MS, MOVE_CAP_MS / steps);
       for (let i = 1; i <= steps; i++) {
         // Playwright's own interpolation (server Mouse.move), one step a call; the last lands exactly on (x, y).
@@ -153,31 +174,32 @@ function track(page) {
         await sleep(hold);
       }
     } else {
+      if (state.pacing > 0) state.unpaced += 1;
       await m.move(x, y, options);
     }
     state.at = { x, y };
     state.moved = true;
   };
   mouse.click = async (x, y, options) => {
-    await pause(PRESS_MS);
+    await pause(PRESS_MS, true);
     await m.click(x, y, options);
     state.at = { x, y };
     state.moved = true;
     await pause(STEP_MS);
   };
   mouse.dblclick = async (x, y, options) => {
-    await pause(PRESS_MS);
+    await pause(PRESS_MS, true);
     await m.dblclick(x, y, options);
     state.at = { x, y };
     state.moved = true;
     await pause(STEP_MS);
   };
-  mouse.down = async (options) => { await pause(PRESS_MS); await m.down(options); };
+  mouse.down = async (options) => { await pause(PRESS_MS, true); await m.down(options); };
   mouse.up = async (options) => { await m.up(options); await pause(STEP_MS); };
-  mouse.wheel = async (dx, dy) => { await pause(STEP_MS); await m.wheel(dx, dy); await pause(STEP_MS); };
+  mouse.wheel = async (dx, dy) => { await pause(STEP_MS, true); await m.wheel(dx, dy); await pause(STEP_MS); };
   for (const name of ["press", "type", "down", "up", "insertText"]) {
     const original = keyboard[name].bind(keyboard);
-    keyboard[name] = async (...args) => { await pause(PRESS_MS); return original(...args); };
+    keyboard[name] = async (...args) => { await pause(PRESS_MS, true); return original(...args); };
   }
 }
 
@@ -237,10 +259,23 @@ export async function gesture(page, label, fn) {
   const state = pages.get(page);
   if (!state) return fn();
   await caption(page, `Watch: ${label}`);
+  state.gestures += 1;
   state.pacing += 1;
   try {
     return await fn();
   } finally {
     state.pacing -= 1;
   }
+}
+
+/**
+ * What the filmed pass did on a page, for the video's `shows`: gestures run, inputs paced inside them (a move, press,
+ * click, key or wheel), and moves that ran unpaced inside them (a start this module couldn't know, or a steps option
+ * that isn't a whole number). A helper says the video was "filmed at a person's pace" only when paced > 0 and
+ * unpaced is 0. A page nobody filmed has every count 0.
+ */
+export function paceCounts(page) {
+  const state = pages.get(page);
+  return Object.freeze(state ? { gestures: state.gestures, paced: state.paced, unpaced: state.unpaced }
+    : { gestures: 0, paced: 0, unpaced: 0 });
 }

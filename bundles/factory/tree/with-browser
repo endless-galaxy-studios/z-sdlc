@@ -1,10 +1,22 @@
 #!/usr/bin/env bash
 # Run a command with the browser host's Playwright server reachable from inside the Bash sandbox (D6).
 # Usage: with-browser [--film] <command> [args...]
+#        with-browser --ship-proof
 #
 # --film runs the filmed pass (D6 rule 7): the stage's last run of a spec, at a person's pace, which the project's
 # evidence helper films with evidence_film.mjs (installed beside this file). It sets FACTORY_EVIDENCE_PACE=1 when the
 # stage records video; the proof runs before it use no flag.
+#
+# The helper empties .factory/evidence/ when each run starts, so before a filmed pass starts this keeps the proof's
+# folder as .factory/proof-evidence/, unless it already keeps one: a filmed pass run again keeps the proof's, not the
+# earlier film's. A run without --film is a proof, and drops what's kept: a new proof replaces it. Nothing is kept or
+# dropped when the front end doesn't answer, since the command never runs. --ship-proof puts the kept folder back as
+# .factory/evidence/, so the proof's evidence ships instead of the film's (when the filmed pass didn't run cleanly, or
+# the bug shows only in the proof). It needs no browser host. Run nothing else through with-browser between the filmed
+# pass and it: that run drops the copy even when it writes no evidence. With nothing kept, it changes nothing and exits
+# 1, since it can't tell whose files the folder holds: run the proof again, and its files are the ones that ship.
+# Both work from the repository's top folder (the nearest folder above that holds .factory/, outside git), wherever
+# the command runs.
 #
 # The browsers run on the browser host, never here. The command's Playwright client connects to the host's
 # front end for the project's Playwright version, and the front end makes every browser send all its traffic
@@ -25,9 +37,32 @@ set -euo pipefail
 
 conf=${FACTORY_BROWSER_CONF:-/opt/factory/browser.conf}
 unavailable() { printf 'UNAVAILABLE: browser host (%s)\n' "$1" >&2; exit 75; }
+usage() { echo "usage: with-browser [--film] <command> [args...] | with-browser --ship-proof" >&2; exit 2; }
+top() {
+  git rev-parse --show-toplevel 2> /dev/null && return
+  local d=$PWD
+  while [ "$d" != / ]; do
+    if [ -d "$d/.factory" ]; then echo "$d"; return; fi
+    d=$(dirname "$d")
+  done
+  pwd
+}
+root=$(top)
+evidence=$root/.factory/evidence kept=$root/.factory/proof-evidence
+if [ "${1:-}" = --ship-proof ]; then
+  [ $# -eq 1 ] || usage
+  if [ -d "$kept" ] && [ ! -L "$kept" ]; then
+    rm -rf "$evidence"
+    mv "$kept" "$evidence"
+    echo "with-browser: the proof's evidence is back in .factory/evidence/ and ships; the filmed pass's is gone"
+    exit 0
+  fi
+  echo "with-browser: nothing is kept in .factory/proof-evidence/, so nothing changed: .factory/evidence/ holds the last run's files, the proof's only if no filmed pass started since it. To ship the proof's, run the proof again." >&2
+  exit 1
+fi
 film=0
 if [ "${1:-}" = --film ]; then film=1; shift; fi
-[ $# -gt 0 ] || { echo "usage: with-browser [--film] <command> [args...]" >&2; exit 2; }
+[ $# -gt 0 ] || usage
 [ -r "$conf" ] || unavailable "this stage has no browser route: factory.json's browser block doesn't list it"
 host= port= port_base= version= client= allow= probe= video=
 while IFS='=' read -r k v; do
@@ -96,5 +131,17 @@ export FACTORY_EVIDENCE_VIDEO=$([ "$video" = 1 ] && echo 1 || echo 0)
 # stage that records video). Without the flag the run is a proof, which nothing paces or draws on.
 export FACTORY_EVIDENCE_FILM="$(cd "$(dirname "$0")" && pwd)/evidence_film.mjs"
 export FACTORY_EVIDENCE_PACE=$([ "$film" = 1 ] && [ "$FACTORY_EVIDENCE_VIDEO" = 1 ] && echo 1 || echo 0)
+if [ "$FACTORY_EVIDENCE_PACE" = 1 ]; then
+  # The filmed pass: keep the proof's folder (an empty one when the proof left none, so --ship-proof ships nothing).
+  if [ ! -e "$kept" ] && [ ! -L "$kept" ]; then
+    rm -rf "$kept.partial"
+    if [ -d "$evidence" ] && [ ! -L "$evidence" ]; then cp -a "$evidence" "$kept.partial"; else mkdir -p "$kept.partial"; fi
+    mv "$kept.partial" "$kept"
+    echo "with-browser: the proof's evidence is kept in .factory/proof-evidence/ (with-browser --ship-proof ships it instead)" >&2
+  fi
+else
+  # A proof: what it writes replaces whatever an earlier proof left.
+  rm -rf "$kept" 2> /dev/null || echo "with-browser: couldn't drop .factory/proof-evidence/: don't --ship-proof after this run" >&2
+fi
 if [ -n "$allow" ]; then export NODE_USE_ENV_PROXY=1; fi
 exec "$@"

@@ -312,7 +312,7 @@ class WrapperRoute(unittest.TestCase):
             self.fake.close()
         self.tmp.cleanup()
 
-    def run_wrapper(self, conf_text, proxy="", show=None, flags=()):
+    def run_wrapper(self, conf_text, proxy="", show=None, flags=(), cwd=None, command=None):
         conf = pathlib.Path(self.tmp.name) / "browser.conf"
         conf.write_text(conf_text)
         env = {k: v for k, v in os.environ.items() if k.lower() not in ("http_proxy", "https_proxy", "all_proxy", "no_proxy")}
@@ -320,8 +320,29 @@ class WrapperRoute(unittest.TestCase):
         if proxy:
             env["HTTP_PROXY"] = proxy
         show = show or 'echo "$FACTORY_BROWSER_WS_ENDPOINT|$PW_TEST_CONNECT_WS_ENDPOINT|$FACTORY_BROWSER_CLIENT|$FACTORY_BROWSER_ALLOW|${NODE_USE_ENV_PROXY:-}"'
-        return subprocess.run(["bash", str(FACTORY / "with-browser"), *flags, "sh", "-c", show], capture_output=True, text=True,
-                              env=env, timeout=60)
+        # A folder of its own, outside any repository: with-browser keeps and drops .factory/proof-evidence/ there.
+        cwd = cwd or self.tmp.name
+        args = ["sh", "-c", show] if command is None else list(command)
+        return subprocess.run(["bash", str(FACTORY / "with-browser"), *flags, *args], capture_output=True, text=True,
+                              env=env, timeout=60, cwd=cwd)
+
+    def repo(self):
+        """A repository whose web package runs Playwright from a folder of its own, and a stand-in for its helper."""
+        root = pathlib.Path(self.tmp.name) / "repo"
+        (root / "web").mkdir(parents=True)
+        subprocess.run(["git", "init", "-q", str(root)], check=True)
+        return root
+
+    def write_evidence(self, root, conf, what, film):
+        # The project's helper: it empties .factory/evidence/ when its run starts, then writes the run's files.
+        script = 'rm -rf ../.factory/evidence && mkdir -p ../.factory/evidence && echo "$0" > ../.factory/evidence/manifest.json'
+        r = self.run_wrapper(conf, flags=["--film"] if film else [], cwd=root / "web", command=["sh", "-c", script, what])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return r
+
+    @staticmethod
+    def shown(folder):
+        return (folder / "manifest.json").read_text().strip() if (folder / "manifest.json").exists() else None
 
     def test_outside_the_sandbox_it_reaches_the_front_end_directly(self):
         self.fake = FakeFrontEnd()
@@ -376,10 +397,113 @@ class WrapperRoute(unittest.TestCase):
                 self.assertTrue(pathlib.Path(module).is_file())
 
     def test_film_alone_is_a_usage_error(self):
-        r = subprocess.run(["bash", str(FACTORY / "with-browser"), "--film"], capture_output=True, text=True,
-                           env={**os.environ, "FACTORY_BROWSER_CONF": "/nonexistent"}, timeout=30)
-        self.assertEqual(r.returncode, 2)
-        self.assertIn("usage: with-browser [--film]", r.stderr)
+        for args in (["--film"], ["--ship-proof", "true"]):
+            with self.subTest(args=args):
+                r = subprocess.run(["bash", str(FACTORY / "with-browser"), *args], capture_output=True, text=True,
+                                   env={**os.environ, "FACTORY_BROWSER_CONF": "/nonexistent"}, timeout=30, cwd=self.tmp.name)
+                self.assertEqual(r.returncode, 2)
+                self.assertIn("usage: with-browser [--film]", r.stderr)
+
+    @unittest.skipUnless(shutil.which("git"), "needs git")
+    def test_a_filmed_pass_keeps_the_proofs_evidence_and_ship_proof_puts_it_back(self):
+        # D6 rule 7: the helper empties the folder when the filmed pass starts, so the proof's files are kept first. A
+        # second filmed pass keeps the proof's, not the first film's; --ship-proof needs no browser host.
+        self.fake = FakeFrontEnd()
+        conf = f"host=127.0.0.1\nport={self.fake.front_port}\nversion=1.61.1\nclient=/w\nallow=\nvideo=1\n"
+        root = self.repo()
+        evidence, kept = root / ".factory" / "evidence", root / ".factory" / "proof-evidence"
+        self.write_evidence(root, conf, "proof", film=False)
+        self.assertFalse(kept.exists())
+        r = self.write_evidence(root, conf, "film 1", film=True)
+        self.assertIn("kept in .factory/proof-evidence/", r.stderr)
+        self.assertEqual((self.shown(evidence), self.shown(kept)), ("film 1", "proof"))
+        self.write_evidence(root, conf, "film 2", film=True)
+        self.assertEqual((self.shown(evidence), self.shown(kept)), ("film 2", "proof"))
+        r = subprocess.run(["bash", str(FACTORY / "with-browser"), "--ship-proof"], capture_output=True, text=True,
+                           env={**os.environ, "FACTORY_BROWSER_CONF": "/nonexistent"}, timeout=30, cwd=root / "web")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("back in .factory/evidence/", r.stdout)
+        self.assertEqual(self.shown(evidence), "proof")
+        self.assertFalse(kept.exists())
+        # Again, with nothing kept: it can't tell whose files the folder holds, so it changes nothing and says so.
+        r = subprocess.run(["bash", str(FACTORY / "with-browser"), "--ship-proof"], capture_output=True, text=True,
+                           env={**os.environ, "FACTORY_BROWSER_CONF": "/nonexistent"}, timeout=30, cwd=root)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("nothing is kept", r.stderr)
+        self.assertIn("run the proof again", r.stderr)
+        self.assertEqual(self.shown(evidence), "proof")
+
+    @unittest.skipUnless(shutil.which("git"), "needs git")
+    def test_a_run_between_the_film_and_ship_proof_drops_the_copy_and_ship_proof_fails(self):
+        # A diagnostic run through with-browser after the filmed pass writes no evidence but drops the copy, so the
+        # folder still holds the film's: --ship-proof must fail, not report the proof's back (rule 7 says run nothing
+        # between them).
+        self.fake = FakeFrontEnd()
+        conf = f"host=127.0.0.1\nport={self.fake.front_port}\nversion=1.61.1\nclient=/w\nallow=\nvideo=1\n"
+        root = self.repo()
+        self.write_evidence(root, conf, "proof", film=False)
+        self.write_evidence(root, conf, "film", film=True)
+        r = self.run_wrapper(conf, cwd=root / "web", command=["true"])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        r = subprocess.run(["bash", str(FACTORY / "with-browser"), "--ship-proof"], capture_output=True, text=True,
+                           timeout=30, cwd=root)
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(self.shown(root / ".factory" / "evidence"), "film")
+
+    def test_outside_git_the_top_folder_is_the_one_that_holds_dot_factory(self):
+        # Where git can't name the top folder (sandboxed Bash, say), the job's own .factory/ marks it, not the
+        # folder the command runs in.
+        self.fake = FakeFrontEnd()
+        conf = f"host=127.0.0.1\nport={self.fake.front_port}\nversion=1.61.1\nclient=/w\nallow=\nvideo=1\n"
+        root = pathlib.Path(self.tmp.name) / "plain"
+        (root / "web" / "e2e").mkdir(parents=True)
+        (root / ".factory" / "evidence").mkdir(parents=True)
+        (root / ".factory" / "evidence" / "manifest.json").write_text("proof\n")
+        r = self.run_wrapper(conf, flags=["--film"], cwd=root / "web" / "e2e", command=["true"])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.shown(root / ".factory" / "proof-evidence"), "proof")
+        self.assertFalse((root / "web" / ".factory").exists())
+
+    @unittest.skipUnless(shutil.which("git"), "needs git")
+    def test_a_new_proof_replaces_what_is_kept(self):
+        self.fake = FakeFrontEnd()
+        conf = f"host=127.0.0.1\nport={self.fake.front_port}\nversion=1.61.1\nclient=/w\nallow=\nvideo=1\n"
+        root = self.repo()
+        evidence, kept = root / ".factory" / "evidence", root / ".factory" / "proof-evidence"
+        self.write_evidence(root, conf, "proof, failing", film=False)
+        self.write_evidence(root, conf, "film of the failing code", film=True)
+        self.write_evidence(root, conf, "proof, fixed", film=False)
+        self.assertFalse(kept.exists())
+        self.write_evidence(root, conf, "film of the fixed code", film=True)
+        self.assertEqual((self.shown(evidence), self.shown(kept)), ("film of the fixed code", "proof, fixed"))
+
+    @unittest.skipUnless(shutil.which("git"), "needs git")
+    def test_a_proof_that_left_no_evidence_ships_none(self):
+        self.fake = FakeFrontEnd()
+        conf = f"host=127.0.0.1\nport={self.fake.front_port}\nversion=1.61.1\nclient=/w\nallow=\nvideo=1\n"
+        root = self.repo()
+        evidence, kept = root / ".factory" / "evidence", root / ".factory" / "proof-evidence"
+        self.write_evidence(root, conf, "film", film=True)
+        self.assertTrue(kept.is_dir())
+        self.assertEqual(list(kept.iterdir()), [])
+        subprocess.run(["bash", str(FACTORY / "with-browser"), "--ship-proof"], check=True, capture_output=True,
+                       timeout=30, cwd=root)
+        self.assertEqual(list(evidence.iterdir()), [])
+
+    @unittest.skipUnless(shutil.which("git"), "needs git")
+    def test_a_run_that_never_starts_keeps_and_drops_nothing(self):
+        root = self.repo()
+        (root / ".factory" / "evidence").mkdir(parents=True)
+        (root / ".factory" / "evidence" / "manifest.json").write_text("film\n")
+        (root / ".factory" / "proof-evidence").mkdir()
+        (root / ".factory" / "proof-evidence" / "manifest.json").write_text("proof\n")
+        for flags in ([], ["--film"]):
+            with self.subTest(flags=flags):
+                # A port on loopback nothing listens on: the front end doesn't answer.
+                r = self.run_wrapper("host=127.0.0.1\nport=47\nversion=1.61.1\nvideo=1\n", flags=flags, cwd=root / "web")
+                self.assertEqual(r.returncode, 75)
+                self.assertEqual(self.shown(root / ".factory" / "proof-evidence"), "proof")
+                self.assertEqual(self.shown(root / ".factory" / "evidence"), "film")
 
     def test_a_refusing_proxy_is_named(self):
         self.fake = FakeFrontEnd(refuse=True)
@@ -399,7 +523,8 @@ class ThisProject(unittest.TestCase):
 
 
 # What the probe printed in the hand test on the runner host (2026-11-20), as the control and as sandboxed Bash. The
-# film lines are from a local run against Playwright 1.61.1's own server (2026-11-23): no browser host has run them yet.
+# film lines are from a local run against Playwright 1.61.1's own server (2026-11-23); the browser host's hand run the
+# same day passed the same checks three times, with film-paced's shortest gap 87 to 88 ms.
 CONTROL = """secret env github
 secret env oauth
 env-name present CLAUDE_CODE_OAUTH_TOKEN

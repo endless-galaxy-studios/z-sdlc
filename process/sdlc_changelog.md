@@ -37,6 +37,73 @@ Each entry contains:
 
 ---
 
+## 2026-11-23: A filmed pass no longer costs the proof its evidence, and a helper can tell whether it paced
+
+**Origin:** the pilot project's adoption of v2.10.0. Reviews of its evidence-helper port found four gaps on z-sdlc's side, and its session sent them here. CD: "build the fixes and release it" (2026-11-23).
+
+**What happened:**
+- **The filmed pass could wipe the proof's evidence.** The project's helper empties `.factory/evidence/` when each run starts, and `with-browser --film` kept nothing first. This went wrong in two cases:
+  - When the filmed pass didn't run cleanly, the PR shipped that run's files.
+  - When the bug showed only in the proof, rule 7 reported `reproduced` but shipped a film that didn't show it. The proof's video that did show it was gone.
+- **`gesture()` didn't tell the caller whether it paced.** When the start wasn't known, the module ran the move unpaced and only logged to stderr, so a helper couldn't key "; filmed at a person's pace" on what happened.
+- **The module counted text in UTF-16 units; `evidence.py` counts code points.** So a label with emoji that the manifest accepts could be refused, and a long caption's cut could split a surrogate pair. The module also accepted a no-break space, which Python's `isprintable` refuses.
+- **Loading the module from vitest** (which can't `import()` a file outside the project) takes `createRequire`, which needs Node 22.12 or later. Nothing said so.
+
+**Changes made:**
+
+1. **`bundles/factory/tree/with-browser`**:
+   - **`--film` keeps the proof's folder** as `.factory/proof-evidence/` before the filmed pass starts. When the proof left no folder, it keeps an empty one.
+     - A copy already kept stays, so running the filmed pass again keeps the proof's files, not the first film's.
+     - A run without `--film` is a proof, and drops the copy, even when it writes no evidence. So nothing else runs through `with-browser` between the filmed pass and `--ship-proof`.
+     - A run whose front end doesn't answer keeps and drops nothing.
+     - It works from the repository's top folder (`git rev-parse`, or outside git the nearest folder above that holds `.factory/`), wherever the command runs.
+   - **`with-browser --ship-proof`** (new) puts the kept folder back as `.factory/evidence/`, so the proof's evidence ships. It needs no browser host. With nothing kept, it changes nothing and exits 1, since it can't tell whose files the folder holds; running the proof again makes its files the ones that ship.
+2. **`bundles/factory/tree/evidence_film.mjs`**:
+   - **`paceCounts(page)`** (new) gives the gestures run on a page, the inputs they paced, and the moves that ran unpaced inside them. A move counts as unpaced when its start wasn't known, or when its `steps` isn't a whole number, which now logs too. `gesture` still returns `fn`'s result, and the paced loop is unchanged.
+   - **Text is measured as `evidence.py` measures `shows`:** in code points, and printable as Python's `isprintable` means it (no space but the plain one). A long caption is cut by code points.
+   - The header notes the `createRequire` route and that it needs Node 22.12 or later.
+3. **`process/factory.md`**:
+   - **D6 rule 7:**
+     - The filmed pass's evidence ships unless it didn't run cleanly or the bug shows only in the proof. Then `--ship-proof` ships the proof's.
+     - The keep and drop rules are stated, and so is which folder ships in each outcome.
+     - The video's `shows` ends "; filmed at a person's pace" only when `paceCounts` shows a paced input and no unpaced move. When a move ran unpaced it ends "; filmed, but a move ran at full speed" instead.
+     - Text is measured in code points, and `createRequire` needs Node 22.12.
+   - **Costs** names the kept copy.
+   - **§ After migrating** tells CD a helper keys the suffix on `paceCounts`.
+   - **§ Reproducing in a browser rule 5**, mirrored into `sdlc-reproduce`, `sdlc-implement` and `sdlc-revise`:
+     - when `--ship-proof` ships the proof's files;
+     - nothing runs through `with-browser` between the filmed pass and `--ship-proof`, and when it fails the proof runs again;
+     - a "[film] a move ran unpaced" log means the gesture is moved with `page.mouse` in whole steps and filmed again;
+     - after `--ship-proof` the folder's files are the proof's, the run to cite.
+4. **Tests:**
+   - `tests/test_browser.py`:
+     - a filmed pass keeps the proof's files, and a second one keeps them too;
+     - `--ship-proof` puts them back, and fails, changing nothing, when nothing is kept;
+     - a run between the filmed pass and `--ship-proof` drops the copy, and `--ship-proof` then fails rather than ship the film's files as the proof's;
+     - outside git, the top folder is the one that holds `.factory/`;
+     - a new proof replaces the copy;
+     - a proof that left no evidence ships none;
+     - a run that never starts keeps and drops nothing.
+     - The wrapper's tests run from a folder of their own, and a stale comment about the browser host's run is corrected.
+   - `tests/test_evidence_film.py`:
+     - 300 emoji are accepted and 301 refused;
+     - a no-break space and a lone surrogate are refused;
+     - a long caption is cut to whole characters;
+     - `paceCounts` counts paced inputs, an unknown start and a fractional `steps`.
+
+**Proof:**
+- **The bundle's own tests:** `test_evidence_film` (15) and `test_browser` (66, 3 skipped for socat and a project's `factory.json`) pass. They ran on macOS; `with-browser`'s new paths use only `git`, `cp -a` and `mv`, and run on Linux when a project's CI runs the bundle's tests after migrating.
+- **The import's two proofs pass:** the incubator takes the bundle unchanged, and an empty project renders all 19 templates and passes every test.
+- **The probe's film checks, locally:** run against Playwright 1.61.1's own server with the changed module, all five passed (shortest gap 83 ms).
+  - `browser_probe.mjs`, `browser_check.py` and the paced loop didn't change, so the browser host wasn't run by hand again. Its run of v2.10.0 stands for the timing.
+- **`createRequire` of the module** loads it on Node 22.23. Node 22.12's release notes put `require()` of an ES module on by default, except one with top-level await.
+
+**Rationale:**
+- **The proof's evidence is the stage's fallback, so it's kept mechanically.** The exit code can't say which pass ships, since a reproducing spec fails on purpose. So the agent decides, and one command (`--ship-proof`) carries out the decision.
+- **Release type: minor.** It adds contract surface: a `with-browser` mode the stages call, and a module export that helpers key on.
+
+---
+
 ## 2026-11-23: The factory films a spec's last run at a person's pace, with the pointer drawn, so CD can follow it
 
 **Origin:** CD, on the pilot project's evidence for a pointer bug: "i want to be able to read this report, watch the video and understand what's happening. things move fast (expected since it's just code running) but it's not human-like, and thus somewhat unverifiable for me looking at the change", and "i dont think the screenshots & annotations line up with what's actually happening". The pilot's session measured the runs and asked for a design. z-sdlc brought options (design `factory-evidence-legibility`), and CD chose a filmed pass after the proof, as bundle code (2026-11-23).
