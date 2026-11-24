@@ -543,7 +543,7 @@ film-path same 8 moves: 137.5,213.75 175,217.5 212.5,221.25 250,225 287.5,228.75
 film-observed none body records plain 0 filmed 0; overlay elements under <html> 1
 film-drawn drawn the pointer at the move's end
 film-paced paced shortest gap between steps 75 ms (want at least 40)
-film-claims checked paced/unpaced/not checked: mouse+keys 7/0/0, locator-click 1/1/0, dblclick+locator 2/1/0, frame-click 1/0/2, frame-locator+move 0/1/0, across-frame 1/1/0
+film-claims checked paced/unpaced/not checked: mouse+keys 7/0/0, locator-click 1/1/0, dblclick+locator 2/1/0, frame-click 1/0/2, frame-locator+move 0/1/0, across-frame 1/1/0, frame-key+locator 1/1/1, frame-click+locator 1/1/1, shadow-across 2/1/0, shadow-key+locator 1/1/1, far-click-frame 0/1/1
 film-caption cleared the "Watch" caption showed during the gesture and was gone after it
 flags present
 outside-name reached http://example.com/ 200
@@ -569,7 +569,7 @@ film-path same 8 moves: 137.5,213.75 175,217.5 212.5,221.25 250,225 287.5,228.75
 film-observed none body records plain 0 filmed 0; overlay elements under <html> 1
 film-drawn drawn the pointer at the move's end
 film-paced paced shortest gap between steps 75 ms (want at least 40)
-film-claims checked paced/unpaced/not checked: mouse+keys 7/0/0, locator-click 1/1/0, dblclick+locator 2/1/0, frame-click 1/0/2, frame-locator+move 0/1/0, across-frame 1/1/0
+film-claims checked paced/unpaced/not checked: mouse+keys 7/0/0, locator-click 1/1/0, dblclick+locator 2/1/0, frame-click 1/0/2, frame-locator+move 0/1/0, across-frame 1/1/0, frame-key+locator 1/1/1, frame-click+locator 1/1/1, shadow-across 2/1/0, shadow-key+locator 1/1/1, far-click-frame 0/1/1
 film-caption cleared the "Watch" caption showed during the gesture and was gone after it
 flags present
 outside-name refused http://example.com/ net::ERR_SOCKET_NOT_CONNECTED

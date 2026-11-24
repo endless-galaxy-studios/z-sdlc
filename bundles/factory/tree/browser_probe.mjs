@@ -177,8 +177,15 @@ new MutationObserver((r) => { __body += r.length; }).observe(document.body, { su
 // unpaced; and the gesture's "Watch" caption must be gone after it, by the strip's pixels.
 const CLAIMS_PAGE = `<!doctype html><title>factory film claims</title><style>body{margin:0}
 #b{position:absolute;left:200px;top:200px;width:90px;height:32px}#i{position:absolute;left:200px;top:300px;width:150px;height:24px}
-#f{position:absolute;left:400px;top:100px;width:200px;height:150px;border:0}</style><button id=b>Undo</button><input id=i>
-<iframe id=f srcdoc="<button style='width:100%;height:140px'>in a frame</button>"></iframe>`;
+#f{position:absolute;left:400px;top:100px;width:200px;height:150px;border:0}#w{position:absolute;left:20px;top:340px;display:block}
+</style><button id=b>Undo</button><input id=i>
+<iframe id=f srcdoc="<input id=fi style='width:180px'><button style='width:100%;height:110px'>in a frame</button>"></iframe>
+<x-w id=w></x-w><script>
+// A frame inside an open shadow root, where document's own lookups stop at the host.
+customElements.define("x-w", class extends HTMLElement { constructor() { super(); const f = document.createElement("iframe");
+  f.srcdoc = "<input id=si>"; f.style.cssText = "display:block;width:160px;height:120px;border:0";
+  this.attachShadow({ mode: "open" }).append(f); } });
+</script>`;
 // Checked after the gesture, with the pointer and the caption strip drawn: the pointer's tip, the button, and a point
 // under the strip at the bottom edge.
 const FILM_POINTS = [[400, 240], [245, 216], [10, 10], [300, 470], [630, 476]];
@@ -311,7 +318,33 @@ async function claimChecks(browser, appUrl, film) {
       ["across-frame", async (page) => {
         await page.mouse.move(380, 175, { steps: 10 });
         await page.mouse.move(620, 175, { steps: 8 });
-      }, (c) => c.unpaced > 0, "crosses a frame"],
+      }, (c) => c.unpaced > 0, "across a frame"],
+      // A frame takes these, so they're left out of the sent counts: the locator's press or key then reads as foreign.
+      ["frame-key+locator", async (page) => {
+        await page.frameLocator("#f").locator("#fi").focus();
+        await page.keyboard.type("ab");
+        await page.locator("#i").press("x");
+      }, (c) => c.unpaced > 0, "didn't send"],
+      ["frame-click+locator", async (page) => {
+        await page.mouse.move(390, 175, { steps: 10 });
+        await page.mouse.click(410, 175);
+        await page.locator("#b").click();
+      }, (c) => c.unpaced > 0, "didn't send"],
+      // The frame inside an open shadow root: found by its point and by the focus.
+      ["shadow-across", async (page) => {
+        await page.mouse.move(10, 300, { steps: 8 });
+        await page.mouse.move(10, 400, { steps: 4 });
+        await page.mouse.move(200, 400, { steps: 8 });
+      }, (c) => c.unpaced > 0, "across a frame"],
+      ["shadow-key+locator", async (page) => {
+        await page.frameLocator("#w iframe").locator("#si").focus();
+        await page.keyboard.type("ab");
+        await page.locator("#i").press("x");
+      }, (c) => c.unpaced > 0, "didn't send"],
+      // A click far into a frame jumped there: the jump is checked before the frame.
+      ["far-click-frame", async (page) => {
+        await page.mouse.click(500, 175);
+      }, (c) => c.unpaced > 0, "jumped"],
     ];
     const results = [];
     let captionShown = null, captionAfter = null;

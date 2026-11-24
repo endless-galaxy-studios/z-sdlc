@@ -37,6 +37,72 @@ Each entry contains:
 
 ---
 
+## 2026-11-24: Frames are found inside open shadow roots, a click is judged by where it lands, and a jump into a frame reads as a jump
+
+**Origin:** the pilot project's architect re-ran its real-Chromium probes against v2.12.3 while the pilot folded it into its PR #124. F, F2, C, C-xsite, K and H were fixed, and the new smoke probe passed in its Chromium 149. It sent new findings; the pilot's client has no frames, so none affected #124. CD said yes to building them (2026-11-24).
+
+**What happened:**
+- **A frame inside a shadow root escaped every frame check.** `document.elementFromPoint` and `document.activeElement` stop at the shadow host, not the iframe inside it. The architect's cases:
+  - S1: a paced move across such a frame claimed paced while the drawn pointer stalled;
+  - S2: keys into it hid a locator key;
+  - S3: a press into it hid a locator click.
+- **"Into a frame" was decided by where the pointer started, not by the click's target.** A click from inside a frame back out wasn't counted as sent, though the page received it. P10 then logged "didn't send (a locator action?)" and claimed full speed, blaming a locator action that never happened.
+- **A click far into a frame logged "not checked", not "jumped".** The frame check ran before the jump check (P13).
+- **Smoke had no real-browser case for keys or presses into a frame.** The unit stand-ins set those flags themselves.
+- **The docs didn't say how frame interactions end.** One press or key into a frame leaves the whole video with no claim, and a move from inside one makes it "full speed" (P11, P12).
+
+**Changes made:**
+
+1. **`bundles/factory/tree/evidence_film.mjs`**:
+   - **The overlay's frame lookups go down through open shadow roots**, both by point (`shadowRoot.elementFromPoint`) and by focus (`shadowRoot.activeElement`). A frame inside a closed root reads as its host, and the header lists it as unseen.
+   - **A click with a target is judged by where it lands; a bare `down` by where the pointer is.** A click back out of a frame is counted as sent. Its start over the frame is still not checked, so the claim is none rather than a false "full speed".
+   - **The jump check runs before the frame check.** A click far into a frame reads as a jump.
+   - **The header and the crossing log** say "into or across a frame". The header says that one press or key into a frame leaves the whole video with no claim, and that a move from inside one makes it "full speed".
+2. **`bundles/factory/tree/browser_probe.mjs`:** the claims page gains an input in its frame and a second frame inside an open shadow root. `film-claims` gains five cases:
+   - a key into the frame, then a locator key;
+   - a click into the frame, then a locator click;
+   - a move across the shadow-hosted frame;
+   - keys into the shadow-hosted frame, then a locator key;
+   - a click far into the frame.
+
+   The eleven cases fit in the probe's 300-character line.
+3. **`process/factory.md`:**
+   - **D6 rule 4** lists the new cases.
+   - **Rule 7:**
+     - "into or across a frame";
+     - what decides whether a press or key went into a frame;
+     - the per-page outcome, and to keep the bug's gesture out of frames where the app allows;
+     - open shadow roots are searched, closed ones aren't.
+
+   Mirror rule 5 is unchanged.
+4. **Tests:**
+   - `tests/test_evidence_film.py`: the stand-in's click reaches the page's counts unless its target is over a frame. New cases: a click back out of a frame, which counts as sent with no "didn't send", and a click far into one, which jumped.
+   - `tests/test_browser.py`: the verdict fixtures gain the five cases.
+
+**Proof:**
+- **The bundle's own tests:** `test_evidence_film` (18) and `test_browser` (66, 3 skipped) pass.
+- **The architect's `real5.mjs`, against this module in a local Chromium** (read before running: it starts a local Chromium and a local web server):
+  - P10 makes no claim, without blaming a locator;
+  - P11 reads "full speed", for its move out of the frame;
+  - P12 makes no claim;
+  - P13 jumped;
+  - S1, S2 and S3 read "full speed", with their reasons.
+- **The new probe against the v2.12.3 module fails as it should:** `film-claims wrong`, with shadow-across 3/0/0, shadow-key+locator 1/0/0 and far-click-frame 0/0/2. (across-frame also read wrong there, since v2.12.3's log used the old wording.)
+- **On the browser host, by hand,** from the runner host with a 1.61.1 client against the 1.61 front end (Chromium 149.0.7827.55, WebGL on the M1), three runs:
+  - all seven film checks passed each time;
+  - `film-claims` passed all eleven cases;
+  - `film-paced`'s shortest gap was 88 to 89 ms.
+
+  `browser_check.py`'s only complaints were the canary credential, which a hand run doesn't hold and smoke supplies.
+- **The import's two proofs pass.**
+
+**Rationale:**
+- **A press goes where it lands, so that's where it's judged.** Judging a click by its start blamed a locator action for a click the page had in fact received.
+- **A frame in a shadow root is the same frame.** Looking through open roots brings it under the same rules. A closed root can't be looked into, so it's stated, not guessed at.
+- **Release type: patch.** Fixes, stricter smoke cases and wording, with no new export.
+
+---
+
 ## 2026-11-24: A double-click counts once, a move across a frame runs unpaced, and presses and keys into a frame leave no slack
 
 **Origin:** the pilot project's architect ran the v2.12.2 module in a real Chromium (Playwright 1.61.1, headless) while the pilot folded it into its PR #124. Every v2.12.1 finding checked out: 8c fixed for same-origin and cross-site frames, 8h's key counts exact, the caption cleared. It sent new findings; the pilot has no iframes or double-clicks, so none affected #124. CD: "do it" (2026-11-24).

@@ -44,20 +44,24 @@
 //   - a jump: a move with a step longer than MAX_STEP_PX, or a click that far from the pointer;
 //   - a move whose start can't be checked (the page hasn't seen the pointer since it loaded, or it's over a frame):
 //     it runs unpaced, so the proof's points aren't changed;
-//   - a move whose path crosses a frame, where the top page can't see the pointer, so the drawn pointer would stall
-//     and then jump: it runs unpaced;
+//   - a move whose path goes into or across a frame, where the top page can't see the pointer, so the drawn pointer
+//     would stall and then jump: it runs unpaced;
 //   - a move whose steps isn't a whole number.
 // A press, a click or the gesture's end that can't be checked (the page hasn't seen the pointer since it loaded, loaded
 // during the gesture, has the pointer over a frame, or couldn't be asked), and a key sent while the focus is in a frame,
 // log "[film] not checked: ..." and make no claim either way. A press or key that goes into a frame is left out of the
-// counts, since the top page never receives it, so it leaves no slack for a foreign one to hide in. Unpaced outweighs unchecked: one unpaced input makes the claim "full speed". So a spec places the
+// counts, since the top page never receives it, so it leaves no slack for a foreign one to hide in. The counts are per
+// page, so one such press or key leaves the whole video with no claim about pace, and a move from inside the frame then
+// runs unpaced and makes it "full speed": keep the bug's gesture out of frames where the app allows. Frames are found
+// through open shadow roots too. Unpaced outweighs unchecked: one unpaced input makes the claim "full speed". So a spec places the
 // pointer with page.mouse outside any gesture before it starts, uses only page.mouse and page.keyboard inside it, with
 // moves in steps of at most MAX_STEP_PX, and ends it before the input that loads a new page. The gesture's end clears
 // its "Watch" caption, so nothing after it sits under one. What this module can't see at all:
 //   - a locator hover that ends within 1 px of where page.mouse left the pointer, wherever it went in between;
 //   - a locator action that makes no press, key or pointer move: fill (an input event only), selectOption, focus,
 //     setInputFiles, dispatchEvent;
-//   - anything inside a frame: the overlay runs in the top document only.
+//   - anything inside a frame: the overlay runs in the top document only;
+//   - a frame inside a closed shadow root, which can't be looked into: it reads as its host.
 // It loads nothing and imports only Node's own timers. The job installs it read-only at /opt/factory.
 // A test outside the project's import() reach (vitest can't import() a file outside the project) can load it with
 // createRequire: that's require() of an ES module, on by default from Node 22.12, and it holds while this module has
@@ -157,13 +161,19 @@ function overlay(captionAt) {
       // For the module's checks: where the page last saw the pointer, the trusted presses and keys it has received,
       // which document this is, and whether (x, y) is over a frame, whose own events this document never sees.
       // Also whether any of a move's step points, or a click's target, is over a frame, and whether the focus is in one.
+      // Both lookups go down through open shadow roots, where document's own stop at the host; a closed root can't be.
       check: (x, y, points = []) => {
-        const frame = (tag) => /^(IFRAME|FRAME|OBJECT|EMBED)$/.test(tag ?? "");
-        const over = (px, py) => frame(document.elementFromPoint(px, py)?.tagName);
+        const frame = (el) => /^(IFRAME|FRAME|OBJECT|EMBED)$/.test(el?.tagName ?? "");
+        const at = (px, py) => {
+          let el = document.elementFromPoint(px, py);
+          for (let inner; el?.shadowRoot && (inner = el.shadowRoot.elementFromPoint(px, py)) && inner !== el;) el = inner;
+          return el;
+        };
+        let focused = document.activeElement;
+        while (focused?.shadowRoot?.activeElement) focused = focused.shadowRoot.activeElement;
         return {
           last: last ? { x: last.x, y: last.y } : null, downs, keys, doc,
-          framed: over(x, y), pathFramed: points.some(([px, py]) => over(px, py)),
-          focusFramed: frame(document.activeElement?.tagName),
+          framed: frame(at(x, y)), pathFramed: points.some(([px, py]) => frame(at(px, py))), focusFramed: frame(focused),
         };
       },
       caption: (t) => {
@@ -198,7 +208,7 @@ const AFTER = "a move ran unpaced: the pointer was moved outside page.mouse duri
 const AROUND = "a move ran unpaced: the page received a press or key that page.mouse and page.keyboard didn't send (a locator action?)";
 const UNCHECKED_MOVE = "a move ran unpaced: the page hasn't seen the pointer (since it loaded, or it's over a frame), so its start can't be checked: place it with page.mouse outside a gesture first, and end a gesture before the input that loads a new page";
 const UNCHECKED = "not checked: the page hasn't seen the pointer since it loaded, loaded during the gesture, has the pointer or the focus in a frame, or couldn't be asked, so this makes no claim about pace";
-const CROSSES = "a move ran unpaced: its path crosses a frame, where this page can't see the pointer, so the drawn pointer would stall and then jump: go around the frame";
+const CROSSES = "a move ran unpaced: its path goes into or across a frame, where this page can't see the pointer, so the drawn pointer would stall and then jump: go around the frame";
 const far = (at, x, y) => Math.abs(x - at.x) > 1 || Math.abs(y - at.y) > 1;
 // Playwright's own split of a chord ("Shift+A", "Control++"): a "+" with nothing before it is the key itself.
 function chord(key) {
@@ -233,21 +243,22 @@ function track(page) {
     return sleep(ms);
   };
   // A press or click inside a gesture checks the pointer first: something other than page.mouse may have moved it,
-  // and a click aimed more than MAX_STEP_PX from it (x, y given) jumps there. Returns whether the press reaches the top
-  // page, which a press over a frame doesn't, so the caller counts it as sent only then.
+  // and a click aimed more than MAX_STEP_PX from it (x, y given) jumps there, into a frame too. Returns whether the
+  // press reaches the top page, which one that lands over a frame doesn't: a click by its target, a bare down by where
+  // the pointer is. The caller counts it as sent only then.
   const pressCounts = async (x, y) => {
     if (state.pacing === 0) return true;
     const c = await pointerCheck(page, state, x === undefined ? [] : [[x, y]]);
-    const intoFrame = c.why === "framed" || c.pathFramed;
+    const intoFrame = x === undefined ? c.why === "framed" : c.pathFramed;
     if (c.where === "outside") {
       state.unpaced += 1;
       log(OUTSIDE);
+    } else if (c.where === "known" && x !== undefined && jumps(state.at, x, y)) {
+      state.unpaced += 1;
+      log(JUMP);
     } else if (c.where === "unchecked" || intoFrame) {
       state.unchecked += 1;
       log(UNCHECKED);
-    } else if (x !== undefined && jumps(state.at, x, y)) {
-      state.unpaced += 1;
-      log(JUMP);
     } else {
       state.paced += 1;
     }

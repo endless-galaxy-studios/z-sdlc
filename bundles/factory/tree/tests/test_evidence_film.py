@@ -24,15 +24,16 @@ function stand(seen, moveMs = 0) {
   // seen stands for the page's overlay: where it last saw the pointer (value), the trusted presses and keys it has
   // received, which document it is, and whether the pointer is over a frame. The page sees what Playwright's mouse and
   // keyboard send; a test changes seen itself to stand for a locator action, or a load.
-  // framed: the pointer is over a frame; pathFramed: the points asked about are; focusFramed: the focus is in a frame.
-  // A press over a frame, or a key into one, never reaches this page's counts.
+  // framed: the pointer is over a frame; pathFramed: the points asked about are (a click's target); focusFramed: the
+  // focus is in a frame. A click whose target is over a frame, a down where the pointer is over one, and a key into one
+  // never reach this page's counts.
   Object.assign(seen, { downs: 0, keys: 0, doc: "first", framed: false, pathFramed: false, focusFramed: false, ...seen });
   const calls = [];
   const rec = (name) => async (...args) => { calls.push([name, ...args.map((a) => (typeof a === "function" ? "fn" : a)), now()]); };
   const lands = (name, downs = () => 0) => async (x, y, ...rest) => {
     await rec(name)(x, y, ...rest);
     seen.value = { x, y };
-    if (!seen.framed && !seen.pathFramed) seen.downs += downs(rest[0]);
+    if (!seen.pathFramed) seen.downs += downs(rest[0]);
   };
   const slowMove = async (...args) => { if (moveMs) await new Promise((ok) => setTimeout(ok, moveMs)); return lands("move")(...args); };
   const keyed = (name, keys) => async (...args) => { await rec(name)(...args); if (!seen.focusFramed) seen.keys += keys(args[0]); };
@@ -228,7 +229,7 @@ out.claims = {
   clickThatLoads: await claimed(async (pg) => { await pg.mouse.move(50, 50, { steps: 4 }); await pg.mouse.click(50, 50); load(pg); }),
   clickWhileLoading: await claimed(async (pg) => { await pg.mouse.move(50, 50, { steps: 4 }); await pg.mouse.click(50, 50); pg.seen.fail = true; }),
   moveAfterLoad: await claimed(async (pg) => { load(pg); await pg.mouse.move(80, 80, { steps: 4 }); }),
-  overAFrame: await claimed(async (pg) => { await pg.mouse.move(50, 50, { steps: 4 }); pg.seen.framed = true; await pg.mouse.click(50, 50); }),
+  overAFrame: await claimed(async (pg) => { await pg.mouse.move(50, 50, { steps: 4 }); Object.assign(pg.seen, { framed: true, pathFramed: true }); await pg.mouse.click(50, 50); }),
   nothing: await claimed(async () => {}),
   // Counted as Playwright sends them, so no slack hides a locator key.
   plusKeyThenLocatorKey: await claimed(async (pg) => { await pg.keyboard.press("+"); locator(pg, null, { keys: 1 }); }),
@@ -242,6 +243,9 @@ out.claims = {
   clickIntoAFrame: await claimed(async (pg) => { await pg.mouse.move(50, 50, { steps: 4 }); pg.seen.pathFramed = true; await pg.mouse.click(70, 70); }),
   typedIntoAFrame: await claimed(async (pg) => { pg.seen.focusFramed = true; await pg.keyboard.type("ab"); }),
   typedIntoAFrameThenLocatorKeys: await claimed(async (pg) => { pg.seen.focusFramed = true; await pg.keyboard.type("ab"); locator(pg, null, { keys: 2 }); }),
+  // A click is judged by its target: out of a frame it reaches the page and counts as sent; far into one it jumped.
+  clickOutOfAFrame: await claimed(async (pg) => { await pg.mouse.move(50, 50, { steps: 4 }); pg.seen.framed = true; await pg.mouse.click(60, 60); }),
+  farClickIntoAFrame: await claimed(async (pg) => { await pg.mouse.move(50, 50, { steps: 4 }); pg.seen.pathFramed = true; await pg.mouse.click(450, 50); }),
 };
 {
   // The double-click's wait comes once: PRESS_MS, not twice.
@@ -411,11 +415,15 @@ class Film(unittest.TestCase):
             "controlPlus": (n(1), paced, None),
             "dblclick": (n(2), paced, None),
             "dblclickThenLocatorClicks": (n(2, 1), unpaced, "didn't send"),
-            "pathCrossesAFrame": (n(0, 1), unpaced, "crosses a frame"),
+            "pathCrossesAFrame": (n(0, 1), unpaced, "across a frame"),
             "clickIntoAFrame": (n(1, 0, 1), "", "not checked"),
             "typedIntoAFrame": (n(1, 0, 1), "", "not checked"),
             "typedIntoAFrameThenLocatorKeys": (n(1, 1, 1), unpaced, "didn't send"),
+            "clickOutOfAFrame": (n(1, 0, 2), "", "not checked"),
+            "farClickIntoAFrame": (n(1, 1), unpaced, "jumped"),
         }
+        # A click back out of a frame reaches the page and is counted as sent: no press reads as foreign.
+        self.assertNotIn("didn't send", claims["clickOutOfAFrame"]["said"])
         self.assertEqual(sorted(want), sorted(k for k in claims if k != "untracked"))
         for case, (counts, claim, said) in want.items():
             with self.subTest(case=case):
