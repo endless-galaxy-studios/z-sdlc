@@ -10,8 +10,9 @@
 //     step of a page.mouse move is held STEP_MS after the browser takes it, so the page sees the steps at least that
 //     far apart (the module adds at most MOVE_CAP_MS to a move; a slow browser's own time per step comes on top),
 //     and a press, click, key or wheel waits PRESS_MS first. Nothing outside a gesture waits;
-//   - paceClaim(page) when it saves the video: what the video's `shows` ends with, "; filmed at a person's pace"
-//     only when every pointer input in the gestures was paced and travelled (paceCounts(page) gives the counts).
+//   - paceClaim(page) when it saves the video: what the video's `shows` ends with, which says the gestures (the parts
+//     captioned "Watch") were filmed at a person's pace only when every input in them was paced and the pointer was
+//     drawn travelling (paceCounts(page) gives the counts).
 // Outside the filmed pass every function does nothing (gesture just runs fn), so the proof pass is unchanged.
 // Text (a caption, a label) is measured as evidence.py measures a manifest's `shows`: in characters (code points), at
 // most MAX_TEXT, printable, with no space but the plain one.
@@ -20,22 +21,30 @@
 //   - Everything it draws is in a closed shadow root on a <factory-film> element under <html>, outside <body>, with
 //     pointer-events: none, so elementFromPoint and every hit test are unchanged. An observer outside the shadow
 //     root sees one record: the element's insertion, when the document loads.
-//   - It draws only what the page received: a passive, capture-phase listener reads each pointer event and never
-//     stops or cancels one. It uses no page timer, requestAnimationFrame or Date, which page.clock replaces: the
+//   - It draws only what the page received: a passive, capture-phase listener reads each pointer event (and dragover
+//     during a native drag, which stops the page's pointer events until the drop) and never stops or cancels one. It uses no page timer, requestAnimationFrame or Date, which page.clock replaces: the
 //     pointer moves inside the event handler, and the press ring is a Web Animation.
 //   - A paced move sends the same points the unpaced move would, one at a time: from the point this module saw the
 //     page.mouse last move to, as Playwright interpolates them. When that point isn't certain (a locator action has
 //     moved the pointer since, which this module can't see), the move runs unpaced instead.
-// What counts as unpaced, so paceClaim says "a move ran at full speed": inside a gesture, a move, press or click after
-// something other than page.mouse moved the pointer, which this module checks before each of them and once when the
-// gesture ends; a jump (a one-step move, or a click away from where the pointer is); and a move whose steps isn't a
-// whole number. Each logs "[film] a move ran unpaced: ...". So a spec places the pointer with page.mouse before the
-// gesture: after a locator action in setup the first move's start is unknown, and a one-step move inside the gesture
-// to place it is a jump. What can't be checked makes no claim either way: a page that hasn't seen the pointer since it
-// loaded (a click that loaded a new page, say), or one that can't be asked, logs "[film] not checked: ...", and then
-// paceClaim says nothing about pace. A key sent through a locator moves no pointer, so it isn't seen at all: a gesture
-// uses page.keyboard.
 //   - A top-layer element (an open <dialog>, a popover) paints above it: the pointer goes under an open modal.
+//
+// What paceClaim may say. Inside a gesture, these count as unpaced, so it says "a move ... ran at full speed", and
+// each logs "[film] a move ran unpaced: ...":
+//   - a move, press or click after something other than page.mouse moved the pointer, which this module checks before
+//     each of them and once when the gesture ends;
+//   - a press or key the page received that page.mouse and page.keyboard didn't send (a locator click where the
+//     pointer already was, a locator key): the overlay counts the page's trusted pointerdown and keydown events, and
+//     the gesture's end compares them with what this module sent;
+//   - a jump: a move with a step longer than MAX_STEP_PX, or a click that far from the pointer;
+//   - a move whose start can't be checked (the page hasn't seen the pointer since it loaded, or it's over a frame):
+//     it runs unpaced, so the proof's points aren't changed;
+//   - a move whose steps isn't a whole number.
+// A press, a click or the gesture's end that can't be checked (the page loaded during the gesture, the pointer is over
+// a frame, or the page couldn't be asked) logs "[film] not checked: ..." and makes no claim either way. So a spec
+// places the pointer with page.mouse outside any gesture before it starts, uses only page.mouse and page.keyboard
+// inside it, with moves in steps of at most MAX_STEP_PX, and ends it before the input that loads a new page. The
+// overlay runs in the top document only, so nothing inside a frame is seen.
 // It loads nothing and imports only Node's own timers. The job installs it read-only at /opt/factory.
 // A test outside the project's import() reach (vitest can't import() a file outside the project) can load it with
 // createRequire: that's require() of an ES module, on by default from Node 22.12, and it holds while this module has
@@ -47,6 +56,7 @@ export const STEP_MS = 80; // two frames of a 25 fps video: the hold after each 
 export const MOVE_CAP_MS = 1500; // the most the module adds to one move
 export const PRESS_MS = 400;
 export const MAX_TEXT = 300;
+export const MAX_STEP_PX = 40; // the longest step a paced move may take and still be drawn travelling
 const KEY = "factory-film";
 
 /** True in the filmed pass: with-browser --film sets FACTORY_EVIDENCE_PACE=1 for a stage that records video. */
@@ -59,7 +69,9 @@ export function filming(env = process.env) {
 function overlay(captionAt) {
   const key = Symbol.for("factory-film");
   if (window !== window.top || Object.prototype.hasOwnProperty.call(window, key)) return;
-  let host = null, cursor = null, ring = null, strip = null, last = null, text = "";
+  let host = null, cursor = null, ring = null, strip = null, last = null, text = "", downs = 0, keys = 0;
+  // Which document this is: a load makes a new one, page.setContent keeps it.
+  const doc = Math.random().toString(36).slice(2);
   const place = () => {
     cursor.style.transform = `translate(${last.x}px, ${last.y}px)`;
     cursor.style.visibility = "visible";
@@ -96,17 +108,28 @@ function overlay(captionAt) {
     if (mount()) place();
   };
   const pressed = (e) => {
+    if (e.isTrusted) downs += 1;
     seen(e);
     if (!host || !e.isPrimary) return;
     const at = `translate(${e.clientX}px, ${e.clientY}px)`;
     ring.animate([{ opacity: 1, transform: `${at} scale(0.5)` }, { opacity: 0, transform: `${at} scale(1.6)` }],
       { duration: 500, easing: "ease-out" });
   };
+  const keyed = (e) => {
+    if (e.isTrusted) keys += 1;
+  };
+  // A native drag (draggable) stops the page's pointer events until it drops; dragover still says where the pointer
+  // is, so the drawn pointer keeps moving and the module's checks keep the drop point.
+  const dragged = (e) => {
+    if (!e.isTrusted) return;
+    last = { x: e.clientX, y: e.clientY };
+    if (mount()) place();
+  };
   // document.open() (page.setContent) erases the window's listeners and runs no init script, so the module calls
   // listen() again after it. Removing first keeps it to one of each.
   const listen = () => {
     const options = { capture: true, passive: true };
-    for (const [type, fn] of [["pointermove", seen], ["pointerup", seen], ["pointerdown", pressed]]) {
+    for (const [type, fn] of [["pointermove", seen], ["pointerup", seen], ["pointerdown", pressed], ["keydown", keyed], ["dragover", dragged]]) {
       removeEventListener(type, fn, options);
       addEventListener(type, fn, options);
     }
@@ -117,6 +140,12 @@ function overlay(captionAt) {
     value: Object.freeze({
       listen,
       last: () => (last ? { x: last.x, y: last.y } : null),
+      // For the module's checks: where the page last saw the pointer, the trusted presses and keys it has received,
+      // which document this is, and whether (x, y) is over a frame, whose own events this document never sees.
+      check: (x, y) => ({
+        last: last ? { x: last.x, y: last.y } : null, downs, keys, doc,
+        framed: /^(IFRAME|FRAME|OBJECT|EMBED)$/.test(document.elementFromPoint(x, y)?.tagName ?? ""),
+      }),
       caption: (t) => {
         text = String(t);
         if (mount()) strip.textContent = text;
@@ -126,7 +155,8 @@ function overlay(captionAt) {
 }
 
 const contexts = new WeakSet();
-// page -> { at: {x, y}, moved, pacing (gestures running), gestures, paced, unpaced (the counts paceCounts gives) }
+// page -> { at: {x, y}, moved, pacing (gestures running), sentDowns and sentKeys (the most pointerdown and keydown
+// events this module's calls can cause), and the counts paceCounts gives }
 const pages = new WeakMap();
 
 // Python's str.isprintable, which evidence.py applies to `shows`: no control, format, unassigned or private-use
@@ -142,17 +172,20 @@ function checkText(what, text, { shorten = false } = {}) {
 }
 
 const log = (message) => process.stderr.write(`[film] ${message}\n`);
-const OUTSIDE = "a move ran unpaced: the pointer was moved outside page.mouse (a locator action?), so its start isn't known: place it with page.mouse before the gesture, and use only page.mouse inside it";
-const JUMP = "a move ran unpaced: the pointer jumped (a one-step move, or a click away from where it was): move there in steps first";
+const OUTSIDE = "a move ran unpaced: the pointer was moved outside page.mouse (a locator action?), so its start isn't known: place it with page.mouse outside a gesture before it starts, and use only page.mouse inside it";
+const JUMP = `a move ran unpaced: the pointer jumped (a step longer than ${MAX_STEP_PX} px, or a click that far from it): move there in more steps first`;
 const AFTER = "a move ran unpaced: the pointer was moved outside page.mouse during the gesture (a locator action?)";
-const UNCHECKED_MOVE = "a move ran unpaced: the page hasn't seen the pointer since it loaded, so its start can't be checked: end the gesture where the page loads, and start another";
-const UNCHECKED = "not checked: the page hasn't seen the pointer since it loaded (a click that loaded a new page?), or couldn't be asked, so the video makes no claim about pace";
+const AROUND = "a move ran unpaced: the page received a press or key that page.mouse and page.keyboard didn't send (a locator action?)";
+const UNCHECKED_MOVE = "a move ran unpaced: the page hasn't seen the pointer (since it loaded, or it's over a frame), so its start can't be checked: place it with page.mouse outside a gesture first, and end a gesture before the input that loads a new page";
+const UNCHECKED = "not checked: the page loaded during the gesture, the pointer is over a frame, or the page couldn't be asked, so this makes no claim about pace";
 const far = (at, x, y) => Math.abs(x - at.x) > 1 || Math.abs(y - at.y) > 1;
+const jumps = (at, x, y, steps = 1) => Math.hypot(x - at.x, y - at.y) / steps > MAX_STEP_PX;
 
 // Track where page.mouse last sent the pointer, and pace its calls inside a gesture.
 function track(page) {
   if (pages.has(page)) return;
-  const state = { at: { x: 0, y: 0 }, moved: false, pacing: 0, gestures: 0, paced: 0, unpaced: 0, unchecked: 0 };
+  const state = { at: { x: 0, y: 0 }, moved: false, pacing: 0, sentDowns: 0, sentKeys: 0,
+    gestures: 0, paced: 0, unpaced: 0, unchecked: 0 };
   pages.set(page, state);
   const mouse = page.mouse, keyboard = page.keyboard;
   const m = { move: mouse.move.bind(mouse), click: mouse.click.bind(mouse), dblclick: mouse.dblclick.bind(mouse),
@@ -164,17 +197,17 @@ function track(page) {
     return sleep(ms);
   };
   // A press or click inside a gesture checks the pointer first: something other than page.mouse may have moved it,
-  // and a click aimed away from it (x, y given) jumps there in one step.
+  // and a click aimed more than MAX_STEP_PX from it (x, y given) jumps there.
   const pressCounts = async (x, y) => {
     if (state.pacing === 0) return;
-    const where = await pointerCheck(page, state);
+    const { where } = await pointerCheck(page, state);
     if (where === "outside") {
       state.unpaced += 1;
       log(OUTSIDE);
     } else if (where === "unchecked") {
       state.unchecked += 1;
       log(UNCHECKED);
-    } else if (x !== undefined && far(state.at, x, y)) {
+    } else if (x !== undefined && jumps(state.at, x, y)) {
       state.unpaced += 1;
       log(JUMP);
     } else {
@@ -192,13 +225,13 @@ function track(page) {
     const steps = options.steps ?? 1;
     const wholeSteps = Number.isInteger(steps) && steps >= 1;
     if (state.pacing > 0 && !wholeSteps) log("a move ran unpaced: its steps option isn't a whole number of at least 1");
-    const where = state.pacing > 0 && wholeSteps ? await pointerCheck(page, state) : null;
+    const where = state.pacing > 0 && wholeSteps ? (await pointerCheck(page, state)).where : null;
     if (where === "outside") log(OUTSIDE);
     if (where === "unchecked") log(UNCHECKED_MOVE);
     if (where === "known") {
       const from = state.at, hold = Math.min(STEP_MS, MOVE_CAP_MS / steps);
-      // One step that goes anywhere is a jump: held, but the pointer doesn't travel.
-      if (steps === 1 && far(from, x, y)) {
+      // A step longer than MAX_STEP_PX is a jump: held, but the pointer is drawn at points, not travelling.
+      if (jumps(from, x, y, steps)) {
         state.unpaced += 1;
         log(JUMP);
       } else {
@@ -223,6 +256,7 @@ function track(page) {
     state.moved = true;
   };
   mouse.click = async (x, y, options) => {
+    state.sentDowns += Math.max(1, options?.clickCount ?? 1);
     await pressCounts(x, y);
     await pause(PRESS_MS);
     await m.click(x, y, options);
@@ -231,6 +265,7 @@ function track(page) {
     await pause(STEP_MS);
   };
   mouse.dblclick = async (x, y, options) => {
+    state.sentDowns += 2;
     await pressCounts(x, y);
     await pause(PRESS_MS);
     await m.dblclick(x, y, options);
@@ -238,28 +273,39 @@ function track(page) {
     state.moved = true;
     await pause(STEP_MS);
   };
-  mouse.down = async (options) => { await pressCounts(); await pause(PRESS_MS); await m.down(options); };
+  mouse.down = async (options) => { state.sentDowns += 1; await pressCounts(); await pause(PRESS_MS); await m.down(options); };
   mouse.up = async (options) => { await m.up(options); await pause(STEP_MS); };
   mouse.wheel = async (dx, dy) => { await pause(STEP_MS, true); await m.wheel(dx, dy); await pause(STEP_MS); };
+  // The most keydown events each call can cause: one per key of a chord, one per character typed.
+  const keydowns = { press: (key) => String(key).split("+").length, type: (text) => [...String(text)].length,
+    down: () => 1, up: () => 0, insertText: () => 0 };
   for (const name of ["press", "type", "down", "up", "insertText"]) {
     const original = keyboard[name].bind(keyboard);
-    keyboard[name] = async (...args) => { await pause(PRESS_MS, true); return original(...args); };
+    keyboard[name] = async (...args) => {
+      state.sentKeys += keydowns[name](args[0]);
+      await pause(PRESS_MS, true);
+      return original(...args);
+    };
   }
 }
 
-// Where the page last saw the pointer, against where this module last sent it. "known": the same point (or the page has
-// seen none, and the module never moved it). "outside": somewhere else, so something other than page.mouse moved it (a
-// locator action), and a paced move would start from the wrong point. "unchecked": the page can't say, since it hasn't
-// seen the pointer since it loaded, or couldn't be asked. The caller logs.
+// Where the page last saw the pointer, against where this module last sent it. "known": the same point. "outside":
+// somewhere else, so something other than page.mouse moved it (a locator action), and a paced move would start from the
+// wrong point. "unchecked": the page can't say, since it hasn't seen the pointer (since it loaded: Playwright's pointer
+// may be anywhere), the pointer is over a frame, or the page couldn't be asked. With the page's tally of presses, keys
+// and document (null when it couldn't be asked). The caller logs.
 async function pointerCheck(page, state) {
   let seen;
   try {
-    seen = await page.evaluate((k) => window[Symbol.for(k)]?.last() ?? null, KEY);
+    seen = await page.evaluate(([k, x, y]) => window[Symbol.for(k)]?.check(x, y) ?? null, [KEY, state.at.x, state.at.y]);
   } catch {
-    return "unchecked";
+    seen = null;
   }
-  if (seen === null) return state.moved ? "unchecked" : "known";
-  return far(state.at, seen.x, seen.y) ? "outside" : "known";
+  if (seen == null) return { where: "unchecked", why: "unasked", tally: null };
+  const tally = { downs: seen.downs, keys: seen.keys, doc: seen.doc };
+  if (seen.framed) return { where: "unchecked", why: "framed", tally };
+  if (seen.last === null) return { where: "unchecked", why: "unseen", tally };
+  return { where: far(state.at, seen.last.x, seen.last.y) ? "outside" : "known", why: null, tally };
 }
 
 /**
@@ -305,15 +351,27 @@ export async function gesture(page, label, fn) {
   await caption(page, `Watch: ${label}`);
   state.gestures += 1;
   state.pacing += 1;
+  const before = (await pointerCheck(page, state)).tally;
+  const sent = { downs: state.sentDowns, keys: state.sentKeys };
   try {
     return await fn();
   } finally {
-    // A locator action after the gesture's last page.mouse call left the pointer where this module didn't send it.
-    const where = await pointerCheck(page, state);
-    if (where === "outside") {
+    const end = await pointerCheck(page, state);
+    if (before === null || end.tally === null || end.tally.doc !== before.doc) {
+      // The page loaded during the gesture, or couldn't be asked: nothing here can be checked.
+      state.unchecked += 1;
+      log(UNCHECKED);
+    } else if (end.tally.downs - before.downs > state.sentDowns - sent.downs
+               || end.tally.keys - before.keys > state.sentKeys - sent.keys) {
+      state.unpaced += 1;
+      log(AROUND);
+    } else if (end.where === "outside") {
+      // A locator action after the gesture's last page.mouse call left the pointer where this module didn't send it.
       state.unpaced += 1;
       log(AFTER);
-    } else if (where === "unchecked") {
+    } else if (end.why === "framed") {
+      // Over a frame, whose events this document doesn't see. (No pointer seen at all in the same document means
+      // nothing moved it there, which is fine.)
       state.unchecked += 1;
       log(UNCHECKED);
     }
@@ -323,10 +381,9 @@ export async function gesture(page, label, fn) {
 
 /**
  * What the filmed pass did on a page: gestures run, inputs paced inside them (a move, press, click, key or wheel),
- * checks inside them that failed (unpaced; see the header: something else moved the pointer, a jump, or a steps option
- * that isn't a whole number), and checks the page couldn't answer (unchecked). One move the module didn't make can
- * fail two checks: a press's, and the gesture's end. A page nobody filmed has every count 0. paceClaim turns these into
- * the video's words.
+ * checks inside them that failed (unpaced: see the header's list), and checks that couldn't be made (unchecked). One
+ * action the module didn't make can fail two checks: a press's, and the gesture's end. A page nobody filmed has every
+ * count 0. paceClaim turns these into the video's words.
  */
 export function paceCounts(page) {
   const state = pages.get(page);
@@ -335,13 +392,14 @@ export function paceCounts(page) {
 }
 
 /**
- * What the video's `shows` ends with, from paceCounts(page) on the recorded page: "; filmed at a person's pace" when
- * the gestures paced an input and every check passed, "; filmed, but a move ran at full speed" when one ran unpaced,
- * and "" when a check couldn't be made or nothing was paced (no gesture, or a page nobody filmed). A helper appends it
- * as it is, shortening the rest of `shows` by its length.
+ * What the video's `shows` ends with, from paceCounts(page) on the recorded page. It speaks for the gestures only,
+ * which the video captions "Watch: ...": '; filmed at a person's pace where captioned "Watch"' when they paced an input
+ * and every check passed, '; filmed, but a move captioned "Watch" ran at full speed' when one ran unpaced, and "" when
+ * a check couldn't be made or nothing was paced (no gesture, or a page nobody filmed). A helper appends it as it is,
+ * shortening the rest of `shows` by its length.
  */
 export function paceClaim(page) {
   const { paced, unpaced, unchecked } = paceCounts(page);
-  if (unpaced > 0) return "; filmed, but a move ran at full speed";
-  return unchecked === 0 && paced > 0 ? "; filmed at a person's pace" : "";
+  if (unpaced > 0) return '; filmed, but a move captioned "Watch" ran at full speed';
+  return unchecked === 0 && paced > 0 ? '; filmed at a person\'s pace where captioned "Watch"' : "";
 }

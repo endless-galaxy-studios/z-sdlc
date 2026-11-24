@@ -37,6 +37,74 @@ Each entry contains:
 
 ---
 
+## 2026-11-23: The pace claim sees locator presses and keys, judges jumps by distance, and speaks for the gestures
+
+**Origin:** the pilot project's adoption of v2.12.0 in its PR #124. Its reviews found more ways `paceClaim` could vouch for a pace the video didn't show, and its session sent them here. Items 1 to 3 were reproduced here in a real Chromium. CD said yes to building them, to a 40 px jump distance, and to rewording the claim for the gestures (2026-11-23).
+
+**What happened:**
+- **A locator press where the pointer already was went unseen.** For example, a stepped move to a button's centre, then `locator.click()`. Every position check passed, the press skipped the 400 ms wait, and the claim stayed "at a person's pace". A key sent through a locator was missed the same way (a stated limit in v2.12.0). Nothing inside an iframe was seen.
+- **With no pointer seen in the page, the start was taken as (0, 0).** After a locator click loaded a page, a paced move sent points interpolated from (0, 0), while Playwright's pointer was at the link. So the film sent points the proof didn't, and rule 7 would have read a disagreement between the passes as "depends on speed".
+- **A jump was judged by step count.** Two steps across the screen counted as paced.
+- **The docs overstated "no claim".** A move whose start can't be checked runs unpaced, and that outweighs anything unchecked. The hint "end the gesture where the page loads" also read as putting the loading click inside the gesture.
+- **The claim read as covering the whole video,** though it speaks for the gestures only.
+
+**Changes made:**
+
+1. **`bundles/factory/tree/evidence_film.mjs`**:
+   - **Presses and keys are counted.**
+     - The overlay counts the trusted `pointerdown` and `keydown` events its document receives, and gives each document an id.
+     - The module counts the most each of its calls can cause: a click's `clickCount`, 2 for a `dblclick`, 1 for a `down`, one per `+`-joined key of a `press`, one per character typed.
+     - At the gesture's end, more seen than sent counts as unpaced. A different document there counts as unchecked.
+   - **An unseen start is unknown.** A move on a page that hasn't seen the pointer runs unpaced, logging "place it with page.mouse outside a gesture first, and end a gesture before the input that loads a new page".
+   - **Jumps are judged by distance.** A move with a step longer than `MAX_STEP_PX` (40, new), or a click that far from the pointer, counts as unpaced. This replaces the one-step rule; the paced loop is unchanged.
+   - **Frames.** A check whose tracked point is over a frame element is unchecked, so it makes no claim either way. The overlay runs in the top document only.
+   - **Native drags.** A native HTML drag (`draggable`) stops the page's pointer events until the drop, so the end check read the drag's start and called an honest gesture "full speed", and the drawn pointer froze. Found here while checking this release. The overlay now follows `dragover` during a drag: passively, with no `preventDefault`.
+   - **`paceClaim`'s words** now say what they cover:
+     - `; filmed at a person's pace where captioned "Watch"`;
+     - `; filmed, but a move captioned "Watch" ran at full speed`;
+     - "" as before.
+   - **The header** lists what counts as unpaced and what makes no claim.
+2. **`process/factory.md`**:
+   - **D6 rule 7** lists what counts as unpaced and what can't be checked, says a move can't be left unchecked, and gives the spec's shape:
+     - place the pointer with `page.mouse` outside any gesture;
+     - inside it, only `page.mouse` and `page.keyboard`, with steps of at most 40 px;
+     - end it before the input that loads a new page.
+     It also gives `paceClaim`'s new words.
+   - **§ After migrating:** a helper that takes the words from `paceClaim` needs nothing, and each gesture's step lengths are checked.
+   - **§ Reproducing in a browser rule 5**, mirrored into `sdlc-reproduce`, `sdlc-implement` and `sdlc-revise`: the same shape, and what each log means.
+3. **`tests/test_evidence_film.py`**:
+   - The stand-in page now reports what the overlay does: presses, keys, its document and whether the pointer is over a frame.
+   - The claim test covers 20 cases. New ones include:
+     - a click within a step;
+     - a chord and typing;
+     - a locator click where the pointer is, and a locator key;
+     - two steps across the screen;
+     - an unplaced start;
+     - a move after a load;
+     - a click over a frame.
+
+**Proof:**
+- **The bundle's own tests:** `test_evidence_film` (16) and `test_browser` (66, 3 skipped) pass.
+- **In a real Chromium** (Playwright 1.61.1, locally):
+  - **Honest gestures kept the claim**, and the overlay's counts matched what the module sent: a stepped move then a click, a double-click and a triple click, a click then a chord and typing, and a drag.
+  - **Counted as unpaced:** a locator click where the pointer was, a locator key, two steps across the screen, and an unplaced first move.
+  - **No claim:** a gesture onto an iframe, and a click that loaded a page.
+  - **A native drag:** before the `dragover` fix, all runs read "full speed". After it, three runs out of three kept the claim and the drop still happened. A drag made with pointer events kept the claim before and after.
+- **The new words pass the pipeline.** A manifest whose video `shows` ends with the new claim was packed by `evidence.py` with nothing dropped, and the report escapes the quotes. The PR text's `literal()` backslash-escapes them, so they render as written.
+- **The pilot's #49 is unaffected.** Its spec places the pointer with `page.mouse` before its gesture, and its 12 logged steps are about 35.8 px each, under 40.
+- **The probe's film checks, locally:** all five passed (shortest gap 82 ms) and nothing was logged.
+  - This is the first change to the overlay's page-side script since the browser host's hand run. It gained passive `keydown` and `dragover` listeners, two counters and a document id.
+  - The five checks ran in a local Chromium only, the same build the host's front end serves.
+  - `browser_probe.mjs`, `browser_check.py` and the paced loop didn't change, and no timing logic did either, so the host wasn't run by hand again.
+- **The import's two proofs pass.**
+
+**Rationale:**
+- **Counting what the page received closes what positions can't.** A press or key needs no movement, so only the page's own record of its input shows one the module didn't send. Upper bounds on what the module sent keep an honest gesture from reading as foreign.
+- **A step's length is what a viewer sees.** 40 px is about a button's height: a pointer that moves further between two held frames is drawn at points, not travelling. The probe's 8-step move takes 37.5 px steps.
+- **Release type: patch.** It strengthens existing checks and rewords `paceClaim`'s output. `MAX_STEP_PX` is a constant, not a call a helper makes.
+
+---
+
 ## 2026-11-23: "Filmed at a person's pace" now means the pointer travelled, and the module says it
 
 **Origin:** the pilot project's adoption of v2.11.0. Reviews of its `paceCounts` port found two ways the counts could still back a false "filmed at a person's pace". An architect drove the real module with a stand-in page, and the pilot's session sent the findings here. CD: "do it, but just a minor release, no patch" (2026-11-23).
