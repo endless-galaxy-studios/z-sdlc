@@ -177,13 +177,19 @@ new MutationObserver((r) => { __body += r.length; }).observe(document.body, { su
 const CLAIMS_PAGE = `<!doctype html><title>factory film claims</title><style>body{margin:0}
 #b{position:absolute;left:200px;top:200px;width:90px;height:32px}#i{position:absolute;left:200px;top:300px;width:150px;height:24px}
 #f{position:absolute;left:400px;top:100px;width:200px;height:150px;border:0}#w{position:absolute;left:20px;top:340px;display:block}
+#c{position:absolute;left:420px;top:280px;display:block}
 </style><button id=b>Undo</button><input id=i>
 <iframe id=f srcdoc="<input id=fi style='width:180px'><button style='width:100%;height:110px'>in a frame</button>"></iframe>
-<x-w id=w></x-w><script>
-// A frame inside an open shadow root, where document's own lookups stop at the host.
-customElements.define("x-w", class extends HTMLElement { constructor() { super(); const f = document.createElement("iframe");
-  f.srcdoc = "<input id=si>"; f.style.cssText = "display:block;width:160px;height:120px;border:0";
-  this.attachShadow({ mode: "open" }).append(f); } });
+<x-w id=w></x-w><x-c id=c></x-c><script>
+// A frame inside an open shadow root, where document's own lookups stop at the host, and one inside a closed root,
+// which no lookup reaches: only the jump the page saw shows a move across it.
+for (const [name, mode, w, h, html] of [["x-w", "open", 160, 120, "<input id=si>"], ["x-c", "closed", 180, 100, "<p>closed</p>"]]) {
+  customElements.define(name, class extends HTMLElement { constructor() { super(); const f = document.createElement("iframe");
+    f.srcdoc = html; f.style.cssText = \`display:block;width:\${w}px;height:\${h}px;border:0\`;
+    this.attachShadow({ mode }).append(f); } });
+}
+// When each typed key arrived, for film-typed.
+window.__typed = []; addEventListener("keydown", (e) => { if ("abcd".includes(e.key)) __typed.push(performance.now()); }, true);
 </script>`;
 // Checked after the gesture, with the pointer and the caption strip drawn: the pointer's tip, the button, and a point
 // under the strip at the bottom edge.
@@ -295,7 +301,7 @@ async function claimChecks(browser, appUrl, film) {
         await page.mouse.up();
         await page.mouse.move(275, 312, { steps: 4 });
         await page.mouse.click(275, 312);
-        await page.keyboard.type("ab");
+        await page.keyboard.type("abcd");
         await page.keyboard.press("Shift+C");
       }, (c) => c.paced > 0 && c.unpaced === 0 && c.unchecked === 0, null],
       ["locator-click", async (page) => {
@@ -356,6 +362,11 @@ async function claimChecks(browser, appUrl, film) {
       }, (c) => c.unpaced === 0 && c.unchecked > 0, ["not checked", "didn't send"]],
       // A bare down is judged by where the pointer is: over the frame it's left out of the sent count, so the
       // locator's click then reads as foreign.
+      // A move across the frame in the closed shadow root: no lookup finds it, so the jump the page saw does.
+      ["closed-across", async (page) => {
+        await page.mouse.move(400, 330, { steps: 14 });
+        await page.mouse.move(620, 330, { steps: 8 });
+      }, (c) => c.unpaced > 0, "saw the pointer jump"],
       ["down+locator", async (page) => {
         await page.mouse.move(390, 175, { steps: 10 });
         await page.mouse.click(410, 175);
@@ -364,7 +375,7 @@ async function claimChecks(browser, appUrl, film) {
         await page.locator("#b").click();
       }, (c) => c.unpaced > 0, "didn't send"],
     ];
-    let captionShown = null, captionAfter = null;
+    let captionShown = null, captionAfter = null, typedGaps = [];
     // reason: a string the log must hold, null for a silent log, or [a string it must hold, one it mustn't].
     const judge = async (group, list) => {
       const results = [];
@@ -373,9 +384,11 @@ async function claimChecks(browser, appUrl, film) {
           ? async (page) => {
             const after = await page.screenshot({ clip: strip });
             const bare = await hidden(page);
-            return { shown: !during.equals(bare), cleared: after.equals(bare) };
+            const typed = await page.evaluate(() => window.__typed);
+            return { shown: !during.equals(bare), cleared: after.equals(bare),
+              gaps: typed.slice(1).map((t, i) => t - typed[i]) };
           } : null);
-        if (c.extra) [captionShown, captionAfter] = [c.extra.shown, c.extra.cleared];
+        if (c.extra) [captionShown, captionAfter, typedGaps] = [c.extra.shown, c.extra.cleared, c.extra.gaps];
         const [must, mustNot] = Array.isArray(reason) ? reason : [reason, null];
         const ok = want(c) && (must === null ? c.said === "" : c.said.includes(must)) && !(mustNot && c.said.includes(mustNot));
         results.push({ name, ok, text: `${name} ${c.paced}/${c.unpaced}/${c.unchecked}${ok ? "" : ` WRONG (${c.said.trim().split("\n").map((l) => l.slice(7, 40)).join("; ") || "logged nothing"})`}` });
@@ -386,6 +399,10 @@ async function claimChecks(browser, appUrl, film) {
     };
     await judge("film-claims", cases);
     await judge("film-frames", frameCases);
+    // Typing goes a character every STEP_MS: half of it still tells paced from unpaced, as film-paced does for moves.
+    const shortest = typedGaps.length ? Math.round(Math.min(...typedGaps)) : 0;
+    out("film-typed", typedGaps.length === 3 && shortest >= film.STEP_MS / 2 ? "spaced" : "unspaced",
+      `shortest gap between typed keys ${shortest} ms over ${typedGaps.length + 1} keys (want at least ${film.STEP_MS / 2})`);
     out("film-caption", captionShown && captionAfter ? "cleared" : "left",
       `the "Watch" caption ${captionShown ? "showed during the gesture" : "didn't show during the gesture"} and ${captionAfter ? "was gone after it" : "was still there after it"}`);
   } catch (e) {

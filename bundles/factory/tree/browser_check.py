@@ -21,7 +21,9 @@ both:    the probe connected to the browser host's front end through with-browse
          page.mouse and page.keyboard send (a double-click and a bare down too) counts as paced, and a locator click
          where the pointer already is, after a double-click too, as unpaced (film-claims); presses, keys and moves into
          or across a frame, one inside an open shadow root too, as not checked or unpaced as the module's rules say
-         (film-frames). The gesture's "Watch" caption is gone after it (film-caption).
+         (film-frames), and a move across a frame in a closed shadow root as unpaced, by the jump the page saw. The
+         gesture's "Watch" caption is gone after it (film-caption), and its typed keys arrive at least half of
+         STEP_MS apart (film-typed).
 control: run outside the sandbox, with network and a canary credential in its environment (never a real token:
          it runs the project's own Playwright). The outside world, by name and by address, must answer through the
          tunnel, and the canary must be found, which proves the agent run's refusals and its clean environment are
@@ -58,6 +60,7 @@ BOTH = {
     "film-claims": "checked",
     "film-frames": "checked",
     "film-caption": "cleared",
+    "film-typed": "spaced",
 }
 CONTROL = {"outside-name": "reached", "outside-ip": "reached", "credentials": "found", "narrow": "unchecked"}
 AGENT = {"outside-name": "refused", "outside-ip": "refused", "credentials": "clean", "narrow": "refused"}
@@ -86,6 +89,8 @@ WHY = {
                    "around them, so a video's claim to be filmed at a person's pace can't be trusted",
     "film-frames": "the filmed pass's frame checks didn't tell a press, key or move into a frame from what the page "
                    "itself received, so a video's claim to be filmed at a person's pace can't be trusted near a frame",
+    "film-typed": "a filmed gesture's typed string wasn't spaced out, so it appeared at once under a claim of a person's "
+                  "pace",
     "film-caption": "a gesture's \"Watch\" caption didn't show during it, or stayed after it, so what followed read as "
                     "part of the gesture",
     "allowed": "Node's fetch didn't reach the project's allowed outside host (browser.allow): a spec's context.route "

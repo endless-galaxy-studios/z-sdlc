@@ -37,6 +37,76 @@ Each entry contains:
 
 ---
 
+## 2026-11-24: A jump the page itself saw makes a move unpaced, typing is capped like a move, and smoke checks typing's spacing
+
+**Origin:** the pilot project folded v2.12.5 into its PR #124, and its architect ran the v2.12.5 probe in a local Chromium 149:
+- `film-claims`, `film-frames` and `film-caption` passed;
+- a mutated module showed `click-out` and `down+locator` each catch their regression;
+- typed keys arrived 83 to 87 ms apart.
+
+It sent the remaining low items. CD said yes to building them as z-sdlc laid out, the page-seen jump included (2026-11-24).
+
+**What happened:**
+- **Typing had no cap.** 40 characters took 3.8 s filmed, while a move's added time is capped at 1.5 s.
+- **What the header left out:**
+  - the filmed pass's key timing (each key held about 80 ms, the app's handlers running between characters) can change a debounced search or a keyup handler;
+  - `insertText` puts its string in at once;
+  - a longer `delay` from the spec is kept.
+- **A frame in a closed shadow root over-claimed.** No lookup can reach it, so a paced move across it stayed paced while the drawn pointer stalled.
+- **Nothing in smoke checked that typing is spaced out.** A test fixture still named `across-frame` under `film-claims`.
+- **Found here while building it: since v2.12.2, a native drag made the drawn pointer flick to the page's corner.** When a drag starts, the browser cancels the pointer, and the `pointerout` that follows reports (0, 0), which the overlay took as a position. Also, during a drag `dragover` doesn't come at every step (it skipped the first and one later), so the new jump check would have read an honest drag as a 53 px jump.
+
+**Changes made:**
+
+1. **`bundles/factory/tree/evidence_film.mjs`**:
+   - **The page's own record of jumps.** During a paced move, the overlay watches the pointer positions it receives: the longest jump between two of them, and the last leg to the move's end point. Over `MAX_STEP_PX`, the move counts as unpaced and logs "the page saw the pointer jump N px". That catches a frame in a closed shadow root, and anywhere else the page gets no pointer events. It measures distance rather than counting events, so Chromium's merging of moves within a frame doesn't matter.
+   - **Typing is capped like a move.** Each character is held `min(STEP_MS, MOVE_CAP_MS / characters)`, with a longer delay from the spec kept.
+   - **Native drags:**
+     - boundary events right after a `pointercancel` are skipped until a real pointer event comes;
+     - the overlay follows `drag` as well as `dragover`, which between them come at every step;
+     - a drag event at exactly (0, 0), a browser's "no position", is skipped.
+   - **The header** gives the key-timing caveat, `insertText` as one action like a paste, the cap and the kept delay, and the closed-root case as caught for moves (a press or key into one still counts as sent). It also says a frame narrower than a step is stepped over like anything else.
+2. **`bundles/factory/tree/browser_probe.mjs` and `browser_check.py`:**
+   - **The claims page gains a frame inside a closed shadow root.** `film-frames` gains `closed-across`, which must count as unpaced, by the jump the page saw.
+   - **A new required check, `film-typed`:** `mouse+keys` types "abcd", and the keys must arrive at least half of `STEP_MS` apart.
+3. **`process/factory.md`:**
+   - **D6 rule 4** lists `closed-across` and `film-typed`.
+   - **Rule 7:**
+     - the page-seen jump;
+     - the closed-root case;
+     - typing's cap, the key-timing caveat and `insertText`;
+     - `drag`, `dragover` and the cancelled boundary events.
+
+   Mirror rule 5 is unchanged.
+4. **Tests:**
+   - `tests/test_evidence_film.py`:
+     - the stand-in answers the watch with a jump a test sets;
+     - a 204 px jump makes a move unpaced, and an 18 px one doesn't;
+     - 40 typed characters share `MOVE_CAP_MS`.
+   - `tests/test_browser.py`: the verdict fixtures gain `closed-across` and `film-typed`, `film-typed`'s failure form fails, and the stale fixture is corrected.
+
+**Proof:**
+- **The bundle's own tests:** `test_evidence_film` (19) and `test_browser` (66, 3 skipped) pass.
+- **In a real Chromium** (Playwright 1.61.1, locally):
+  - **Shadow-root frames:** a move across a frame in a closed shadow root reads "full speed", with a 193 px jump seen. An open root is still caught by its step points.
+  - **Native drags:** before the drag fixes, the native drag read as a 263 px jump, then 53 px. After them, three runs out of three kept the claim, and the drop still happened.
+  - **Every earlier script gave the same counts as before:** the honest gestures, the locator cases, the frames, a click that loads a page, typing at 83 to 85 ms a key, and the architect's real, real4 and real5 cases.
+- **The new probe against older modules fails as it should:** against v2.12.5, `closed-across` reads wrong; against v2.12.4, `film-typed` reads unspaced at 1 ms.
+- **On the browser host, by hand,** from the runner host with a 1.61.1 client against the 1.61 front end (Chromium 149.0.7827.55, WebGL on the M1), three runs:
+  - all nine film checks passed each time;
+  - `film-frames` passed its eleven cases;
+  - `film-typed`'s shortest gap was 84 to 86 ms, and `film-paced`'s 86 to 89 ms.
+
+  `browser_check.py`'s only complaints were the canary credential, which a hand run doesn't hold and smoke supplies.
+- **The import's two proofs pass.**
+
+**Rationale:**
+- **The page's own view is the last word on what a viewer saw.** Lookups find frames they can reach. A jump in the positions the page received shows the drawn pointer stalled, whatever the cause.
+- **A new check finds old faults.** The jump check showed the native drag's corner flick, there since v2.12.2, and the drag's missing `dragover` steps. Both are fixed here rather than tuned around.
+- **Release type: patch.** Fixes, stricter smoke checks and wording, with no new export.
+
+---
+
 ## 2026-11-24: Typing in a gesture goes a character at a time, and smoke's frame cases get a line of their own
 
 **Origin:** the pilot project's architect re-ran its real-Chromium probes against v2.12.4 while the pilot folded it into its PR #124:

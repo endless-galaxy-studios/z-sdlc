@@ -50,6 +50,9 @@ function stand(seen, moveMs = 0) {
     keyboard: { press: keyed("press", chord), type: keyed("type", onLayout),
       down: keyed("kdown", () => 1), up: rec("kup"), insertText: rec("insertText") },
     async evaluate(fn, arg) {
+      // A paced move's watch: the longest jump this page saw, which a test sets (seen.gap) to stand for one.
+      if (typeof fn === "function" && String(fn).includes("unwatch(")) return this.seen.gap ?? 0;
+      if (typeof fn === "function" && String(fn).includes("watch(")) return undefined;
       if (typeof fn === "function" && String(fn).includes("check(")) {
         if (this.seen.fail) throw new Error("Execution context was destroyed");
         const { value, downs, keys, doc, framed, pathFramed, focusFramed } = this.seen;
@@ -246,6 +249,9 @@ out.claims = {
   // A click is judged by its target: out of a frame it reaches the page and counts as sent; far into one it jumped.
   clickOutOfAFrame: await claimed(async (pg) => { await pg.mouse.move(50, 50, { steps: 4 }); pg.seen.framed = true; await pg.mouse.click(60, 60); }),
   farClickIntoAFrame: await claimed(async (pg) => { await pg.mouse.move(50, 50, { steps: 4 }); pg.seen.pathFramed = true; await pg.mouse.click(450, 50); }),
+  // The page saw the pointer jump within a paced move (a frame no lookup finds): unpaced.
+  pageSawAJump: await claimed(async (pg) => { pg.seen.gap = 204; await pg.mouse.move(50, 50, { steps: 4 }); }),
+  pageSawStepsOnly: await claimed(async (pg) => { pg.seen.gap = 18; await pg.mouse.move(50, 50, { steps: 4 }); }),
 };
 {
   // Typing inside a gesture goes a character at a time: Playwright's own delay, STEP_MS; outside, as given.
@@ -253,7 +259,11 @@ out.claims = {
   c.handler(pg);
   await pg.mouse.move(0, 0);
   await pg.keyboard.type("ab");
-  await film.gesture(pg, "typing", async () => { await pg.keyboard.type("cd"); await pg.keyboard.type("ef", { delay: 200 }); });
+  await film.gesture(pg, "typing", async () => {
+    await pg.keyboard.type("cd");
+    await pg.keyboard.type("ef", { delay: 200 });
+    await pg.keyboard.type("x".repeat(40));
+  });
   out.typed = pg.calls.filter((x) => x[0] === "type").map((x) => x.slice(1, -1));
 }
 {
@@ -430,6 +440,8 @@ class Film(unittest.TestCase):
             "typedIntoAFrameThenLocatorKeys": (n(1, 1, 1), unpaced, "didn't send"),
             "clickOutOfAFrame": (n(1, 0, 2), "", "not checked"),
             "farClickIntoAFrame": (n(1, 1), unpaced, "jumped"),
+            "pageSawAJump": (n(0, 1), unpaced, "saw the pointer jump 204 px"),
+            "pageSawStepsOnly": (n(1), paced, None),
         }
         # A click back out of a frame reaches the page and is counted as sent: no press reads as foreign.
         self.assertNotIn("didn't send", claims["clickOutOfAFrame"]["said"])
@@ -458,7 +470,9 @@ class Film(unittest.TestCase):
 
 
     def test_typing_inside_a_gesture_goes_a_character_at_a_time(self):
-        self.assertEqual(self.r["typed"], [["ab"], ["cd", {"delay": self.step}], ["ef", {"delay": 200}]])
+        # Capped like a move: 40 characters share MOVE_CAP_MS; a longer delay from the spec is kept.
+        self.assertEqual(self.r["typed"], [["ab"], ["cd", {"delay": self.step}], ["ef", {"delay": 200}],
+                                           ["x" * 40, {"delay": self.cap / 40}]])
 
 
 if __name__ == "__main__":

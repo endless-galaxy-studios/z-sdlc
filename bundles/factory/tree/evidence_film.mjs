@@ -10,7 +10,10 @@
 //     step of a page.mouse move is held STEP_MS after the browser takes it, so the page sees the steps at least that
 //     far apart (the module adds at most MOVE_CAP_MS to a move; a slow browser's own time per step comes on top),
 //     a press, click or key waits PRESS_MS first, a typed string then goes STEP_MS a character (Playwright's own
-//     delay), and a wheel waits STEP_MS before and after. Nothing outside a gesture waits;
+//     delay; at most MOVE_CAP_MS added in all, as for a move, and a longer delay from the spec kept), and a wheel waits
+//     STEP_MS before and after. Nothing outside a gesture waits. So in the filmed pass a key is held about STEP_MS and
+//     the app's handlers run between characters: a debounced search or a keyup handler can behave differently from
+//     the proof. insertText puts its whole string in at once, as one action, like a paste;
 //   - paceClaim(page) when it saves the video: what the video's `shows` ends with, which says the gestures (the parts
 //     captioned "Watch") were filmed at a person's pace only when every input in them was paced and the pointer was
 //     drawn travelling (paceCounts(page) gives the counts).
@@ -23,8 +26,9 @@
 //     pointer-events: none, so elementFromPoint and every hit test are unchanged. An observer outside the shadow
 //     root sees one record: the element's insertion, when the document loads.
 //   - It draws only what the page received: a passive, capture-phase listener reads each pointer event (including
-//     pointerover and pointerout, which still say where the pointer went when it enters a frame, and dragover during a
-//     native drag, which stops the page's pointer events until the drop) and never stops or cancels one. It uses no page timer, requestAnimationFrame or Date, which page.clock replaces: the
+//     pointerover and pointerout, which still say where the pointer went when it enters a frame, but not those right
+//     after a pointercancel, which report (0, 0); and drag and dragover during a native drag, which stops the page's
+//     pointer events until the drop) and never stops or cancels one. It uses no page timer, requestAnimationFrame or Date, which page.clock replaces: the
 //     pointer moves inside the event handler, and the press ring is a Web Animation.
 //   - A paced move sends the same points the unpaced move would, one at a time: from the point this module saw the
 //     page.mouse last move to, as Playwright interpolates them. When the page saw the pointer elsewhere (a locator
@@ -45,8 +49,11 @@
 //   - a move whose start can't be checked (the page hasn't seen the pointer since it loaded, or it's over a frame):
 //     it runs unpaced, so the proof's points aren't changed;
 //   - a move with a step point on a frame, where the top page can't see the pointer, so the drawn pointer would
-//     stall and then jump: it runs unpaced. Only the step points are checked: a frame narrower than a step, between
-//     two of them, isn't seen;
+//     stall and then jump: it runs unpaced. Only the step points are checked; a frame narrower than a step can fall
+//     between two of them, and the drawn pointer steps over it as over anything else;
+//   - a paced move in which the page itself saw the pointer jump more than MAX_STEP_PX (the overlay records the
+//     longest jump between the positions it receives, and the last leg to the end point): the drawn pointer stalled
+//     where the page got no pointer events, such as over a frame in a closed shadow root, which no lookup finds;
 //   - a move whose steps isn't a whole number.
 // A press, a click or the gesture's end that can't be checked (the page hasn't seen the pointer since it loaded, loaded
 // during the gesture, has the pointer over a frame, or couldn't be asked), and a key sent while the focus is in a frame,
@@ -62,8 +69,8 @@
 //   - a locator action that makes no press, key or pointer move: fill (an input event only), selectOption, focus,
 //     setInputFiles, dispatchEvent;
 //   - anything inside a frame: the overlay runs in the top document only;
-//   - a frame inside a closed shadow root, which can't be looked into: it reads as its host, so a move across it
-//     stays paced while the drawn pointer stalls, and a press or key into it counts as sent, which leaves room for one
+//   - a frame inside a closed shadow root, which can't be looked into: it reads as its host. A move across it is
+//     caught by the jump the page saw (above), but a press or key into it counts as sent, which leaves room for one
 //     nobody sent.
 // It loads nothing and imports only Node's own timers. The job installs it read-only at /opt/factory.
 // A test outside the project's import() reach (vitest can't import() a file outside the project) can load it with
@@ -122,10 +129,30 @@ function overlay(captionAt) {
     if (last) place();
     return true;
   };
+  // While the module watches a paced move, the longest jump between two pointer positions this page saw.
+  let watching = null;
+  const moved = (x, y) => {
+    if (watching) {
+      watching.gap = Math.max(watching.gap, Math.hypot(x - watching.at.x, y - watching.at.y));
+      watching.at = { x, y };
+    }
+    last = { x, y };
+  };
+  // A native drag cancels the pointer (pointercancel), and the pointerout and pointerover that follow report (0, 0),
+  // not where the pointer is: boundary events after a cancel are skipped until a real pointer event comes.
+  let cancelled = false;
   const seen = (e) => {
     if (!e.isPrimary) return;
-    last = { x: e.clientX, y: e.clientY };
+    if (e.type === "pointerover" || e.type === "pointerout") {
+      if (cancelled) return;
+    } else {
+      cancelled = false;
+    }
+    moved(e.clientX, e.clientY);
     if (mount()) place();
+  };
+  const cancel = (e) => {
+    if (e.isPrimary) cancelled = true;
   };
   const pressed = (e) => {
     if (e.isTrusted) downs += 1;
@@ -138,11 +165,12 @@ function overlay(captionAt) {
   const keyed = (e) => {
     if (e.isTrusted) keys += 1;
   };
-  // A native drag (draggable) stops the page's pointer events until it drops; dragover still says where the pointer
-  // is, so the drawn pointer keeps moving and the module's checks keep the drop point.
+  // A native drag (draggable) stops the page's pointer events until it drops; drag (on the source) and dragover (on
+  // the target) still say where the pointer is, between them at every step, so the drawn pointer keeps moving and the
+  // module's checks keep the drop point. A drag event at exactly (0, 0) is a browser's "no position", skipped.
   const dragged = (e) => {
-    if (!e.isTrusted) return;
-    last = { x: e.clientX, y: e.clientY };
+    if (!e.isTrusted || (e.clientX === 0 && e.clientY === 0)) return;
+    moved(e.clientX, e.clientY);
     if (mount()) place();
   };
   // document.open() (page.setContent) erases the window's listeners and runs no init script, so the module calls
@@ -150,7 +178,7 @@ function overlay(captionAt) {
   const listen = () => {
     const options = { capture: true, passive: true };
     for (const [type, fn] of [["pointermove", seen], ["pointerover", seen], ["pointerout", seen], ["pointerup", seen],
-      ["pointerdown", pressed], ["keydown", keyed], ["dragover", dragged]]) {
+      ["pointerdown", pressed], ["pointercancel", cancel], ["keydown", keyed], ["drag", dragged], ["dragover", dragged]]) {
       removeEventListener(type, fn, options);
       addEventListener(type, fn, options);
     }
@@ -161,6 +189,15 @@ function overlay(captionAt) {
     value: Object.freeze({
       listen,
       last: () => (last ? { x: last.x, y: last.y } : null),
+      // A paced move's watch: from its start, then, at its end, the longest jump seen, the last leg to the end
+      // point included (a move that ends where this page can't see it). null when this document didn't start it.
+      watch: (x, y) => { watching = { at: { x, y }, gap: 0 }; },
+      unwatch: (x, y) => {
+        if (!watching) return null;
+        const gap = Math.max(watching.gap, Math.hypot(x - watching.at.x, y - watching.at.y));
+        watching = null;
+        return gap;
+      },
       // For the module's checks: where the page last saw the pointer, the trusted presses and keys it has received,
       // which document this is, and whether (x, y) is over a frame, whose own events this document never sees.
       // Also whether any of a move's step points, or a click's target, is over a frame, and whether the focus is in one.
@@ -293,12 +330,9 @@ function track(page) {
     if (where === "known") {
       const from = state.at, hold = Math.min(STEP_MS, MOVE_CAP_MS / steps);
       // A step longer than MAX_STEP_PX is a jump: held, but the pointer is drawn at points, not travelling.
-      if (jumps(from, x, y, steps)) {
-        state.unpaced += 1;
-        log(JUMP);
-      } else {
-        state.paced += 1;
-      }
+      const jumped = jumps(from, x, y, steps);
+      if (jumped) log(JUMP);
+      await page.evaluate(([k, sx, sy]) => window[Symbol.for(k)]?.watch(sx, sy), [KEY, from.x, from.y]).catch(() => {});
       for (let i = 1; i <= steps; i++) {
         // Playwright's own interpolation (server Mouse.move), one step a call; the last lands exactly on (x, y).
         const px = i === steps ? x : from.x + (x - from.x) * (i / steps);
@@ -310,6 +344,14 @@ function track(page) {
         // already has the event.
         await sleep(hold);
       }
+      // And a jump the page itself saw: the drawn pointer stalled where the page got no pointer events (a frame in a
+      // closed shadow root, which no lookup finds), then jumped.
+      const gap = await page.evaluate(([k, ex, ey]) => window[Symbol.for(k)]?.unwatch(ex, ey) ?? null, [KEY, x, y])
+        .catch(() => null);
+      const unseen = !jumped && gap !== null && gap > MAX_STEP_PX + 1;
+      if (unseen) log(`a move ran unpaced: the page saw the pointer jump ${Math.round(gap)} px within a paced move (a frame it can't see into, such as one in a closed shadow root?): go around it`);
+      if (jumped || unseen) state.unpaced += 1;
+      else state.paced += 1;
     } else {
       if (state.pacing > 0) state.unpaced += 1;
       await m.move(x, y, options);
@@ -359,7 +401,10 @@ function track(page) {
       const n = keydowns[name](args[0]);
       // A typed string goes a character at a time, each held STEP_MS (Playwright's own delay, between a key's down and
       // its up), so the film shows it typed rather than appearing at once.
-      if (name === "type" && state.pacing > 0) args[1] = { ...args[1], delay: Math.max(args[1]?.delay ?? 0, STEP_MS) };
+      if (name === "type" && state.pacing > 0) {
+        const hold = Math.min(STEP_MS, MOVE_CAP_MS / Math.max(1, [...String(args[0])].length));
+        args[1] = { ...args[1], delay: Math.max(args[1]?.delay ?? 0, hold) };
+      }
       // Keys go where the focus is: into a frame, the top page never receives them, so they're left out of the count
       // (no slack for a foreign key) and can't be checked.
       if (state.pacing > 0 && n > 0 && (await pointerCheck(page, state)).focusFramed) {
