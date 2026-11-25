@@ -64,13 +64,13 @@
 // asked), and a key sent while the focus is in a frame, log "[film] not checked: ..." and make no claim either way. A
 // move that ends where the page doesn't see it (inside a frame in a closed shadow root, which the page sees the pointer
 // enter, at the first point inside, and then nothing) leaves the page's view behind: until the page sees the pointer
-// again, the checks there read "not checked", not "moved outside page.mouse", and a move from there runs unpaced. A
-// press or key that goes into a frame is left out of the counts, since the top page never receives it, so it leaves no
-// slack for a foreign one to hide in. The counts are per
+// again, the checks there read "not checked", not "moved outside page.mouse", a bare press or a click at that point
+// goes into the frame, and a move from there runs unpaced. A press or key that goes into a frame is left out of the
+// counts, since the top page never receives it, so it leaves no slack for a foreign one to hide in. The counts are per
 // page, so one such press or key leaves the whole video with no claim about pace, and a move from inside the frame then
 // runs unpaced and makes it "full speed": keep the bug's gesture out of frames where the app allows. Frames are found
-// through open shadow roots too. Unpaced outweighs unchecked: one unpaced input makes the claim "full speed". So a spec places the
-// pointer with page.mouse outside any gesture before it starts, uses only page.mouse and page.keyboard inside it, with
+// through open shadow roots too. Unpaced outweighs unchecked: one unpaced input makes the claim "full speed". So a spec
+// places the pointer with page.mouse outside any gesture before it starts, uses only page.mouse and page.keyboard inside it, with
 // moves in steps of at most MAX_STEP_PX and typed strings of at most MAX_TYPED characters a call, and ends it before
 // the input that loads a new page. The gesture's end clears its "Watch" caption, so nothing after it sits under one.
 // What this module can't see at all:
@@ -79,9 +79,9 @@
 //     setInputFiles, dispatchEvent;
 //   - anything inside a frame: the overlay runs in the top document only;
 //   - a frame inside a closed shadow root, which can't be looked into: it reads as its host. A move across or into it
-//     is caught by the jump the page saw, or the page's lost view (above), but a click into it from just outside, which
-//     the page sees land, and a key into it count as sent, which leaves room for one nobody sent (a locator press after
-//     a move back out, say).
+//     is caught by the jump the page saw, or the page's lost view (above). But a click at any point inside it that the
+//     page saw the pointer reach (from just outside, or where a move's last step entered it) and a key into it count as
+//     sent, which leaves room for one nobody sent (a locator press after a move back out, say).
 // It loads nothing and imports only Node's own timers. The job installs it read-only at /opt/factory.
 // A test outside the project's import() reach (vitest can't import() a file outside the project) can load it with
 // createRequire: that's require() of an ES module, on by default from Node 22.12, and it holds while this module has
@@ -306,11 +306,14 @@ function track(page) {
   // A press or click inside a gesture checks the pointer first: something other than page.mouse may have moved it,
   // and a click aimed more than MAX_STEP_PX from it (x, y given) jumps there, into a frame too. Returns whether the
   // press reaches the top page, which one that lands over a frame doesn't: a click by its target, a bare down by where
-  // the pointer is (over a frame, or where the page didn't see a move leave it). The caller counts it as sent only then.
+  // the pointer is (over a frame, or where the page didn't see a move leave it). A click at the pointer's own point
+  // where the page lost it goes there too; one elsewhere is still judged by its target, so a click back out counts.
+  // The caller counts it as sent only then.
   const pressCounts = async (x, y) => {
     if (state.pacing === 0) return true;
     const c = await pointerCheck(page, state, x === undefined ? [] : [[x, y]]);
-    const intoFrame = x === undefined ? c.why === "framed" || c.why === "lost" : c.pathFramed;
+    const intoFrame = x === undefined ? c.why === "framed" || c.why === "lost"
+      : c.pathFramed || (c.why === "lost" && !far(state.at, x, y));
     if (c.where === "outside") {
       state.unpaced += 1;
       log(OUTSIDE);

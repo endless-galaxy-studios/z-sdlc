@@ -37,6 +37,55 @@ Each entry contains:
 
 ---
 
+## 2026-11-25: A click where the page lost the pointer goes into the frame, the closed-root limit is stated in full, and the document clear is pinned
+
+**Origin:** the pilot project folded v2.12.7 into its PR #124, under CD's standing rule to fold each release while the PR is open.
+- **Their tests:** they mutated v2.12.7 one line at a time and caught each change. Their fake page matched real Chromium in every case.
+- **Real Chromium:** their architect's run passed all nine film checks.
+
+It sent three low items for the next time the module is touched. CD said to build them as v2.12.8 (2026-11-25).
+
+**What happened:**
+- **The header understated the closed-root limit.** It named a click into such a frame "from just outside". A click where a paced move's last step entered the frame does the same: the page saw the pointer reach that point, so the click is checked as known and counted as sent. In Chromium the pilot's architect showed it: a move back out, then a locator press within 1 px of the pointer, claimed paced.
+- **A click and a bare down where the pointer was lost were treated differently.** v2.12.7 left a bare `down` there out of the sent count. It judged a `click` at the same point by its target, which no lookup can see inside a closed root, so it counted the click as sent. A locator click afterwards then read as "moved outside page.mouse" rather than "didn't send". The click's own "not checked" already ruled out the paced claim, so the log was less specific, but nothing was over-claimed.
+- **Nothing pinned the clear of the lost point when a new document loads.** Deleting the condition passed both the module's tests and the pilot's.
+
+**Changes made:**
+
+1. **`bundles/factory/tree/evidence_film.mjs`**:
+   - **A click or double-click within 1 px of the pointer, where the page lost it,** is left out of the sent count, as a bare down there is. A click elsewhere is still judged by its target, so a click back out of the frame counts as sent.
+   - **The header** states the limit in full: a click at any point inside such a frame that the page saw the pointer reach, from just outside or where a move's last step entered it, and a key into it, still count as sent.
+2. **`process/factory.md`:** rule 7 says the same.
+
+   Mirror rule 5 is unchanged.
+3. **`tests/test_evidence_film.py`:** new stand-in cases:
+   - a click and a double-click where the pointer was lost, each "not checked" with no "didn't send";
+   - the click followed by a locator click, which reads "didn't send";
+   - a click back out of the frame, counted as sent;
+   - a load followed by a bare down at the old point, which reads unpaced and pins the document clear;
+   - the second route into the limit, pinned as a known limit.
+
+**Proof:**
+- **The bundle's own tests:** `test_evidence_film` (20) and `test_browser` (66, 3 skipped) pass.
+- **The new cases against older code fail as they should:**
+  - against v2.12.7, `closedClickThenLocatorClick` fails, and nothing else does;
+  - with only the document clause deleted, `closedThenLoadThenDown` fails, and nothing else does. It gives 1/0/2 and no claim, against 1/1/1 "full speed" with the clause.
+- **In a real Chromium** (Playwright 1.61.1, locally), each as the stand-in has it:
+  - **a click at the lost point:** 1/0/2, and the top page receives no press;
+  - **a double-click there:** 1/0/2;
+  - **the click, then a locator click:** 1/1/1, with "didn't send" logged, where v2.12.7 logged "moved outside page.mouse";
+  - **a click back out:** 1/0/1, counted as sent.
+- **The whole probe, locally:** every film check passes, and `film-claims` and `film-frames` print the same counts as the verdict fixtures.
+- **No hand run:** the probe is unchanged, so none was needed on the browser host.
+- **The import's two proofs pass.**
+
+**Rationale:**
+- **A press where the page lost the pointer goes where the page can't see,** whether it comes from `down` or from `click` at that point. Only a click aimed somewhere else lands where its target says.
+- **A limit stated in part reads as a guarantee for the rest.** So the header names every way to reach it.
+- **Release type: patch.** A fix, wording and tests, with no new export.
+
+---
+
 ## 2026-11-25: Where a move ended unseen reads as not checked, a native drag's whole pixels don't read as a jump, and typing too fast for the cap counts as unpaced
 
 **Origin:** the pilot project folded v2.12.6 into its PR #124, and its architect ran the v2.12.6 probe in a local Chromium:

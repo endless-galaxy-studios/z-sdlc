@@ -295,9 +295,19 @@ out.claims = {
   // A bare down there goes to the frame: left out of the sent count, so a locator click then reads as foreign.
   closedDown: await claimed(async (pg) => { pg.seen.closed = [150, 400]; await pg.mouse.move(175, 0, { steps: 7 }); await pg.mouse.down(); await pg.mouse.up(); }),
   closedDownThenLocatorClick: await claimed(async (pg) => { pg.seen.closed = [150, 400]; await pg.mouse.move(175, 0, { steps: 7 }); await pg.mouse.down(); await pg.mouse.up(); locator(pg, null, { downs: 1 }); }),
-  // KNOWN LIMIT (the header's): a click just inside it from its edge, which the page sees land, counts as sent, so
-  // after a paced move back out a locator click hides in that slack.
+  // A click at the point where the page lost the pointer goes to the frame too, a double-click as well; one back out
+  // of it reaches the page and counts as sent.
+  closedClick: await claimed(async (pg) => { pg.seen.closed = [150, 400]; await pg.mouse.move(175, 0, { steps: 7 }); await pg.mouse.click(175, 0); }),
+  closedClickThenLocatorClick: await claimed(async (pg) => { pg.seen.closed = [150, 400]; await pg.mouse.move(175, 0, { steps: 7 }); await pg.mouse.click(175, 0); locator(pg, { x: 30, y: 30 }, { downs: 1 }); }),
+  closedDblclick: await claimed(async (pg) => { pg.seen.closed = [150, 400]; await pg.mouse.move(175, 0, { steps: 7 }); await pg.mouse.dblclick(175, 0); }),
+  closedClickOut: await claimed(async (pg) => { pg.seen.closed = [150, 400]; await pg.mouse.move(175, 0, { steps: 7 }); await pg.mouse.click(100, 0); }),
+  // A load after it: what the new document sees counts, even at the old point, so a press there is checked again.
+  closedThenLoadThenDown: await claimed(async (pg) => { pg.seen.closed = [150, 400]; await pg.mouse.move(175, 0, { steps: 7 }); load(pg); Object.assign(pg.seen, { closed: null, value: { x: 150, y: 0 } }); await pg.mouse.down(); await pg.mouse.up(); }),
+  // KNOWN LIMIT (the header's): a click at a point inside it that the page saw the pointer reach counts as sent, so
+  // after a paced move back out a locator click hides in that slack: from just outside, or where a move's last step
+  // entered it.
   knownLimitClosedClickThenLocatorClick: await claimed(async (pg) => { pg.seen.closed = [150, 400]; await pg.mouse.move(140, 0, { steps: 4 }); await pg.mouse.click(160, 0); await pg.mouse.move(125, 0); locator(pg, null, { downs: 1 }); }),
+  knownLimitClosedMoveInClickThenLocatorClick: await claimed(async (pg) => { pg.seen.closed = [150, 400]; await pg.mouse.move(150, 0, { steps: 6 }); await pg.mouse.click(150, 0); await pg.mouse.move(125, 0); locator(pg, null, { downs: 1 }); }),
 };
 {
   // Typing inside a gesture goes a character at a time: Playwright's own delay, STEP_MS; outside, as given.
@@ -512,14 +522,25 @@ class Film(unittest.TestCase):
             "closedThenLocatorHover": (n(1, 1), unpaced, "during the gesture"),
             "closedDown": (n(1, 0, 2), "", "not checked"),
             "closedDownThenLocatorClick": (n(1, 1, 1), unpaced, "didn't send"),
+            "closedClick": (n(1, 0, 2), "", "not checked"),
+            "closedClickThenLocatorClick": (n(1, 1, 1), unpaced, "didn't send"),
+            "closedDblclick": (n(1, 0, 2), "", "not checked"),
+            "closedClickOut": (n(1, 0, 1), "", "not checked"),
+            "closedThenLoadThenDown": (n(1, 1, 1), unpaced, "so its start isn't known"),
             "knownLimitClosedClickThenLocatorClick": (n(3), paced, None),
+            "knownLimitClosedMoveInClickThenLocatorClick": (n(3), paced, None),
         }
         # A click back out of a frame reaches the page and is counted as sent: no press reads as foreign.
         self.assertNotIn("didn't send", claims["clickOutOfAFrame"]["said"])
         # Where the page lost the pointer in a frame, the module's own move doesn't read as a locator's.
-        for case in ("closedInto", "closedOneStepIn", "closedInAndOut", "closedDown"):
+        for case in ("closedInto", "closedOneStepIn", "closedInAndOut", "closedDown", "closedClick", "closedDblclick",
+                     "closedClickOut"):
             with self.subTest(case=case):
                 self.assertNotIn("moved outside page.mouse", claims[case]["said"])
+        # A click or double-click where the pointer was lost, and one back out, leave no press reading as foreign.
+        for case in ("closedClick", "closedDblclick", "closedClickOut"):
+            with self.subTest(case=case):
+                self.assertNotIn("didn't send", claims[case]["said"])
         self.assertEqual(sorted(want), sorted(k for k in claims if k != "untracked"))
         for case, (counts, claim, said) in want.items():
             with self.subTest(case=case):
