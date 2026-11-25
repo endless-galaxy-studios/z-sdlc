@@ -37,6 +37,86 @@ Each entry contains:
 
 ---
 
+## 2026-11-25: Where a move ended unseen reads as not checked, a native drag's whole pixels don't read as a jump, and typing too fast for the cap counts as unpaced
+
+**Origin:** the pilot project folded v2.12.6 into its PR #124, and its architect ran the v2.12.6 probe in a local Chromium:
+- all nine film checks passed;
+- #49's gesture stayed paced, and `evidence.py` kept all 6 files.
+
+It sent six low items for the next time the module is touched. CD said to build them as v2.12.7 (2026-11-25). Two stay as they are: a press into a closed-root frame from just outside (a stated limit), and a far click out of a frame reading "not checked" (safe either way).
+
+**What happened:**
+- **A move that ended inside a closed-root frame was counted twice, and the second count blamed a locator.**
+  - **What the page sees:** in Chromium, the page sees the pointer enter such a frame, at the first point inside, and then nothing.
+  - **The double count:** the page-seen jump made the move unpaced. Then the gesture's end found the page's last point away from the module's, and logged "moved outside page.mouse during the gesture (a locator action?)", for the module's own move.
+  - **Found here, worse:** a move whose last step went one step inside stays paced, since the page saw every step but the last. Its gesture's end still read as a locator's move, so the video said "full speed".
+- **The page-seen jump allowed 1 px of rounding, but needed more.** The docs said "more than `MAX_STEP_PX`" while the code tested `> MAX_STEP_PX + 1`.
+  - **Measured here:** Chromium gives pointer events fractional coordinates, but truncates a native drag's `drag` and `dragover` to whole pixels. So a step can read up to a pixel longer on each axis.
+  - **The result:** an honest native drag in diagonal 40 px steps read as a 41 px jump on v2.12.6, and its video said "full speed".
+- **Typing's cap undercut `film-typed`'s floor.** From 38 characters in one call, each key was held less than 40 ms, and at 300 characters 5 ms, while the string still counted as paced.
+
+**Changes made:**
+
+1. **`bundles/factory/tree/evidence_film.mjs`**:
+   - **Where a move ended unseen.**
+     - At a paced move's end, the overlay also says where the page last saw the pointer.
+     - **What's recorded:** when that isn't the move's end point, the module records it with its document. While the page still has the pointer there, the checks there read "not checked", not "moved outside page.mouse": the gesture's end, a press, and the next move's start.
+     - **What that means for each:** a move from there runs unpaced, as one from a frame does. A bare press there is left out of the sent count, as one over a frame is. Once the page sees the pointer anywhere else, or loads, it counts as before, so a locator that moves the pointer where the page sees it still reads as one.
+   - **The page-seen jump** allows √2 px (`SEEN_SLACK_PX`), a pixel on each axis.
+   - **Typing:**
+     - the cap stays;
+     - **unpaced past the floor:** a string whose keys would go under `STEP_MS / 2`, a frame of a 25 fps video, counts as unpaced and logs it. That's more than 37 characters in one call, unless the spec's own `delay` is 40 ms or more.
+     - **Why not a floor:** it would leave the time added unbounded, and the filmed pass could time out where the proof passed.
+   - **The header** says each of these, and narrows the closed-root limit to what's left: a click into such a frame from just outside, which the page sees land, and a key into it, still count as sent.
+2. **`bundles/factory/tree/browser_probe.mjs`:**
+   - **`film-frames` gains `closed-into` and `closed-step`.** Each is a move ending inside the closed-root frame: one by a jump, which must count as unpaced, and one a step deep, which must stay paced. Each must count its end as not checked and never log "moved outside page.mouse".
+   - **Comments:** the claims page's comment names the closed-root frame and `film-typed`, and a stray comment is back above its case. `browser_check.py`'s docstring says the same.
+3. **`process/factory.md`:**
+   - **D6 rule 4** lists the two cases.
+   - **Rule 7:**
+     - the page's view left behind;
+     - the √2 px allowance;
+     - typing past 37 characters a call;
+     - the narrowed limit.
+   - **The spec's recipe** (rule 7, the module's header, § After migrating, and mirror rule 5) asks for typed strings of at most 37 characters a call. Mirror rule 5 is copied word for word into `skills/sdlc-reproduce`, `sdlc-implement` and `sdlc-revise`.
+4. **Tests:**
+   - **`tests/test_evidence_film.py`:**
+     - **The stand-in:** it plays Chromium's events at a closed-root frame's edge, as the architect recorded them, and works out the page-seen jump itself.
+     - **The closed-root cases:**
+       - a move into the frame, or one step in;
+       - the page later seeing the end;
+       - in and back out;
+       - then a locator hover;
+       - a bare down there, with and without a locator click after it;
+       - the remaining limit, pinned as a known limit.
+     - **Both sides of the allowance:** 41.2 px stays paced, and 41.5 px doesn't.
+     - **Typing:** 37 characters stay paced, 38 don't, and the spec's own 40 ms keeps 60 paced.
+   - **`tests/test_browser.py`:** the verdict fixtures gain the two cases.
+
+**Proof:**
+- **The bundle's own tests:** `test_evidence_film` (20) and `test_browser` (66, 3 skipped) pass. The rest of the bundle's suite gives the same results as before this change.
+- **In a real Chromium** (Playwright 1.61.1, locally):
+  - **The new probe:** every film check passes. `closed-into` reads 1/1/1, and `closed-step` 2/0/1.
+  - **Against v2.12.6:** `closed-into` reads 1/2/0, with "moved outside page.mouse". `closed-step` reads 2/1/0, a false "full speed".
+  - **A native drag in diagonal 40 px steps** reads paced, where v2.12.6 read it as a 41 px jump.
+  - **A bare press after a move one step into the closed-root frame** never reaches the top page and reads not checked (1/0/2). A locator click after it reads "didn't send" (1/1/1), and a move in and back out reads 0/2/0, as the stand-in has them.
+  - **The earlier scripts:** both native drags and the closed-root crossing give the same counts as before.
+- **On the browser host, by hand,** from the runner host with a 1.61.1 client against the 1.61 front end (Chromium 149.0.7827.55, WebGL on the M1), three runs:
+  - all nine film checks passed each time;
+  - `film-frames` passed its thirteen cases, `closed-into` at 1/1/1 and `closed-step` at 2/0/1;
+  - `film-typed`'s shortest gap was 83 to 85 ms, and `film-paced`'s 86 to 87 ms.
+
+  `browser_check.py`'s only complaints were the canary credential, which a hand run doesn't hold and smoke supplies.
+- **The import's two proofs pass.**
+
+**Rationale:**
+- **What the page saw decides the reason, too.** A move that ends where the page can't see is the module's own: the honest word is "not checked", and "moved outside page.mouse" is kept for something the page saw.
+- **The allowance comes from a measurement.** Pointer events are fractional, and only a drag's are whole pixels: √2 px covers exactly that.
+- **A bounded cap over an unbounded floor.** A filmed pass that times out ships nothing, while a dropped claim still ships the video. Typing what CD needn't watch outside the gesture keeps both.
+- **Release type: patch.** Fixes, stricter checks, smoke cases and wording, with no new export.
+
+---
+
 ## 2026-11-24: A jump the page itself saw makes a move unpaced, typing is capped like a move, and smoke checks typing's spacing
 
 **Origin:** the pilot project folded v2.12.5 into its PR #124, and its architect ran the v2.12.5 probe in a local Chromium 149:

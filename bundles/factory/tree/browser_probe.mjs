@@ -171,9 +171,10 @@ addEventListener("pointermove", (e) => __moves.push([e.clientX, e.clientY, (docu
 new MutationObserver((r) => { __body += r.length; }).observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true });
 </script>`;
 // The pace claim's checks (paceCounts and the reasons the module logs), on a page with a button, an input, a frame with
-// an input of its own, and a second frame inside an open shadow root. Each case below says what it must count and the
-// reason it must log (or not): film-claims holds the cases without a frame, film-frames the ones with, and
-// film-caption checks by the strip's pixels that a gesture's "Watch" caption is gone after it.
+// an input of its own, a second frame inside an open shadow root and a third inside a closed one. Each case below says
+// what it must count and the reason it must log (or not): film-claims holds the cases without a frame, film-frames the
+// ones with, film-caption checks by the strip's pixels that a gesture's "Watch" caption is gone after it, and
+// film-typed that its typed keys came spaced out.
 const CLAIMS_PAGE = `<!doctype html><title>factory film claims</title><style>body{margin:0}
 #b{position:absolute;left:200px;top:200px;width:90px;height:32px}#i{position:absolute;left:200px;top:300px;width:150px;height:24px}
 #f{position:absolute;left:400px;top:100px;width:200px;height:150px;border:0}#w{position:absolute;left:20px;top:340px;display:block}
@@ -360,13 +361,24 @@ async function claimChecks(browser, appUrl, film) {
         await page.mouse.click(410, 175);
         await page.mouse.click(385, 175);
       }, (c) => c.unpaced === 0 && c.unchecked > 0, ["not checked", "didn't send"]],
-      // A bare down is judged by where the pointer is: over the frame it's left out of the sent count, so the
-      // locator's click then reads as foreign.
       // A move across the frame in the closed shadow root: no lookup finds it, so the jump the page saw does.
       ["closed-across", async (page) => {
         await page.mouse.move(400, 330, { steps: 14 });
         await page.mouse.move(620, 330, { steps: 8 });
       }, (c) => c.unpaced > 0, "saw the pointer jump"],
+      // A move that ends inside it: the page sees the pointer enter, at the first point inside, then nothing. The
+      // jump makes it unpaced, and where it ended is not checked, never a locator's move.
+      ["closed-into", async (page) => {
+        await page.mouse.move(400, 330, { steps: 14 });
+        await page.mouse.move(520, 330, { steps: 8 });
+      }, (c) => c.unpaced > 0 && c.unchecked > 0, ["not checked", "moved outside page.mouse"]],
+      // One step past the first point inside: the page saw the steps, so the move is paced, and its end not checked.
+      ["closed-step", async (page) => {
+        await page.mouse.move(400, 330, { steps: 14 });
+        await page.mouse.move(445, 330, { steps: 3 });
+      }, (c) => c.unpaced === 0 && c.unchecked > 0, ["not checked", "moved outside page.mouse"]],
+      // A bare down is judged by where the pointer is: over the frame it's left out of the sent count, so the
+      // locator's click then reads as foreign.
       ["down+locator", async (page) => {
         await page.mouse.move(390, 175, { steps: 10 });
         await page.mouse.click(410, 175);

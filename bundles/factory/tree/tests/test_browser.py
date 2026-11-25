@@ -525,7 +525,7 @@ class ThisProject(unittest.TestCase):
 # What the probe printed in the hand test on the runner host (2026-11-20), as the control and as sandboxed Bash. The
 # film lines are from a local run against Playwright 1.61.1's own server (2026-11-23); the browser host's hand run the
 # same day passed the same checks three times, with film-paced's shortest gap 87 to 88 ms. film-claims,
-# film-frames, film-typed and film-caption are from a local run on 2026-11-24.
+# film-typed and film-caption are from a local run on 2026-11-24, film-frames from one on 2026-11-25.
 CONTROL = """secret env github
 secret env oauth
 env-name present CLAUDE_CODE_OAUTH_TOKEN
@@ -544,7 +544,7 @@ film-observed none body records plain 0 filmed 0; overlay elements under <html> 
 film-drawn drawn the pointer at the move's end
 film-paced paced shortest gap between steps 75 ms (want at least 40)
 film-claims checked paced/unpaced/not checked: mouse+keys 8/0/0, locator-click 1/1/0, dblclick+locator 2/1/0
-film-frames checked paced/unpaced/not checked: click 1/0/2, locator+move 0/1/0, across 1/1/0, key+locator 1/1/1, click+locator 1/1/1, shadow-across 2/1/0, shadow-key+locator 1/1/1, far-click 0/1/1, click-out 1/0/2, closed-across 1/1/0, down+locator 1/1/2
+film-frames checked paced/unpaced/not checked: click 1/0/2, locator+move 0/1/0, across 1/1/0, key+locator 1/1/1, click+locator 1/1/1, shadow-across 2/1/0, shadow-key+locator 1/1/1, far-click 0/1/1, click-out 1/0/2, closed-across 1/1/0, closed-into 1/1/1, closed-step 2/0/1, down+locator 1/1/2
 film-typed spaced shortest gap between typed keys 82 ms over 4 keys (want at least 40)
 film-caption cleared the "Watch" caption showed during the gesture and was gone after it
 flags present
@@ -572,7 +572,7 @@ film-observed none body records plain 0 filmed 0; overlay elements under <html> 
 film-drawn drawn the pointer at the move's end
 film-paced paced shortest gap between steps 75 ms (want at least 40)
 film-claims checked paced/unpaced/not checked: mouse+keys 8/0/0, locator-click 1/1/0, dblclick+locator 2/1/0
-film-frames checked paced/unpaced/not checked: click 1/0/2, locator+move 0/1/0, across 1/1/0, key+locator 1/1/1, click+locator 1/1/1, shadow-across 2/1/0, shadow-key+locator 1/1/1, far-click 0/1/1, click-out 1/0/2, closed-across 1/1/0, down+locator 1/1/2
+film-frames checked paced/unpaced/not checked: click 1/0/2, locator+move 0/1/0, across 1/1/0, key+locator 1/1/1, click+locator 1/1/1, shadow-across 2/1/0, shadow-key+locator 1/1/1, far-click 0/1/1, click-out 1/0/2, closed-across 1/1/0, closed-into 1/1/1, closed-step 2/0/1, down+locator 1/1/2
 film-typed spaced shortest gap between typed keys 82 ms over 4 keys (want at least 40)
 film-caption cleared the "Watch" caption showed during the gesture and was gone after it
 flags present

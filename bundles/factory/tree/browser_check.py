@@ -21,7 +21,8 @@ both:    the probe connected to the browser host's front end through with-browse
          page.mouse and page.keyboard send (a double-click and a bare down too) counts as paced, and a locator click
          where the pointer already is, after a double-click too, as unpaced (film-claims); presses, keys and moves into
          or across a frame, one inside an open shadow root too, as not checked or unpaced as the module's rules say
-         (film-frames), and a move across a frame in a closed shadow root as unpaced, by the jump the page saw. The
+         (film-frames), and a move across or into a frame in a closed shadow root as unpaced, by the jump the page
+         saw, with where a move ended inside it not checked, never read as a locator's move. The
          gesture's "Watch" caption is gone after it (film-caption), and its typed keys arrive at least half of
          STEP_MS apart (film-typed).
 control: run outside the sandbox, with network and a canary credential in its environment (never a real token:

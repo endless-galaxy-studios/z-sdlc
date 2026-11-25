@@ -10,8 +10,9 @@
 //     step of a page.mouse move is held STEP_MS after the browser takes it, so the page sees the steps at least that
 //     far apart (the module adds at most MOVE_CAP_MS to a move; a slow browser's own time per step comes on top),
 //     a press, click or key waits PRESS_MS first, a typed string then goes STEP_MS a character (Playwright's own
-//     delay; at most MOVE_CAP_MS added in all, as for a move, and a longer delay from the spec kept), and a wheel waits
-//     STEP_MS before and after. Nothing outside a gesture waits. So in the filmed pass a key is held about STEP_MS and
+//     delay; at most MOVE_CAP_MS added in all, as for a move, and a longer delay from the spec kept: past MAX_TYPED
+//     characters in one call, a key would be held under KEY_FLOOR_MS, a frame of the video, and the string counts as
+//     unpaced), and a wheel waits STEP_MS before and after. Nothing outside a gesture waits. So in the filmed pass a key is held about STEP_MS and
 //     the app's handlers run between characters: a debounced search or a keyup handler can behave differently from
 //     the proof. insertText puts its whole string in at once, as one action, like a paste;
 //   - paceClaim(page) when it saves the video: what the video's `shows` ends with, which says the gestures (the parts
@@ -51,27 +52,36 @@
 //   - a move with a step point on a frame, where the top page can't see the pointer, so the drawn pointer would
 //     stall and then jump: it runs unpaced. Only the step points are checked; a frame narrower than a step can fall
 //     between two of them, and the drawn pointer steps over it as over anything else;
-//   - a paced move in which the page itself saw the pointer jump more than MAX_STEP_PX (the overlay records the
-//     longest jump between the positions it receives, and the last leg to the end point): the drawn pointer stalled
-//     where the page got no pointer events, such as over a frame in a closed shadow root, which no lookup finds;
+//   - a paced move in which the page itself saw the pointer jump more than MAX_STEP_PX, give or take SEEN_SLACK_PX (a
+//     native drag's events come in whole pixels; the overlay records the longest jump between the positions it
+//     receives, and the last leg to the end point): the drawn pointer stalled where the page got no pointer events,
+//     such as over a frame in a closed shadow root, which no lookup finds;
+//   - a typed string of more than MAX_TYPED characters in one call, unless the spec's own delay is at least
+//     KEY_FLOOR_MS;
 //   - a move whose steps isn't a whole number.
 // A press, a click or the gesture's end that can't be checked (the page hasn't seen the pointer since it loaded, loaded
-// during the gesture, has the pointer over a frame, or couldn't be asked), and a key sent while the focus is in a frame,
-// log "[film] not checked: ..." and make no claim either way. A press or key that goes into a frame is left out of the
-// counts, since the top page never receives it, so it leaves no slack for a foreign one to hide in. The counts are per
+// during the gesture, has the pointer over a frame, still has it where a paced move's end went unseen, or couldn't be
+// asked), and a key sent while the focus is in a frame, log "[film] not checked: ..." and make no claim either way. A
+// move that ends where the page doesn't see it (inside a frame in a closed shadow root, which the page sees the pointer
+// enter, at the first point inside, and then nothing) leaves the page's view behind: until the page sees the pointer
+// again, the checks there read "not checked", not "moved outside page.mouse", and a move from there runs unpaced. A
+// press or key that goes into a frame is left out of the counts, since the top page never receives it, so it leaves no
+// slack for a foreign one to hide in. The counts are per
 // page, so one such press or key leaves the whole video with no claim about pace, and a move from inside the frame then
 // runs unpaced and makes it "full speed": keep the bug's gesture out of frames where the app allows. Frames are found
 // through open shadow roots too. Unpaced outweighs unchecked: one unpaced input makes the claim "full speed". So a spec places the
 // pointer with page.mouse outside any gesture before it starts, uses only page.mouse and page.keyboard inside it, with
-// moves in steps of at most MAX_STEP_PX, and ends it before the input that loads a new page. The gesture's end clears
-// its "Watch" caption, so nothing after it sits under one. What this module can't see at all:
+// moves in steps of at most MAX_STEP_PX and typed strings of at most MAX_TYPED characters a call, and ends it before
+// the input that loads a new page. The gesture's end clears its "Watch" caption, so nothing after it sits under one.
+// What this module can't see at all:
 //   - a locator hover that ends within 1 px of where page.mouse left the pointer, wherever it went in between;
 //   - a locator action that makes no press, key or pointer move: fill (an input event only), selectOption, focus,
 //     setInputFiles, dispatchEvent;
 //   - anything inside a frame: the overlay runs in the top document only;
-//   - a frame inside a closed shadow root, which can't be looked into: it reads as its host. A move across it is
-//     caught by the jump the page saw (above), but a press or key into it counts as sent, which leaves room for one
-//     nobody sent.
+//   - a frame inside a closed shadow root, which can't be looked into: it reads as its host. A move across or into it
+//     is caught by the jump the page saw, or the page's lost view (above), but a click into it from just outside, which
+//     the page sees land, and a key into it count as sent, which leaves room for one nobody sent (a locator press after
+//     a move back out, say).
 // It loads nothing and imports only Node's own timers. The job installs it read-only at /opt/factory.
 // A test outside the project's import() reach (vitest can't import() a file outside the project) can load it with
 // createRequire: that's require() of an ES module, on by default from Node 22.12, and it holds while this module has
@@ -85,6 +95,13 @@ export const PRESS_MS = 400;
 export const MAX_TEXT = 300;
 export const MAX_STEP_PX = 40; // the longest step a paced move may take and still be drawn travelling
 const KEY = "factory-film";
+// A native drag's events come in whole pixels (Chromium truncates them), so a step the page saw can read up to a
+// pixel longer on each axis than the one sent.
+const SEEN_SLACK_PX = Math.SQRT2;
+// A frame of a 25 fps video: the shortest a typed key may be held and still count as paced, so no two characters
+// land in one frame. Under MOVE_CAP_MS, a string of more than MAX_TYPED characters in one call would go faster.
+const KEY_FLOOR_MS = STEP_MS / 2;
+const MAX_TYPED = Math.floor(MOVE_CAP_MS / KEY_FLOOR_MS);
 
 /** True in the filmed pass: with-browser --film sets FACTORY_EVIDENCE_PACE=1 for a stage that records video. */
 export function filming(env = process.env) {
@@ -190,13 +207,14 @@ function overlay(captionAt) {
       listen,
       last: () => (last ? { x: last.x, y: last.y } : null),
       // A paced move's watch: from its start, then, at its end, the longest jump seen, the last leg to the end
-      // point included (a move that ends where this page can't see it). null when this document didn't start it.
+      // point included (a move that ends where this page can't see it), with where this page last saw the pointer
+      // and which document this is. null when this document didn't start it.
       watch: (x, y) => { watching = { at: { x, y }, gap: 0 }; },
       unwatch: (x, y) => {
         if (!watching) return null;
         const gap = Math.max(watching.gap, Math.hypot(x - watching.at.x, y - watching.at.y));
         watching = null;
-        return gap;
+        return { gap, last: last ? { x: last.x, y: last.y } : null, doc };
       },
       // For the module's checks: where the page last saw the pointer, the trusted presses and keys it has received,
       // which document this is, and whether (x, y) is over a frame, whose own events this document never sees.
@@ -246,8 +264,9 @@ const OUTSIDE = "a move ran unpaced: the pointer was moved outside page.mouse (a
 const JUMP = `a move ran unpaced: the pointer jumped (a step longer than ${MAX_STEP_PX} px, or a click that far from it): move there in more steps first`;
 const AFTER = "a move ran unpaced: the pointer was moved outside page.mouse during the gesture (a locator action?)";
 const AROUND = "a move ran unpaced: the page received a press or key that page.mouse and page.keyboard didn't send (a locator action?)";
-const UNCHECKED_MOVE = "a move ran unpaced: the page hasn't seen the pointer (since it loaded, or it's over a frame), so its start can't be checked: place it with page.mouse outside a gesture first, and end a gesture before the input that loads a new page";
-const UNCHECKED = "not checked: the page hasn't seen the pointer since it loaded, loaded during the gesture, has the pointer or the focus in a frame, or couldn't be asked, so this makes no claim about pace";
+const UNCHECKED_MOVE = "a move ran unpaced: the page hasn't seen the pointer (since it loaded, or it's over a frame, or the page didn't see where a move left it), so its start can't be checked: place it with page.mouse outside a gesture first, and end a gesture before the input that loads a new page";
+const UNCHECKED = "not checked: the page hasn't seen the pointer since it loaded, loaded during the gesture, has the pointer or the focus in a frame, didn't see where a move left the pointer, or couldn't be asked, so this makes no claim about pace";
+const TYPED_FAST = `a move ran unpaced: a string of more than ${MAX_TYPED} characters typed in one call would go faster than a key a video frame (${KEY_FLOOR_MS} ms) within the cap: type at most ${MAX_TYPED} a call inside a gesture`;
 const CROSSES = "a move ran unpaced: a step point lands on a frame, where this page can't see the pointer, so the drawn pointer would stall and then jump: go around the frame";
 const far = (at, x, y) => Math.abs(x - at.x) > 1 || Math.abs(y - at.y) > 1;
 // Playwright's own split of a chord ("Shift+A", "Control++"): a "+" with nothing before it is the key itself.
@@ -270,8 +289,10 @@ const jumps = (at, x, y, steps = 1) => Math.hypot(x - at.x, y - at.y) / steps > 
 // Track where page.mouse last sent the pointer, and pace its calls inside a gesture.
 function track(page) {
   if (pages.has(page)) return;
+  // lost: where the page last saw the pointer, and in which document, when a paced move ended where the page didn't
+  // see it (in a frame no lookup finds): while the page still has the pointer there, the checks can't say where it is.
   const state = { at: { x: 0, y: 0 }, moved: false, pacing: 0, sentDowns: 0, sentKeys: 0, text: "", passthrough: 0,
-    gestures: 0, paced: 0, unpaced: 0, unchecked: 0 };
+    lost: null, gestures: 0, paced: 0, unpaced: 0, unchecked: 0 };
   pages.set(page, state);
   const mouse = page.mouse, keyboard = page.keyboard;
   const m = { move: mouse.move.bind(mouse), click: mouse.click.bind(mouse), dblclick: mouse.dblclick.bind(mouse),
@@ -285,11 +306,11 @@ function track(page) {
   // A press or click inside a gesture checks the pointer first: something other than page.mouse may have moved it,
   // and a click aimed more than MAX_STEP_PX from it (x, y given) jumps there, into a frame too. Returns whether the
   // press reaches the top page, which one that lands over a frame doesn't: a click by its target, a bare down by where
-  // the pointer is. The caller counts it as sent only then.
+  // the pointer is (over a frame, or where the page didn't see a move leave it). The caller counts it as sent only then.
   const pressCounts = async (x, y) => {
     if (state.pacing === 0) return true;
     const c = await pointerCheck(page, state, x === undefined ? [] : [[x, y]]);
-    const intoFrame = x === undefined ? c.why === "framed" : c.pathFramed;
+    const intoFrame = x === undefined ? c.why === "framed" || c.why === "lost" : c.pathFramed;
     if (c.where === "outside") {
       state.unpaced += 1;
       log(OUTSIDE);
@@ -346,12 +367,16 @@ function track(page) {
       }
       // And a jump the page itself saw: the drawn pointer stalled where the page got no pointer events (a frame in a
       // closed shadow root, which no lookup finds), then jumped.
-      const gap = await page.evaluate(([k, ex, ey]) => window[Symbol.for(k)]?.unwatch(ex, ey) ?? null, [KEY, x, y])
+      const watched = await page.evaluate(([k, ex, ey]) => window[Symbol.for(k)]?.unwatch(ex, ey) ?? null, [KEY, x, y])
         .catch(() => null);
-      const unseen = !jumped && gap !== null && gap > MAX_STEP_PX + 1;
+      const gap = watched?.gap ?? null;
+      const unseen = !jumped && gap !== null && gap > MAX_STEP_PX + SEEN_SLACK_PX;
       if (unseen) log(`a move ran unpaced: the page saw the pointer jump ${Math.round(gap)} px within a paced move (a frame it can't see into, such as one in a closed shadow root?): go around it`);
       if (jumped || unseen) state.unpaced += 1;
       else state.paced += 1;
+      // A move that ends where the page didn't see it (inside such a frame: the page sees the pointer enter, then
+      // nothing) leaves the page with the pointer where it lost it, which isn't a locator action.
+      state.lost = watched?.last && far({ x, y }, watched.last.x, watched.last.y) ? { ...watched.last, doc: watched.doc } : null;
     } else {
       if (state.pacing > 0) state.unpaced += 1;
       await m.move(x, y, options);
@@ -400,10 +425,14 @@ function track(page) {
     keyboard[name] = async (...args) => {
       const n = keydowns[name](args[0]);
       // A typed string goes a character at a time, each held STEP_MS (Playwright's own delay, between a key's down and
-      // its up), so the film shows it typed rather than appearing at once.
+      // its up), so the film shows it typed rather than appearing at once. Capped as a move is, but a key held less
+      // than a video frame isn't paced: such a string runs at the cap and counts as unpaced.
+      let tooFast = false;
       if (name === "type" && state.pacing > 0) {
         const hold = Math.min(STEP_MS, MOVE_CAP_MS / Math.max(1, [...String(args[0])].length));
-        args[1] = { ...args[1], delay: Math.max(args[1]?.delay ?? 0, hold) };
+        const delay = Math.max(args[1]?.delay ?? 0, hold);
+        args[1] = { ...args[1], delay };
+        tooFast = delay < KEY_FLOOR_MS;
       }
       // Keys go where the focus is: into a frame, the top page never receives them, so they're left out of the count
       // (no slack for a foreign key) and can't be checked.
@@ -413,7 +442,11 @@ function track(page) {
       } else {
         state.sentKeys += n;
       }
-      await pause(PRESS_MS, true);
+      if (tooFast) {
+        state.unpaced += 1;
+        log(TYPED_FAST);
+      }
+      await pause(PRESS_MS, !tooFast);
       return original(...args);
     };
   }
@@ -422,8 +455,9 @@ function track(page) {
 // Where the page last saw the pointer, against where this module last sent it. "known": the same point. "outside":
 // somewhere else, so something other than page.mouse moved it (a locator action), and a paced move would start from the
 // wrong point. "unchecked": the page can't say, since it hasn't seen the pointer (since it loaded: Playwright's pointer
-// may be anywhere), the pointer is over a frame, or the page couldn't be asked. With the page's tally of presses, keys
-// and document (null when it couldn't be asked). The caller logs.
+// may be anywhere), the pointer is over a frame, the page still has it where a move left it unseen (state.lost: the
+// page's view hasn't changed since, so nothing else moved it where the page could see), or the page couldn't be asked.
+// With the page's tally of presses, keys and document (null when it couldn't be asked). The caller logs.
 async function pointerCheck(page, state, points = []) {
   let seen;
   try {
@@ -437,7 +471,12 @@ async function pointerCheck(page, state, points = []) {
   const more = { tally, pathFramed: !!seen.pathFramed, focusFramed: !!seen.focusFramed };
   if (seen.framed) return { where: "unchecked", why: "framed", ...more };
   if (seen.last === null) return { where: "unchecked", why: "unseen", ...more };
-  return { where: far(state.at, seen.last.x, seen.last.y) ? "outside" : "known", why: null, ...more };
+  // The page has seen the pointer somewhere else since it lost it, or loaded: what it sees now counts again.
+  const lost = state.lost;
+  if (lost && (lost.doc !== seen.doc || far(lost, seen.last.x, seen.last.y))) state.lost = null;
+  if (!far(state.at, seen.last.x, seen.last.y)) return { where: "known", why: null, ...more };
+  if (state.lost) return { where: "unchecked", why: "lost", ...more };
+  return { where: "outside", why: null, ...more };
 }
 
 /**
@@ -505,9 +544,9 @@ export async function gesture(page, label, fn) {
       // A locator action after the gesture's last page.mouse call left the pointer where this module didn't send it.
       state.unpaced += 1;
       log(AFTER);
-    } else if (end.why === "framed") {
-      // Over a frame, whose events this document doesn't see. (No pointer seen at all in the same document means
-      // nothing moved it there, which is fine.)
+    } else if (end.why === "framed" || end.why === "lost") {
+      // Over a frame, whose events this document doesn't see, or where the page didn't see a move leave it. (No
+      // pointer seen at all in the same document means nothing moved it there, which is fine.)
       state.unchecked += 1;
       log(UNCHECKED);
     }

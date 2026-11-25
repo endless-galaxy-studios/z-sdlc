@@ -27,13 +27,29 @@ function stand(seen, moveMs = 0) {
   // framed: the pointer is over a frame; pathFramed: the points asked about are (a click's target); focusFramed: the
   // focus is in a frame. A click whose target is over a frame, a down where the pointer is over one, and a key into one
   // never reach this page's counts.
-  Object.assign(seen, { downs: 0, keys: 0, doc: "first", framed: false, pathFramed: false, focusFramed: false, ...seen });
+  // closed: [left, right], a frame in a closed shadow root across the page, which no lookup finds. The page sees it as
+  // Chromium shows it: entering, the body's pointerout and the host's pointerover, both at the first point inside;
+  // inside, nothing; leaving, the host's pointerout, then the body's pointerover and pointermove, all at the first
+  // point outside. A press inside it goes to the frame. A move call lands at its end point (an unpaced move's own steps
+  // aren't played out).
+  Object.assign(seen, { downs: 0, keys: 0, doc: "first", framed: false, pathFramed: false, focusFramed: false, closed: null, ...seen });
   const calls = [];
   const rec = (name) => async (...args) => { calls.push([name, ...args.map((a) => (typeof a === "function" ? "fn" : a)), now()]); };
+  const inClosed = (p) => !!(p && seen.closed && p.x >= seen.closed[0] && p.x <= seen.closed[1]);
+  // A paced move's watch, as the overlay keeps it: the longest jump between the positions the page saw.
+  let watching = null;
+  const sees = (x, y) => {
+    if (inClosed({ x, y }) && inClosed(seen.value)) return;
+    if (watching) {
+      watching.gap = Math.max(watching.gap, Math.hypot(x - watching.at.x, y - watching.at.y));
+      watching.at = { x, y };
+    }
+    seen.value = { x, y };
+  };
   const lands = (name, downs = () => 0) => async (x, y, ...rest) => {
     await rec(name)(x, y, ...rest);
-    seen.value = { x, y };
-    if (!seen.pathFramed) seen.downs += downs(rest[0]);
+    sees(x, y);
+    if (!seen.pathFramed && !inClosed({ x, y })) seen.downs += downs(rest[0]);
   };
   const slowMove = async (...args) => { if (moveMs) await new Promise((ok) => setTimeout(ok, moveMs)); return lands("move")(...args); };
   const keyed = (name, keys) => async (...args) => { await rec(name)(...args); if (!seen.focusFramed) seen.keys += keys(args[0]); };
@@ -46,13 +62,23 @@ function stand(seen, moveMs = 0) {
     // Playwright's client dblclick is this mouse's click with clickCount 2.
     mouse: { move: slowMove, click: lands("click", (o) => o?.clickCount ?? 1),
       dblclick(x, y, o) { return this.click(x, y, { ...o, clickCount: 2 }); },
-      down: async (...a) => { await rec("down")(...a); if (!seen.framed) seen.downs += 1; }, up: rec("up"), wheel: rec("wheel") },
+      down: async (...a) => { await rec("down")(...a); if (!seen.framed && !inClosed(seen.value)) seen.downs += 1; },
+      up: rec("up"), wheel: rec("wheel") },
     keyboard: { press: keyed("press", chord), type: keyed("type", onLayout),
       down: keyed("kdown", () => 1), up: rec("kup"), insertText: rec("insertText") },
     async evaluate(fn, arg) {
-      // A paced move's watch: the longest jump this page saw, which a test sets (seen.gap) to stand for one.
-      if (typeof fn === "function" && String(fn).includes("unwatch(")) return this.seen.gap ?? 0;
-      if (typeof fn === "function" && String(fn).includes("watch(")) return undefined;
+      // A paced move's watch: the longest jump this page saw (or seen.gap, which a test sets to stand for one), where
+      // it last saw the pointer, and which document it is.
+      if (typeof fn === "function" && String(fn).includes("unwatch(")) {
+        const [, ex, ey] = arg;
+        const gap = watching ? Math.max(watching.gap, Math.hypot(ex - watching.at.x, ey - watching.at.y)) : 0;
+        watching = null;
+        return { gap: this.seen.gap ?? gap, last: this.seen.value, doc: this.seen.doc };
+      }
+      if (typeof fn === "function" && String(fn).includes("watch(")) {
+        watching = { at: { x: arg[1], y: arg[2] }, gap: 0 };
+        return undefined;
+      }
       if (typeof fn === "function" && String(fn).includes("check(")) {
         if (this.seen.fail) throw new Error("Execution context was destroyed");
         const { value, downs, keys, doc, framed, pathFramed, focusFramed } = this.seen;
@@ -252,6 +278,26 @@ out.claims = {
   // The page saw the pointer jump within a paced move (a frame no lookup finds): unpaced.
   pageSawAJump: await claimed(async (pg) => { pg.seen.gap = 204; await pg.mouse.move(50, 50, { steps: 4 }); }),
   pageSawStepsOnly: await claimed(async (pg) => { pg.seen.gap = 18; await pg.mouse.move(50, 50, { steps: 4 }); }),
+  // A native drag's whole pixels can make a 40 px step read up to SEEN_SLACK_PX longer: within it, still paced.
+  pageSawADragsRounding: await claimed(async (pg) => { pg.seen.gap = 41.2; await pg.mouse.move(50, 50, { steps: 4 }); }),
+  pageSawPastTheSlack: await claimed(async (pg) => { pg.seen.gap = 41.5; await pg.mouse.move(50, 50, { steps: 4 }); }),
+  // A frame in a closed shadow root at x 150 to 400, which no lookup finds. A move that ends inside it: unpaced, by
+  // the jump the page saw, and the page's view is left at the first point inside, which isn't a locator action.
+  closedInto: await claimed(async (pg) => { pg.seen.closed = [150, 400]; await pg.mouse.move(300, 0, { steps: 12 }); }),
+  // One step into it: the page saw every step but the last, so the move is paced, but where it ended isn't checked.
+  closedOneStepIn: await claimed(async (pg) => { pg.seen.closed = [150, 400]; await pg.mouse.move(175, 0, { steps: 7 }); }),
+  // The page then sees where the move ended (its last event came late): checked again.
+  closedThenSeen: await claimed(async (pg) => { pg.seen.closed = [150, 400]; await pg.mouse.move(175, 0, { steps: 7 }); pg.seen.value = { x: 175, y: 0 }; }),
+  // In and back out: the move out can't start from a point the page saw, so it runs unpaced, as one from a frame does.
+  closedInAndOut: await claimed(async (pg) => { pg.seen.closed = [150, 400]; await pg.mouse.move(300, 0, { steps: 12 }); await pg.mouse.move(100, 0, { steps: 8 }); }),
+  // A locator that moves the pointer where the page sees it still reads as one.
+  closedThenLocatorHover: await claimed(async (pg) => { pg.seen.closed = [150, 400]; await pg.mouse.move(175, 0, { steps: 7 }); locator(pg, { x: 30, y: 30 }); }),
+  // A bare down there goes to the frame: left out of the sent count, so a locator click then reads as foreign.
+  closedDown: await claimed(async (pg) => { pg.seen.closed = [150, 400]; await pg.mouse.move(175, 0, { steps: 7 }); await pg.mouse.down(); await pg.mouse.up(); }),
+  closedDownThenLocatorClick: await claimed(async (pg) => { pg.seen.closed = [150, 400]; await pg.mouse.move(175, 0, { steps: 7 }); await pg.mouse.down(); await pg.mouse.up(); locator(pg, null, { downs: 1 }); }),
+  // KNOWN LIMIT (the header's): a click just inside it from its edge, which the page sees land, counts as sent, so
+  // after a paced move back out a locator click hides in that slack.
+  knownLimitClosedClickThenLocatorClick: await claimed(async (pg) => { pg.seen.closed = [150, 400]; await pg.mouse.move(140, 0, { steps: 4 }); await pg.mouse.click(160, 0); await pg.mouse.move(125, 0); locator(pg, null, { downs: 1 }); }),
 };
 {
   // Typing inside a gesture goes a character at a time: Playwright's own delay, STEP_MS; outside, as given.
@@ -259,12 +305,26 @@ out.claims = {
   c.handler(pg);
   await pg.mouse.move(0, 0);
   await pg.keyboard.type("ab");
+  errors.length = 0;
   await film.gesture(pg, "typing", async () => {
     await pg.keyboard.type("cd");
     await pg.keyboard.type("ef", { delay: 200 });
-    await pg.keyboard.type("x".repeat(40));
+    await pg.keyboard.type("x".repeat(37));
   });
-  out.typed = pg.calls.filter((x) => x[0] === "type").map((x) => x.slice(1, -1));
+  out.typed = { calls: pg.calls.filter((x) => x[0] === "type").map((x) => x.slice(1, -1)), counts: { ...film.paceCounts(pg) }, said: errors.join("") };
+}
+{
+  // Past MAX_TYPED characters in one call, a key would go under a video frame: it runs at the cap and counts as
+  // unpaced. A spec's own delay of a frame or more keeps it paced.
+  const pg = stand({ value: null });
+  c.handler(pg);
+  await pg.mouse.move(0, 0);
+  errors.length = 0;
+  await film.gesture(pg, "long typing", async () => {
+    await pg.keyboard.type("x".repeat(38));
+    await pg.keyboard.type("y".repeat(60), { delay: 40 });
+  });
+  out.longTyped = { calls: pg.calls.filter((x) => x[0] === "type").map((x) => x.slice(1, -1)), counts: { ...film.paceCounts(pg) }, said: errors.join("") };
 }
 {
   // The double-click's wait comes once: PRESS_MS, not twice.
@@ -442,9 +502,24 @@ class Film(unittest.TestCase):
             "farClickIntoAFrame": (n(1, 1), unpaced, "jumped"),
             "pageSawAJump": (n(0, 1), unpaced, "saw the pointer jump 204 px"),
             "pageSawStepsOnly": (n(1), paced, None),
+            "pageSawADragsRounding": (n(1), paced, None),
+            "pageSawPastTheSlack": (n(0, 1), unpaced, "saw the pointer jump 42 px"),
+            # A frame in a closed shadow root: the page's view left behind where a move ended unseen is "not checked".
+            "closedInto": (n(0, 1, 1), unpaced, "saw the pointer jump 150 px"),
+            "closedOneStepIn": (n(1, 0, 1), "", "not checked"),
+            "closedThenSeen": (n(1), paced, None),
+            "closedInAndOut": (n(0, 2), unpaced, "can't be checked"),
+            "closedThenLocatorHover": (n(1, 1), unpaced, "during the gesture"),
+            "closedDown": (n(1, 0, 2), "", "not checked"),
+            "closedDownThenLocatorClick": (n(1, 1, 1), unpaced, "didn't send"),
+            "knownLimitClosedClickThenLocatorClick": (n(3), paced, None),
         }
         # A click back out of a frame reaches the page and is counted as sent: no press reads as foreign.
         self.assertNotIn("didn't send", claims["clickOutOfAFrame"]["said"])
+        # Where the page lost the pointer in a frame, the module's own move doesn't read as a locator's.
+        for case in ("closedInto", "closedOneStepIn", "closedInAndOut", "closedDown"):
+            with self.subTest(case=case):
+                self.assertNotIn("moved outside page.mouse", claims[case]["said"])
         self.assertEqual(sorted(want), sorted(k for k in claims if k != "untracked"))
         for case, (counts, claim, said) in want.items():
             with self.subTest(case=case):
@@ -470,9 +545,21 @@ class Film(unittest.TestCase):
 
 
     def test_typing_inside_a_gesture_goes_a_character_at_a_time(self):
-        # Capped like a move: 40 characters share MOVE_CAP_MS; a longer delay from the spec is kept.
-        self.assertEqual(self.r["typed"], [["ab"], ["cd", {"delay": self.step}], ["ef", {"delay": 200}],
-                                           ["x" * 40, {"delay": self.cap / 40}]])
+        # Capped like a move: 37 characters share MOVE_CAP_MS, each still held a video frame (STEP_MS / 2); a longer
+        # delay from the spec is kept.
+        typed = self.r["typed"]
+        self.assertEqual(typed["calls"], [["ab"], ["cd", {"delay": self.step}], ["ef", {"delay": 200}],
+                                          ["x" * 37, {"delay": self.cap / 37}]])
+        self.assertGreaterEqual(self.cap / 37, self.step / 2)
+        self.assertEqual(typed["counts"], {"gestures": 1, "paced": 3, "unpaced": 0, "unchecked": 0})
+        self.assertEqual(typed["said"], "")
+
+    def test_typing_too_long_for_the_cap_counts_as_unpaced(self):
+        # 38 characters would go under a frame a key: run at the cap, unpaced. The spec's own 40 ms keeps 60 paced.
+        long = self.r["longTyped"]
+        self.assertEqual(long["calls"], [["x" * 38, {"delay": self.cap / 38}], ["y" * 60, {"delay": 40}]])
+        self.assertEqual(long["counts"], {"gestures": 1, "paced": 1, "unpaced": 1, "unchecked": 0})
+        self.assertIn("more than 37 characters", long["said"])
 
 
 if __name__ == "__main__":
