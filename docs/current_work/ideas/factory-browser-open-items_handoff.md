@@ -32,11 +32,13 @@ Their outcomes are in `process/sdlc_changelog.md`, one entry per release, and in
 2. **The incubator hasn't taken z-sdlc's bundle changes since several releases** (`zsdlc-import-factory --to-incubator`): every import report lists them under "for the incubator". CD's call when.
 3. **The other projects take the browser route one at a time.** The wiki's project table says what each needs first.
 
-## Open questions
+## Answered (2026-11-25)
 
-- **Which Playwright versions the browser host serves** (one port each), and who adds one when a project upgrades. The wiki's project table names versions some projects need.
-- **Whether a spec that fails only on the browser host counts as reproduced** when it passes on the CI host. One timing-sensitive spec flaked there.
-- **Offsite copies of the evidence archive.** The wiki states the limit: one machine, no offsite copy.
+Recorded in `process/factory.md` D6, which no longer has a Leaves open list:
+- **Which Playwright versions the browser host serves:** one front end for each version a project pins. A new one goes through the host's reviewed setup, which CD merges and installs, before the project's upgrade lands. A version the host doesn't serve leaves stages `blocked`, never a verdict. The wiki's project table names the versions two more projects need.
+- **A spec that fails only on the browser host:** it counts as reproduced when a check of the mechanism fails, and the result says it passed on CI. A timeout alone never counts.
+- **Offsite copies of the evidence archive:** none (CD). D6's Revisit when names what would change that.
+- **The archive's first live pull:** done on the pilot's archive host (2026-11-22).
 
 ## Left as they are, by choice
 

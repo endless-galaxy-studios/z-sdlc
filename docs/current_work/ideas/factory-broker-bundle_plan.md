@@ -2,7 +2,7 @@
 type: plan
 slug: factory-broker-bundle
 created: 2026-11-16
-status: in-progress
+status: built and released (v2.7.0); the pilot and the debut are left (cross-checked 2026-11-25)
 active_deliverable: null
 related_files:
   - process/factory.md
@@ -14,6 +14,24 @@ related_files:
 ---
 
 # Plan: the checks-only broker as an opt-in bundle (`factory-broker`)
+
+## Progress (cross-checked 2026-11-25)
+
+**Done:**
+- P0 to P9, in 52f6b75 and 9788c03, which are on `origin/master` and first released in v2.7.0. The status line's "not pushed" was out of date.
+- P10's client PR in the incubator (c9da4f5).
+- Every plan default:
+  - a non-empty rollback is refused;
+  - a release service with no evidence is refused;
+  - `"rollbacks": false` makes the plan guard refuse a rollback;
+  - drift-scan, host-check and the diagnostics are generic;
+  - the legacy ledger has a reader.
+
+**Left:**
+- **P10's pilot in the third project:** it's still on z-sdlc v2.4.1, with no adoption branch. It needs a migration, a PR with the host module and the `broker` block, the adoption, setup on the production machine, and one gate end to end.
+- **The debut:** drop `pilot`, add a `bundle_debut` entry, and settle the name.
+
+Until the third project adopts, the "rollback approved but never run" bug stays live in its own broker.
 
 **Status:** pilot-ready (2026-11-17), committed (`52f6b75`, the outside review's fixes in `9788c03`), not pushed.
 Built and reviewed: P0 to P9. The broker, its setup, seeds, tests (681 in an installed layout, also with every seed

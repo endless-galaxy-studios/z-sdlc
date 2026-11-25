@@ -2,7 +2,7 @@
 type: handoff
 slug: pilot-v2-migration-upstream-issues
 created: 2026-10-13
-status: pending
+status: partly done (cross-checked 2026-11-25)
 trigger: issue
 recommended_next_skill: none
 source_session_summary: "The pilot project migrated from z-sdlc v1.8.1 to v2.0.0 on 2026-10-12/13. The run and its compliance audit worked around 13 framework problems in the project; each is checked here against the v2.0.0 tag"
@@ -34,6 +34,29 @@ related_files:
 ---
 
 # Handoff: Framework problems found in the pilot project's migration to v2.0.0
+
+## Progress (cross-checked 2026-11-25)
+
+**Done:**
+- **Item 3, migration ran the old sdlc-migrate:** Pre-Flight step 1c follows the target tag's own skill and process docs (v2.9.0, 758cfbd). Projects learn of it from that entry's release notes, so open question 3 is answered.
+- **Item 7, additive-only merge:** it's gone. Dual-audience skills and sdlc-audit's references merge by the project's marks, so an unedited copy takes upstream in full (v2.9.0).
+- **Item 8, re-render after changing `stack.profile`:** in `process/factory.md` Enablement (v2.1.0).
+- **Item 10, the `[sdlc-root]/../skills/` path:** `external-review-gate.md` cites the `.claude/skills/` path (v2.6.1, 3366565e).
+- **Item 13, files a project removed:** `declined_files` (contract 0022, v2.9.0). Initialize and migrate write it, and any other missing file is asked about once. That answers open question 13.
+
+**Partly done:**
+- **Item 4, a project document at an upstream path:** a missing upstream file is asked about once, and deviation detection shows the differing units. Not built: the ingest guard, §2.1b's "this is a different document" check, and the auditor's check that cited rule IDs exist.
+- **Item 5, a framework agent's edited `description:`:** deviation detection asks before overwriting it (v2.9.0). Frontmatter can't hold a mark, though, so the edit is re-applied by hand and reads as drift at each migration. There's still no keep-the-project's default.
+- **Item 6, the `\n` rule:** the agents follow it (v2.3.0, c198e6e), and open question 6 is answered: a single `\n` loads today. No automated check.
+
+**Not done:**
+- **Item 1:** the archive script still accepts only `## YYYY-MM-DD:`.
+- **Item 2:** §4.5a still finds the catalog table by column order.
+- **Item 9:** the bundle tests leave `.pyc` files, and nothing ignores them.
+- **Item 11:** the auditor flags upstream's own adapter doc.
+- **Item 12:** templates cite stores a project may have removed.
+
+Open questions 1, 4 and 9 are unanswered.
 
 ## Why this is a handoff
 

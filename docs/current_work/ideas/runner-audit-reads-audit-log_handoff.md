@@ -2,7 +2,7 @@
 type: handoff
 slug: runner-audit-reads-audit-log
 created: 2026-10-16
-status: pending
+status: pending: nothing built (cross-checked 2026-11-25)
 trigger: idea
 recommended_next_skill: sdlc-lite-plan
 source_session_summary: "The pilot project's operator session, after its v2.1.5 migration, found GitHub had dropped most of the runner audit's hourly runs; CD un-parked reading the organization's audit log"
@@ -15,6 +15,15 @@ related_files:
 ---
 
 # Handoff: the runner audit reads the organization's audit log
+
+## Progress (cross-checked 2026-11-25)
+
+Nothing here has been built, and none of the seven open questions is answered:
+- `AUDITOR_PERMISSIONS` is still runners-read only;
+- `runner_audit.py` reads no log;
+- Enablement step 12 still says the audit doesn't read it.
+
+**Also check first:** `runner_audit.py`'s docstring says the audit-log endpoint needs an Enterprise plan. The open questions ask only about the App's permission, not whether the organization's plan has the endpoint.
 
 ## Why this is a handoff
 

@@ -2,7 +2,7 @@
 type: handoff
 slug: migrate-ported-file-merge-base
 created: 2026-10-15
-status: pending
+status: pending: nothing built (cross-checked 2026-11-25)
 trigger: issue
 recommended_next_skill: direct-dispatch
 source_session_summary: "The incubator's migration from v1.9.0 to v2.1.0 (2026-10-15) found four files it had ported from z-sdlc before the release. sdlc-migrate had no common base to merge them from, so each was compared by hand"
@@ -12,6 +12,10 @@ related_files:
 ---
 
 # sdlc-migrate has no merge base for a file a project ported before the release
+
+## Progress (cross-checked 2026-11-25)
+
+Nothing here has been built, and the open questions are unanswered. Since 2026-11-20 migration follows the project's marks, so a fix now goes into §1.2a's drift check and §2.1c's deviation detection rather than a plain three-way merge. Drift checks only the paths in `installed_files`, so a hand-ported file that was never hashed is skipped there (unconfirmed against porting practice).
 
 ## Why this is a handoff
 

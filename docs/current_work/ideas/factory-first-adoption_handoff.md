@@ -2,7 +2,7 @@
 type: handoff
 slug: factory-first-adoption
 created: 2026-10-12
-status: pending
+status: partly done: the second-organization run is left (cross-checked 2026-11-25)
 trigger: deferred-work
 recommended_next_skill: sdlc-lite-plan
 source_session_summary: "The factory bundle was made usable by any organization (placeholders, App creation, echo service, host setup for several organizations, Enablement from zero). Its from-zero path hasn't run end to end outside the incubator; CD chose to prove it with the first real adoption, when that organization is ready, not with a throwaway repository"
@@ -17,6 +17,25 @@ related_files:
 ---
 
 # Handoff: The factory's first adoption outside the incubator proves Enablement
+
+## Progress (cross-checked 2026-11-25)
+
+Two later adoptions, the pilot project and the third project, were in the incubator's own organization. They reused its App, echo service and runner pools, so from-zero Enablement in a second organization, this note's core ask, is still untested. Enablement now has 14 steps.
+
+**Done in the organization:**
+- **Stack profiles:** `dotnet-node` (v2.1.0) and `python-uv-node` (v2.3.0).
+- **The job image's first publish:** GHCR's `denied` is now re-run (Enablement step 3).
+- **Smoke:** it passed on every job in both projects.
+- **The open question on a check script:** answered by `bootstrap.py` (steps 2 to 9) and the `factory-enablement` runbook under `sdlc-run-runbook`.
+- **The production tier left out of scope:** since built as the `factory-broker` bundle, still a pilot.
+
+**Partly done:** `host/setup.sh` ran for real on the runner and CI hosts, but its `RUNNER_INSTANCE` path for a second organization never ran.
+
+**Left:**
+- `create_app.py` against GitHub (its manifest sends no `hook_attributes`);
+- a runner group on a Team-plan organization;
+- the echo service's `wrangler deploy` command, since the organization's Worker was deployed by hand;
+- smoke in a second organization.
 
 ## Why this is a handoff
 

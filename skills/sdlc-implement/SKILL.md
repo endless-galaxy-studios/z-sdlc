@@ -34,7 +34,7 @@ This skill always runs headless, in the factory's sandbox (`.github/factory/impl
 1. **Before the fix,** an agent writes the smallest Playwright spec that follows the reported steps (the issue's, or CD's request's) and runs it alone, at one worker, through `/opt/factory/with-test-services /opt/factory/with-browser`, with the project's own Playwright command, so the project's config starts the app's servers in the same command. The run must fail for the reason the issue gives. Build the spec on the project's own end-to-end fixtures (its test sign-in, its seeded state), not on clicking through the whole UI. Drive the app's timers with `page.clock`, never wall time: a remote browser adds round trips. The spec stays in the PR (CLAUDE.md § Bug-Fix Rule), named `repro-<issue>-<slug>.spec.ts` where the project's Playwright config runs it (its CLAUDE.md or verify skill says where), so one pattern there picks up every kept spec.
 2. **Follow the report's steps first,** then make at most two targeted variations. Find the UI's elements by searching the code for their strings, not by clicking around.
 3. **Report one of four outcomes** in the result:
-   - `reproduced`: a check of the mechanism fails as the report says. A timeout alone is not one.
+   - `reproduced`: a check of the mechanism fails as the report says, even if the same spec passes on the CI host (say so). A timeout alone is not one.
    - `partially reproduced`: part of what the report describes, said which.
    - `not reproduced`: with what was tried. It is a valid result.
    - `blocked`: the browser host was unavailable, or an outside service the feature needs is offline. It never counts as reproduced or ruled out.

@@ -37,6 +37,43 @@ Each entry contains:
 
 ---
 
+## 2026-11-25: D6 answers its open questions: Playwright versions, a check that fails only on the browser host, and no offsite archive
+
+**Origin:** consolidating the browser reproduction's and filmed pass's handoffs left three open questions, which D6's own Leaves open list also held. CD asked for answers (2026-11-25) and decided the third: "no offsite copy". The same request cross-checked eight older notes in `docs/current_work/ideas/` for work done since they were written.
+
+**What happened:**
+- **Two of D6's three open questions were already settled, but not recorded.**
+  - **Playwright versions:** the browser host's layout and smoke settle which versions it serves, and what happens on one it doesn't. Nothing said so in D6.
+  - **A spec failing only on the browser host:** the reproduce rules settle it, but D6 still listed it as open.
+- **The archive's open item was out of date.** The pilot's archive was installed, and its first live pull took a run's report, video and trace (2026-11-22).
+- **The eight older notes' status lines were never updated.** Some of their work had since been done elsewhere.
+
+**Changes made:**
+
+1. **`process/factory.md` D6:**
+   - **Costs:**
+     - **Playwright versions:** the host serves one front end for each Playwright version a project pins. A new one goes through the host's reviewed setup, which CD merges and installs, before the project's upgrade lands, and one no project uses is removed. A project on a version the host doesn't serve finds nothing on its port, so smoke fails and its stages report `blocked`, never a verdict.
+     - **A failure only on the browser host:** a check of the mechanism that fails there still counts as reproduced when the same spec passes on the CI host, since the slower browser exposing a race is the bug. The result says so.
+   - **Rule 7's archive:** it's one copy, on the host's redundant storage with snapshots, and none offsite (CD). The rule also states its first live pull, and keeps the sentence for a project without an archive.
+   - **Leaves open is removed,** since nothing is left in it.
+   - **Revisit when** gains a trigger: the archive becoming a record something else depends on, or its storage losing redundancy.
+2. **Mirror rule 5's `reproduced` outcome** counts a mechanism check that fails even if the same spec passes on the CI host, and says so. It's copied word for word into `skills/sdlc-reproduce`, `sdlc-implement` and `sdlc-revise`. `sdlc-reproduce`'s own outcome list says the same.
+3. **`docs/current_work/ideas/`:**
+   - **The consolidated note** records the answers.
+   - **The eight older notes** each get a corrected status line and a dated progress section with the evidence:
+     - the pilot's v2.0 migration issues: five items done and three partly done;
+     - the broker bundle: released in v2.7.0, with its pilot and debut left;
+     - the factory's first adoption: overtaken in its own organization, with the second-organization run left;
+     - the ADR amendment gate: one round done, the gate itself left;
+     - four untouched: the podcast follow-ups, the ported-file merge base, the runner audit's log, and option previews.
+
+**Rationale:**
+- **An answered question left in Leaves open reads as undecided.** So each answer goes where its rule is.
+- **No offsite copy:** the archive holds agent-made screenshots and videos, which GitHub and the PR already keep for 90 days. An outside copy would hand the apps' pictures and test data to another provider.
+- **Release type: patch,** whenever the next one is cut. It changes wording within existing rules, with no new contract.
+
+---
+
 ## 2026-11-25: A click where the page lost the pointer goes into the frame, the closed-root limit is stated in full, and the document clear is pinned
 
 **Origin:** the pilot project folded v2.12.7 into its PR #124, under CD's standing rule to fold each release while the PR is open.

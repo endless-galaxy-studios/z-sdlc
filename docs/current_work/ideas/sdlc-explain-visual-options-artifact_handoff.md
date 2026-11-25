@@ -2,7 +2,7 @@
 type: handoff
 slug: sdlc-explain-visual-options-artifact
 created: 2026-10-03
-status: pending
+status: pending: nothing built (cross-checked 2026-11-25)
 trigger: idea
 recommended_next_skill: sdlc-develop-skill
 source_session_summary: "Choosing between two UI designs in a project; CD asked for both shown side by side and liked how the generated preview page turned out"
@@ -15,6 +15,17 @@ related_files:
 ---
 
 # Handoff: Teach `sdlc-explain` to produce side-by-side option previews
+
+## Progress (cross-checked 2026-11-25)
+
+Nothing here has been built, and the open questions are undecided.
+- **A related file is gone:** `skills/sdlc-render/SKILL.md` became `sdlc-explain` on 2026-09-22.
+- **The nearest existing feature:** `sdlc-design-consult`, which makes one mockup per option, at the target surface's viewport, from placeholder content. It's the obvious candidate home for the "new mode or separate skill?" question.
+- **What's missing everywhere:**
+  - real project material;
+  - a caveats list;
+  - dark mode (the HTML design system has no `prefers-color-scheme`);
+  - private publishing.
 
 ## Why this is a handoff
 

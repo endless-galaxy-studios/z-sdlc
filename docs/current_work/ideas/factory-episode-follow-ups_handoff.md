@@ -2,7 +2,7 @@
 type: handoff
 slug: factory-episode-follow-ups
 created: 2026-11-05
-status: pending
+status: pending: none of items 1 to 4 built (cross-checked 2026-11-25)
 trigger: idea
 recommended_next_skill: sdlc-lite-plan
 source_session_summary: "z-sdlc's review of an AI That Works episode on software factories found four ideas worth taking; CD had Where to look built (f436be2) and parked the other three, plus a doc gap the review found"
@@ -20,6 +20,12 @@ related_files:
 ---
 
 # Handoff: follow-ups from the software factory episode
+
+## Progress (cross-checked 2026-11-25)
+
+Nothing here has been built since the note, and its open questions are unanswered. Two things have changed around it:
+- **Item 3's name:** `process/factory.md` D6 is now the browser host, so its new decision would be D7.
+- **The screenshots item in "Out of scope":** it's partly overtaken. CD now sees browser evidence through the links the writer job builds (D6 rule 7). Images in agent text are still refused.
 
 ## Why this is a handoff
 

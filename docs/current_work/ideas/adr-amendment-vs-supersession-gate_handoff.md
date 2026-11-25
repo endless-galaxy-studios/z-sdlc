@@ -2,7 +2,7 @@
 type: handoff
 slug: adr-amendment-vs-supersession-gate
 created: 2026-10-03
-status: pending
+status: partly done: the gate itself is left (cross-checked 2026-11-25)
 trigger: issue
 recommended_next_skill: sdlc-lite-plan
 source_session_summary: "A project's planning run appended two amendments that added constraints to Accepted ADRs, in place, contradicting adr-practice.md; CD had them moved into new, superseding ADRs"
@@ -14,6 +14,24 @@ related_files:
 ---
 
 # Handoff: z-sdlc lets "new constraint" ADR edits ship as in-place amendments
+
+## Progress (cross-checked 2026-11-25)
+
+**Done 2026-11-09 (108d19d):**
+- **C2's decision test:** in `process/adr-practice.md`.
+- **C5:** what the Amendment trailer means is clarified, and its name is unchanged.
+- **The first open question:** decided by CD. Status facts and CD's answers may be recorded in place; nothing that changes a constraint may.
+
+**Left:**
+- C1, the plan-time gate. The ADR-CONTEXT step still only reads ADRs.
+- C2's partial-supersession template. The ADR template has no `supersedes:` field either.
+- C3, the review and audit check. Only `review-lenses.md`'s code-review check exists, and it doesn't see appended sections.
+- C4's checklist wording.
+- C5's rename question.
+- The open questions on retrofitting, where the gate belongs, and the measured-figure form.
+- Two status vocabularies: Proposed and Accepted, against Active, Superseded and Expired.
+
+Planning agents don't load `adr-practice.md`: it isn't routed in `agent-context-map.yaml`.
 
 ## Why this is a handoff
 
