@@ -6,7 +6,7 @@ This file is a **drop-in addition** for your project's `CLAUDE.md`. Copy the rel
 
 ## SDLC Process
 
-This project follows a lightweight SDLC framework. Reference material lives in the SDLC directory (`ops/sdlc/` by default, or `.claude/sdlc/` for projects using Neuroloom integration).
+This project follows a lightweight SDLC framework. Reference material lives in the SDLC directory, `ops/sdlc/`.
 
 The SDLC defines what artifacts a deliverable requires; two skills define how CC produces them:
 - `sdlc-plan` — spec + plan (domain agents write and review)
@@ -138,7 +138,7 @@ Framework files (skills and their references, process docs, upstream knowledge e
 - `[sdlc-root]/process/html-rendering.md` — HTML conventions, visual doctrine, and document-type storyboards
 - `docs/_index.md` — Deliverable catalog
 
-> **Note:** `[sdlc-root]` is `ops/sdlc/` by default, or `.claude/sdlc/` for projects using Neuroloom integration. The actual path is recorded in `.sdlc-manifest.json` under `sdlc_root`.
+> **Note:** `[sdlc-root]` is `ops/sdlc/`, the only SDLC root, recorded in `.sdlc-manifest.json` under `sdlc_root`.
 
 ---
 

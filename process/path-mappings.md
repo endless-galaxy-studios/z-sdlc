@@ -24,6 +24,43 @@ Throughout this migration, apply these transformations when copying or merging c
 - `process/changelog-archive/` — z-sdlc's own archived changelog entries: history, not framework content. Migration reads them from the source (`sdlc-migrate` §1.2); a project's own archive is written in the project.
 - `process/sdlc_changelog.md`'s entries — a new project's changelog is the file's header plus one install entry (`sdlc-initialize` Phase 1b), not a copy.
 
+## The SDLC Root
+
+`[sdlc-root]` is `ops/sdlc/`, the only SDLC root, and `.sdlc-manifest.json`'s `sdlc_root` always says so. neuroloom-sdlc 0.6 and earlier moved ported projects to `.claude/sdlc/`. z-sdlc dropped that root (2026-11-23): the factory treats `.claude/` as protected agent configuration and refuses to edit anything under it. A project still on it moves before it migrates. The check below finds it, and its steps are the move. `sdlc-migrate` (Pre-Flight Check, whose Step 2 runs it again when a copy from an earlier release ran the pre-flight) and `sdlc-initialize` (Mode Detection) carry it verbatim. Edit it here and re-copy it into both (`[sdlc-root]/process/project-section-markers.md` § MIRROR Markers).
+
+<!-- MIRROR-SOURCE-START: sdlc-root-check -->
+```bash
+# Files left on the old root: tracked or new unignored ones that still exist (a plain mv leaves
+# the old paths in the index until it is staged). Ignored leftovers don't count.
+if git rev-parse --git-dir >/dev/null 2>&1; then
+  OLD_ROOT=$(git ls-files --cached --others --exclude-standard -- .claude/sdlc | while read -r p; do [ -e "$p" ] && echo "$p"; done | head -3)
+else
+  OLD_ROOT=$( [ -e .claude/sdlc ] && echo .claude/sdlc )
+fi
+# The manifest naming another root, or files under the old one
+# (a manifest that isn't one JSON object, an empty file or one that doesn't parse included,
+# can't be checked, so it counts as a hit)
+OLD_MANIFEST=
+if [ -f .sdlc-manifest.json ]; then
+  OLD_MANIFEST=$(jq -rs '
+    if length != 1 or (.[0] | type) != "object" then error("not one JSON object") else .[0] end
+    | [ ((.sdlc_root // "ops/sdlc") | rtrimstr("/") | select(. != "ops/sdlc") | "sdlc_root \"\(.)\""),
+        ((.installed_files // {}), (.declined_files // {}) | keys[] | select(startswith(".claude/sdlc/"))),
+        ((.bundle_fragments // {}) | .[] | strings | select(startswith(".claude/sdlc/"))) ] | .[]' .sdlc-manifest.json) \
+    || OLD_MANIFEST=".sdlc-manifest.json isn't one JSON object"
+  OLD_MANIFEST=$(printf '%s\n' "$OLD_MANIFEST" | head -3)
+fi
+if [ -n "$OLD_ROOT$OLD_MANIFEST" ]; then printf 'OLD ROOT:\n%s\n%s\n' "$OLD_ROOT" "$OLD_MANIFEST"; fi
+```
+
+If it prints `OLD ROOT`, stop before any change and tell CD what it found. A manifest that isn't one JSON object has nothing to move: restore it from git or repair it, then run the check again. For anything else it found, tell CD how to move:
+1. Move the contents of `.claude/sdlc/` into `ops/sdlc/` with `git mv` (or stage the move), so the old paths leave the index.
+2. In `.sdlc-manifest.json`, set `"sdlc_root": "ops/sdlc"`, re-key every `installed_files` and `declined_files` entry from `.claude/sdlc/...` to `ops/sdlc/...` with its value unchanged, and update the `bundle_fragments` target paths.
+3. Update the live references that name the old root (`CLAUDE.md`, `.claude/agents/`, `.claude/skills/`, `.claude/agent-memory/`, scripts and CI). Leave changelog and deliverable history as written.
+4. With an adapter, install or update to a version that supports only `ops/sdlc/` (`claude plugin update <plugin>`), then restart Claude Code so the session loads it. The manifest names the plugin, not its install path, so nothing in it changes.
+5. Commit the move, then run `sdlc-migrate` again.
+<!-- MIRROR-SOURCE-END: sdlc-root-check -->
+
 ## Project-Specific Files (Never Overwrite)
 
 Some files in the z-sdlc source are **templates** that become project-specific after initialization. These must NOT be direct-copied during migration:

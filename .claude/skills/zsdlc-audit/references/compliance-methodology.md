@@ -283,14 +283,24 @@ Detect substantive prose duplicated verbatim or near-verbatim across sibling ski
 2. **Near-verbatim conceptual duplication** — the same load-bearing concept appears with slightly different wording in 2+ skills (e.g., one says "ADRs are immutable", another says "Do not edit prior ADRs"). Detect by grepping for distinctive concept anchors ("immutable", "ensures that", "is to X what", "must not edit") and reporting clusters where the same anchor produces multiple-but-non-identical hits.
 3. **Reinforcement-paragraph drift** — same framing/reinforcement paragraph appears in only one of two sibling skills where both apply (e.g., a tier-pair like `sdlc-plan` and `sdlc-lite-plan`, or any pair sharing the same prefix-family).
 4. **Trigger phrase overlap** — frontmatter trigger phrases overlap between skills without explicit anti-trigger acknowledgement.
-5. **Mirrored-block drift** — skills carry verbatim copies of process-doc sections wrapped in `<!-- MIRROR-START: {doc}.md#{id} -->` / `<!-- MIRROR-END: {doc}.md#{id} -->`; the source lives in `process/{doc}.md` between `<!-- MIRROR-SOURCE-START: {id} -->` / `<!-- MIRROR-SOURCE-END: {id} -->` (convention: `process/project-section-markers.md` § MIRROR Markers; users: `process/review-fix-loop.md` § Mirrored Critical-Steps Blocks and `process/headless-mode.md` § Mirrored Stop Rule). Any difference between a copy and its source is a finding (severity **major** — a drifted copy silently changes a skill's behavior). Run:
+5. **Mirrored-block drift** — skills carry verbatim copies of process-doc sections wrapped in `<!-- MIRROR-START: {doc}.md#{id} -->` / `<!-- MIRROR-END: {doc}.md#{id} -->`; the source lives in `process/{doc}.md` between `<!-- MIRROR-SOURCE-START: {id} -->` / `<!-- MIRROR-SOURCE-END: {id} -->` (convention: `process/project-section-markers.md` § MIRROR Markers; users: `process/review-fix-loop.md` § Mirrored Critical-Steps Blocks, `process/headless-mode.md` § Mirrored Stop Rule, `process/writing-for-cd.md` § Mirrored Blocks and `process/path-mappings.md` § The SDLC Root). Any difference between a copy and its source is a finding (severity **major** — a drifted copy silently changes a skill's behavior). A skill can carry a block more than once (`sdlc-plan` carries the Approval Brief procedure at spec and at plan approval), so the check compares each copy with the source on its own, and a copy with no `MIRROR-END` is drift too. Run:
 
    ```bash
    for f in skills/*/SKILL.md; do
      grep -o 'MIRROR-START: [a-z0-9-]*\.md#[a-z0-9-]*' "$f" | sed 's/MIRROR-START: //' | sort -u | while IFS='#' read -r doc id; do
        src=$(sed -n "/MIRROR-SOURCE-START: $id -->/,/MIRROR-SOURCE-END: $id -->/p" "process/$doc" | sed '1d;$d')
-       cpy=$(sed -n "/MIRROR-START: $doc#$id -->/,/MIRROR-END: $doc#$id -->/p" "$f" | sed '1d;$d')
-       { [ -n "$src" ] && [ "$src" = "$cpy" ]; } || echo "DRIFT: $f <- $doc#$id"
+       n=$(grep -cF "MIRROR-START: $doc#$id -->" "$f")
+       [ "$n" = "$(grep -cF "MIRROR-END: $doc#$id -->" "$f")" ] || echo "DRIFT: $f <- $doc#$id (START and END markers don't pair)"
+       i=1
+       while [ "$i" -le "$n" ]; do
+         cpy=$(awk -v s="MIRROR-START: $doc#$id -->" -v e="MIRROR-END: $doc#$id -->" -v i="$i" '
+           index($0, s) && ++k == i { f = 1; next }
+           f && index($0, e) { closed = 1; exit }
+           f { print }
+           END { if (!closed) print "(no MIRROR-END)" }' "$f")
+         { [ -n "$src" ] && [ "$src" = "$cpy" ]; } || echo "DRIFT: $f <- $doc#$id (copy $i of $n)"
+         i=$((i + 1))
+       done
      done
    done
    ```

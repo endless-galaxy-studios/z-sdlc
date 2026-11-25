@@ -26,7 +26,7 @@ Adapter plugins declare themselves by shipping an `adapter.json` file at their p
 
 ### The `adapter.json` file
 
-Lives at the adapter plugin's root directory (e.g., `.claude/plugins/neuroloom-sdlc-plugin/adapter.json`):
+Lives at the adapter plugin's root directory: the directory Claude Code installed the plugin to (`claude plugin list --json` → `installPath`), or a copy vendored in the project:
 
 ```json
 {
@@ -44,29 +44,38 @@ Lives at the adapter plugin's root directory (e.g., `.claude/plugins/neuroloom-s
 
 ### Discovery during initialization
 
-During Phase 1 (before writing `.sdlc-manifest.json`), upstream's init scans for adapter plugins:
+During Phase 1 (before writing `.sdlc-manifest.json`), upstream's init looks for an adapter among the plugins installed and enabled for this project, and among plugins vendored in it:
 
-```
-For each directory in .claude/plugins/:
-  If {plugin_dir}/adapter.json exists:
-    Read and parse adapter.json
-    If zsdlc_adapter == true (or the pre-rename ccsdlc_adapter == true):
-      Record this as the active adapter
+```bash
+# The project root, as Claude Code records a project-scope install's projectPath
+ROOT_DIR=$(git rev-parse --show-toplevel 2>/dev/null || pwd -P)
+command -v claude >/dev/null || echo "NO CLAUDE CLI: only a vendored adapter can be found"
+# Installed for this project (project or local scope) or for the user. "enabled" alone isn't enough:
+# it follows this directory's settings, so it reads true for another project's install of the plugin too
+claude plugin list --json 2>/dev/null | jq -r --arg root "$ROOT_DIR" '
+  .[] | select(.enabled == true) | select(.scope == "user" or .projectPath == $root)
+      | "\(.id)\t\(.installPath)"' |
+  while IFS="$(printf '\t')" read -r id dir; do
+    jq -e '.zsdlc_adapter == true or .ccsdlc_adapter == true' "$dir/adapter.json" >/dev/null 2>&1 && echo "$id"
+  done | sort -u
+# Vendored in the project
+find .claude/plugins -mindepth 2 -maxdepth 2 -name adapter.json 2>/dev/null | while read -r f; do
+  jq -e '.zsdlc_adapter == true or .ccsdlc_adapter == true' "$f" >/dev/null 2>&1 && echo "vendored $(dirname "$f")"
+done
 ```
 
-If exactly one adapter is found, upstream populates the `adapter` block in the manifest automatically. If multiple adapters are found, halt with an error — only one adapter per project is supported.
+If exactly one adapter is found, upstream populates the `adapter` block in the manifest automatically, and finds its directory with § Finding the plugin, `PLUGIN` set to the id found. If multiple adapters are found, halt with an error — only one adapter per project is supported. A headless run ends with status `failed`, naming them. A worktree is its own project here: an install for the main checkout doesn't count for it.
 
 ### Manifest `adapter` block
 
-The discovered adapter is persisted in `.sdlc-manifest.json` so `sdlc-migrate` can detect it without re-scanning plugins:
+The discovered adapter is persisted in `.sdlc-manifest.json` so `sdlc-migrate` needn't discover it again; it looks up the plugin's directory by id (§ Finding the plugin). The block records which plugin the adapter is, never where one machine installed it:
 
 ```json
 {
   "version": "1.0.0",
   "source_repo": "...",
   "adapter": {
-    "plugin": "neuroloom-sdlc-plugin",
-    "plugin_root": ".claude/plugins/neuroloom-sdlc-plugin",
+    "plugin": "neuroloom-sdlc@endless-galaxy-studios",
     "supported_zsdlc_version": "1.4.0",
     "phase_handlers": "references/adapter-lifecycle.md"
   },
@@ -76,23 +85,52 @@ The discovered adapter is persisted in `.sdlc-manifest.json` so `sdlc-migrate` c
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `plugin` | string | Adapter plugin name (read from the plugin's `plugin.json` → `name`) |
-| `plugin_root` | string | Path to the adapter plugin root, relative to project root |
+| `plugin` | string | The plugin's id as Claude Code lists it: `<name>@<marketplace>`; for a vendored plugin, its `.claude-plugin/plugin.json` → `name`. A manifest written before contract 0025 may hold the bare name; readers match it against the id's name part, and `sdlc-migrate` writes the full id. |
+| `plugin_root` | string | Only for a plugin vendored in the project: its path relative to the project root. Never an absolute path or one outside the project. An install's location differs by machine and by version, so it is looked up on every run (§ Finding the plugin), not recorded. |
 | `supported_zsdlc_version` | string | Copied from `adapter.json` at install time; updated during migration if the adapter's `adapter.json` has been bumped |
-| `phase_handlers` | string | Copied from `adapter.json` — path to the handler doc, relative to `plugin_root` |
+| `phase_handlers` | string | Copied from `adapter.json` — path to the handler doc, relative to the plugin's directory |
+
+### Finding the plugin
+
+`sdlc-initialize` and `sdlc-migrate` find the adapter's directory the same way on every run:
+
+```bash
+# The manifest's plugin (initialize sets PLUGIN to the id discovery found, and PLUGIN_ROOT for a vendored one)
+PLUGIN=${PLUGIN:-$(jq -r '.adapter.plugin // empty' .sdlc-manifest.json 2>/dev/null)}
+ROOT_DIR=$(git rev-parse --show-toplevel 2>/dev/null || pwd -P)
+# 1. The enabled install whose id (or, for a bare name, whose id's name part) matches: the one for
+#    this project (project scope, then local), else the user's. Never another project's install.
+PLUGIN_DIR=$(claude plugin list --json 2>/dev/null | jq -r --arg p "$PLUGIN" --arg root "$ROOT_DIR" '
+  [ .[] | select(.enabled == true) | select(.id == $p or (.id | split("@")[0]) == $p) ]
+  | [ (.[] | select(.scope == "project" and .projectPath == $root)),
+      (.[] | select(.scope == "local" and .projectPath == $root)),
+      (.[] | select(.scope == "user")) ] | .[0].installPath // empty')
+# 2. Otherwise a copy vendored in the project
+if [ -z "$PLUGIN_DIR" ]; then
+  ROOT=${PLUGIN_ROOT:-$(jq -r '.adapter.plugin_root // empty' .sdlc-manifest.json 2>/dev/null)}
+  case "$ROOT" in ""|/*|"~"*|..|../*|*/../*|*/..) ;; *) [ -f "$ROOT/adapter.json" ] && PLUGIN_DIR="$ROOT" ;; esac
+fi
+if [ -n "$PLUGIN_DIR" ]; then echo "PLUGIN_DIR=$PLUGIN_DIR"
+elif ! command -v claude >/dev/null; then echo "ADAPTER NOT FOUND: $PLUGIN (no claude CLI on PATH)"
+else echo "ADAPTER NOT FOUND: $PLUGIN"; fi
+```
+
+If it prints `ADAPTER NOT FOUND`, stop before any change: tell CD the adapter isn't installed for this project, and to install it here (`claude plugin install <plugin> --scope project`, or `claude plugin enable <plugin>`) and restart Claude Code, then run again. With no `claude` CLI on `PATH`, say that instead: only a vendored copy can be found without it. **Headless run:** end with status `failed`. Never fall back to an absolute `plugin_root` an older manifest holds: it names one machine's install, often an older version's, whose handlers no longer match the plugin the session loaded.
+
+The handler doc is `{PLUGIN_DIR}/{adapter.phase_handlers}`, and `${CLAUDE_PLUGIN_ROOT}` in it means `{PLUGIN_DIR}`.
 
 ### Detection during migration
 
-`sdlc-migrate` reads the manifest's `adapter` block directly (no plugin scan needed):
+`sdlc-migrate` reads the manifest's `adapter` block directly (no discovery needed):
 
 1. Read `.sdlc-manifest.json`.
 2. If `manifest.adapter` exists and is not `null` → adapter mode.
-3. Resolve handler doc: `{project_root}/{adapter.plugin_root}/{adapter.phase_handlers}`.
-4. Load phase handler instructions from that doc.
+3. Find the plugin (§ Finding the plugin), before the version gate: the gate reads the live `adapter.json` from that directory.
+4. Load phase handler instructions from `{PLUGIN_DIR}/{adapter.phase_handlers}`.
 5. Which phases the adapter participates in is determined by which H2 sections exist in the handler doc.
-6. Refresh `supported_zsdlc_version` from the live `adapter.json` (the adapter may have been updated between migrations).
+6. Refresh the block in the manifest §4.5 writes (never earlier, so a run the version gate halts leaves it as it was): `supported_zsdlc_version` from the live `adapter.json` (the adapter may have been updated between migrations), `plugin` as the full id the lookup matched, and no `plugin_root` that is absolute or outside the project.
 
-If the handler doc is missing or unreadable, halt with a clear error (adapter declared but handlers not found).
+If the handler doc is missing or unreadable, halt with a clear error (adapter declared but handlers not found). A headless run ends with status `failed` and that error (`[sdlc-root]/process/headless-mode.md`).
 
 ---
 
@@ -113,6 +151,10 @@ The adapter's backend owns knowledge storage. During initialization, upstream pr
 The adapter is responsible for:
 - Assigning stable identifiers to each knowledge entry (for idempotent upsert during future migrations)
 - Distinguishing upstream-originated entries from project-originated entries so project additions are never overwritten during future updates
+
+**The knowledge layer is the adapter's** when the adapter routes knowledge through its backend and keeps no agent-context map: upstream knows it by the map's absence, as `sdlc-migrate` §3.3 does. Such an adapter, in this phase, removes the map and records it in `declined_files` (below). It also removes the copies `sdlc-initialize`'s Phase 1 made under `[sdlc-root]/knowledge/` and `[sdlc-root]/disciplines/`, dropping their `installed_files` entries without recording them as declined: the adapter seeds them from the z-sdlc source and keeps them up to date. From then on, `sdlc-migrate` copies, removes, merges, asks about and checks none of those files, and records none as declined. A file the adapter handles has no copy on disk to go missing, so a "keep it removed" record would only stop the adapter updating it. An adapter that keeps the map keeps the files too, and stays on the ordinary path.
+
+**The agent-context map.** An adapter that routes knowledge through its backend and keeps no map removes `[sdlc-root]/knowledge/agent-context-map.yaml` in this phase and records it in `.sdlc-manifest.json` → `declined_files` (`[sdlc-root]/process/project-section-markers.md` § Deleted Files). Upstream reads that the same way `sdlc-migrate` §3.3 does: the adapter declares its knowledge phase, and the project has no map. In adapter mode, `sdlc-initialize` wires the map (Phase 5) after this phase, and skips the wiring when the map is gone. Its later checks (Phase 9a's maturity levels, Phase 10's checklist, Phase 11's audit) then treat the project's knowledge as reaching agents through the adapter.
 
 ### Phase: `knowledge-update` (migrate only)
 
@@ -135,6 +177,17 @@ When an adapter declares this phase, upstream skips §2.1b entirely for knowledg
 This eliminates the materialization round-trip. No flat files are created, diffed, or cleaned up. The backend's own storage semantics handle what upstream's key-level merge does for flat-file projects.
 
 **What upstream still handles:** `agent-context-map.yaml` structural updates (new agent entries, wiring changes) remain upstream's responsibility unless the adapter also transforms these during `post-file-write`. A project whose adapter declares this phase and that has no map (the adapter routes knowledge through its backend) has nothing to update: `sdlc-migrate` §3.3 skips, and never creates the map.
+
+### Phase: `project-knowledge` (initialize only)
+
+| | |
+|---|---|
+| **Fires when** | `sdlc-initialize` writes the project's own content into the knowledge layer: each discipline's Project Context (Phase 7), the project's knowledge entries (Phase 8's testing gotchas) and the Process Maturity Tracker (Phase 9a). A lite install graduates without the adapter (`sdlc-initialize` § Lite Graduation Mode), so there is no lite content to hand over |
+| **Input** | One item per write: its kind (`discipline-context`, `knowledge-entry`, `maturity-tracker`), the file and section it would have gone to, and its content |
+| **Default (no adapter, or an adapter that doesn't declare it)** | Write it to that file, copied from the z-sdlc source first when the project doesn't keep it on disk |
+| **Purpose** | Keep the project's content where its agents look, the adapter's backend, marked as the project's so `knowledge-update` never overwrites it |
+
+These run after `knowledge-seed`, so without this phase their content lands on disk beside a backend the project's agents search instead. An adapter that doesn't declare the phase gets the files, which stay visible.
 
 ### Phase: `post-file-write`
 
@@ -194,7 +247,7 @@ Each phase declares its failure behavior in the adapter's handler doc via an `**
 
 | Failure Mode | Behavior |
 |--------------|----------|
-| `halt` | Upstream stops the migration/initialization, logs a `failure` event to the transaction log, reports to user. **This is the default if not declared.** |
+| `halt` | Upstream stops the migration/initialization, logs a `failure` event to the transaction log, reports to user (a headless run ends with status `failed` and the error). **This is the default if not declared.** |
 | `warn-continue` | Upstream logs a `warning` event, continues with remaining phases. The final report includes the warning. |
 
 Recommended defaults:
@@ -203,6 +256,7 @@ Recommended defaults:
 |-------|-------------|-----------|
 | `knowledge-seed` | `halt` | Failed ingestion means the backend has no knowledge — project is non-functional |
 | `knowledge-update` | `halt` | Failed update leaves knowledge in an inconsistent state between backend and framework version |
+| `project-knowledge` | `halt` | Project content that doesn't reach the backend is invisible to the project's agents |
 | `post-file-write` | `halt` | A failed transformation means backend-native calls are missing — agents won't retrieve knowledge. The MCP preservation gate makes partial success dangerous. |
 | `post-operation` | `warn-continue` | Verification failure is informational — files are already written, halting doesn't undo them |
 
@@ -224,6 +278,11 @@ The adapter's handler doc (referenced by `phase_handlers` in the manifest) is a 
 **On failure:** halt
 
 [Instructions for diffing and upserting knowledge during migration...]
+
+## project-knowledge
+**On failure:** halt
+
+[Instructions for storing the project's own discipline context, knowledge entries and maturity tracker during initialization...]
 
 ## post-file-write
 **On failure:** halt
@@ -253,7 +312,8 @@ The instructions are prose that upstream's skill reads and follows — same patt
   ... existing pre-flight checks ...
   → Read .sdlc-manifest.json
   → If manifest.adapter exists:
-      Resolve handler doc path
+      Find the plugin by id (§ Finding the plugin); stop if it isn't enabled here
+      Resolve handler doc path: {plugin dir}/{phase_handlers}
       Read handler doc
       Note which phases are declared (by H2 section presence)
 
@@ -290,9 +350,16 @@ The instructions are prose that upstream's skill reads and follows — same patt
 
 § Phase 5–6: Knowledge Seeding
   → If adapter declares knowledge-seed:
-      Execute adapter's knowledge-seed instructions
+      Execute adapter's knowledge-seed instructions, then Phase 5 (map wiring),
+      skipped when the adapter declined the map
   → Else:
-      Copy knowledge YAMLs to [sdlc-root]/knowledge/ (unchanged)
+      Phase 5, then copy knowledge YAMLs to [sdlc-root]/knowledge/ (unchanged)
+
+§ Phases 7, 8, 9a: the project's own knowledge-layer content
+  → If adapter declares project-knowledge:
+      Hand each item to the adapter's project-knowledge instructions
+  → Else:
+      Write it to its file (unchanged)
 
 § Phase 10: Final Verification
   → If adapter declares post-operation:

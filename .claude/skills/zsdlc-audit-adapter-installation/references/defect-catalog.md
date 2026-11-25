@@ -105,7 +105,7 @@ Canonical phrases stayed untransformed. The rule either doesn't exist in the plu
 ### 2.1 Leak grep (general)
 
 ```bash
-grep -rn '\[sdlc-root\]/\(knowledge\|disciplines\)/' <target>/.claude/ 2>/dev/null \
+grep -rn '\[sdlc-root\]/\(knowledge\|disciplines\)/' <target>/.claude/ <target>/ops/sdlc/ 2>/dev/null \
   | grep -vE 'sdlc_changelog|changelog-archive/|knowledge-routing|sdlc-reviewer\.md|sdlc-compliance-auditor\.md|CLAUDE-SDLC\.md|provenance_log\.md'
 ```
 
@@ -151,7 +151,7 @@ Pass 2 of the plugin transformer (added in 0.4.0) translates file-mode concept t
 
 **Detection grep (Scan 3b in `SKILL.md`):**
 ```bash
-grep -rnE '\bknowledge files\b|\bdiscipline files\b|\bparking lot entr|\bknowledge stores\b|\bDiscipline parking lots\b|\bKnowledge YAMLs?\b|\bYAML knowledge files\b|\bagent-context-map\b' <target>/.claude/ 2>/dev/null \
+grep -rnE '\bknowledge files\b|\bdiscipline files\b|\bparking lot entr|\bknowledge stores\b|\bDiscipline parking lots\b|\bKnowledge YAMLs?\b|\bYAML knowledge files\b|\bagent-context-map\b' <target>/.claude/ <target>/ops/sdlc/ 2>/dev/null \
   | grep -vE 'sdlc_changelog|changelog-archive/|knowledge-routing|sdlc-reviewer\.md|sdlc-compliance-auditor\.md|CLAUDE-SDLC\.md|provenance_log\.md|agent-memory/'
 ```
 

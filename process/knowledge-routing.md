@@ -87,8 +87,8 @@ mappings:
 4. **Verify the entry** by reading the agent's system prompt instructions and confirming that the file paths in the map actually exist on disk. An agent that tries to read a non-existent path will waste context window on an error.
 
    ```bash
-   # Quick check: confirm each path exists (replace [sdlc-root] with actual path)
-   sdlc_root="ops/sdlc"  # or detect from .sdlc-manifest.json
+   # Quick check: confirm each path exists ([sdlc-root] is ops/sdlc)
+   sdlc_root="ops/sdlc"
    for f in $(grep -A 20 'my-new-agent:' "$sdlc_root/knowledge/agent-context-map.yaml" | grep '^\s*-' | sed 's/.*"\[sdlc-root\]//' | sed 's/".*//' ); do
      resolved="$sdlc_root$f"
      [ -f "$resolved" ] && echo "OK: $resolved" || echo "MISSING: $resolved"

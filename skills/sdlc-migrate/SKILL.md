@@ -7,7 +7,7 @@ description: >
   Triggers on "migrate my SDLC", "update the SDLC", "migrate SDLC framework", "update SDLC framework",
   "upgrade SDLC", "sync SDLC with upstream".
   Do NOT use for first-time installation — use sdlc-initialize.
-  Do NOT use when neither ops/sdlc/ nor .claude/sdlc/ exists — use sdlc-initialize.
+  Do NOT use when ops/sdlc/ doesn't exist — use sdlc-initialize.
 ---
 
 # SDLC Migrate
@@ -54,7 +54,44 @@ tail -n 100 .sdlc-transaction-log | jq 'select(.run_id | startswith("migrate-"))
 
 Before starting, verify this is a migration (not initialization):
 
-If neither `ops/sdlc/` nor `.claude/sdlc/` exists → tell user to run `sdlc-initialize` instead and stop.
+**The SDLC root is `ops/sdlc/`, and no other.** The factory treats `.claude/` as protected agent configuration and refuses to edit anything under it, so z-sdlc dropped the `.claude/sdlc/` root that neuroloom-sdlc 0.6 and earlier moved projects to. Check for it first, before the `ops/sdlc/` check below, because a project on the old root has no `ops/sdlc/` and would otherwise be sent to `sdlc-initialize`, which would install a second tree:
+
+<!-- MIRROR-START: path-mappings.md#sdlc-root-check -->
+```bash
+# Files left on the old root: tracked or new unignored ones that still exist (a plain mv leaves
+# the old paths in the index until it is staged). Ignored leftovers don't count.
+if git rev-parse --git-dir >/dev/null 2>&1; then
+  OLD_ROOT=$(git ls-files --cached --others --exclude-standard -- .claude/sdlc | while read -r p; do [ -e "$p" ] && echo "$p"; done | head -3)
+else
+  OLD_ROOT=$( [ -e .claude/sdlc ] && echo .claude/sdlc )
+fi
+# The manifest naming another root, or files under the old one
+# (a manifest that isn't one JSON object, an empty file or one that doesn't parse included,
+# can't be checked, so it counts as a hit)
+OLD_MANIFEST=
+if [ -f .sdlc-manifest.json ]; then
+  OLD_MANIFEST=$(jq -rs '
+    if length != 1 or (.[0] | type) != "object" then error("not one JSON object") else .[0] end
+    | [ ((.sdlc_root // "ops/sdlc") | rtrimstr("/") | select(. != "ops/sdlc") | "sdlc_root \"\(.)\""),
+        ((.installed_files // {}), (.declined_files // {}) | keys[] | select(startswith(".claude/sdlc/"))),
+        ((.bundle_fragments // {}) | .[] | strings | select(startswith(".claude/sdlc/"))) ] | .[]' .sdlc-manifest.json) \
+    || OLD_MANIFEST=".sdlc-manifest.json isn't one JSON object"
+  OLD_MANIFEST=$(printf '%s\n' "$OLD_MANIFEST" | head -3)
+fi
+if [ -n "$OLD_ROOT$OLD_MANIFEST" ]; then printf 'OLD ROOT:\n%s\n%s\n' "$OLD_ROOT" "$OLD_MANIFEST"; fi
+```
+
+If it prints `OLD ROOT`, stop before any change and tell CD what it found. A manifest that isn't one JSON object has nothing to move: restore it from git or repair it, then run the check again. For anything else it found, tell CD how to move:
+1. Move the contents of `.claude/sdlc/` into `ops/sdlc/` with `git mv` (or stage the move), so the old paths leave the index.
+2. In `.sdlc-manifest.json`, set `"sdlc_root": "ops/sdlc"`, re-key every `installed_files` and `declined_files` entry from `.claude/sdlc/...` to `ops/sdlc/...` with its value unchanged, and update the `bundle_fragments` target paths.
+3. Update the live references that name the old root (`CLAUDE.md`, `.claude/agents/`, `.claude/skills/`, `.claude/agent-memory/`, scripts and CI). Leave changelog and deliverable history as written.
+4. With an adapter, install or update to a version that supports only `ops/sdlc/` (`claude plugin update <plugin>`), then restart Claude Code so the session loads it. The manifest names the plugin, not its install path, so nothing in it changes.
+5. Commit the move, then run `sdlc-migrate` again.
+<!-- MIRROR-END: path-mappings.md#sdlc-root-check -->
+
+**Headless run:** end with status `failed` and what it found: the move, or the manifest's repair, is CD's.
+
+If `ops/sdlc/` doesn't exist → tell user to run `sdlc-initialize` instead and stop.
 
 **Step 0 — Check the project's branch is current with its remote.** Drift detection (§1.2a), the merges and deviation detection all read the project's own files. On a branch behind the remote default branch, they compare against an old tree: work the default branch already landed is done twice, and the result conflicts with it.
 
@@ -99,47 +136,42 @@ fi
 
 Use `[target_tag]` (the resolved tag, e.g., `v1.4.0`) as the git ref for **every** source read in subsequent phases. This ensures the migration targets a stable release, not unreleased commits.
 
-**1c. Follow the release's own rules.** This installed copy runs the migration, so a release's new merge rules would otherwise apply only from the migration after it. Compare this skill, with any marks the project made in it set aside, with the release's: `git -C [z-sdlc-path] show [target_tag]:skills/sdlc-migrate/SKILL.md`. If they differ, read the release's `SKILL.md` and its `references/` from `[target_tag]` (git reads only, as everywhere), and follow them for the rest of this run instead of this copy; Phase 2 still installs them as usual. Whichever copy runs, read every `[sdlc-root]/process/` doc it says to follow (`project-section-markers.md`, `path-mappings.md`, `headless-mode.md`, `source-repo-safety.md` and the rest) from `[target_tag]:process/<name>`, never the project's copy, which is still the old one until Phase 2. Log `MIGRATE RULES: following [target_tag]'s sdlc-migrate` (or `this copy`) in the migration report. A copy installed before this step existed can't take it: to migrate to the release that introduced it, tell the migrating session to follow that release's `sdlc-migrate` and process docs, read from the z-sdlc source at its tag, instead of the installed copy (that release's changelog entry says so).
+**1c. Follow the release's own rules.** This installed copy runs the migration, so a release's new merge rules would otherwise apply only from the migration after it. Compare this skill, with any marks the project made in it set aside, with the release's: `git -C [z-sdlc-path] show [target_tag]:skills/sdlc-migrate/SKILL.md`. If they differ, read the release's `SKILL.md` and its `references/` from `[target_tag]` (git reads only, as everywhere), and follow them for the rest of this run instead of this copy; Phase 2 still installs them as usual. Whichever copy runs, read every `[sdlc-root]/process/` doc it says to follow (`project-section-markers.md`, `path-mappings.md`, `headless-mode.md`, `source-repo-safety.md` and the rest) from `[target_tag]:process/<name>`, never the project's copy, which is still the old one until Phase 2. Log `MIGRATE RULES: following [target_tag]'s sdlc-migrate` (or `this copy`) in the migration report. When you switch to the release's copy, run its Pre-Flight checks that come before Step 1 (the SDLC root, the branch) again before going on: this copy ran its own before it had read the release's, and a newer check must still stop the run. A copy installed before this step existed can't take it: to migrate to the release that introduced it, tell the migrating session to follow that release's `sdlc-migrate` and process docs, read from the z-sdlc source at its tag, instead of the installed copy (that release's changelog entry says so).
 
 **Step 2 — Detect project structure:**
 
-The z-sdlc source uses canonical paths (`knowledge/`, `disciplines/`, `process/`). Projects install these to different locations. Detect the project's structure before applying any changes.
-
-| Signal | Detection | Result |
-|--------|-----------|--------|
-| **SDLC directory** | `[ -d ops/sdlc ]` vs `[ -d .claude/sdlc ]` | Set `[sdlc-root]` to whichever exists (if both exist, prefer `ops/sdlc` and warn user) |
+The z-sdlc source uses canonical paths (`knowledge/`, `disciplines/`, `process/`). A project has them under `ops/sdlc/`, its one SDLC root, so `[sdlc-root]` is `ops/sdlc` throughout. If this run hasn't run the SDLC root check in the Pre-Flight Check (an installed copy from an earlier release ran its own pre-flight, then 1c switched to this one), run it now, and stop as it says on a hit, before anything is written:
 
 ```bash
-# Detect SDLC root
-if [ -d ops/sdlc ] && [ -d .claude/sdlc ]; then
-  SDLC_ROOT="ops/sdlc"
-  echo "WARNING: Both ops/sdlc and .claude/sdlc exist. Using ops/sdlc. Consider consolidating."
-elif [ -d ops/sdlc ]; then
-  SDLC_ROOT="ops/sdlc"
-elif [ -d .claude/sdlc ]; then
-  SDLC_ROOT=".claude/sdlc"
-else
-  echo "No SDLC directory found — use sdlc-initialize"
-  exit 1
-fi
+SDLC_ROOT="ops/sdlc"
 ```
 
 **Adapter lifecycle detection:** After reading `.sdlc-manifest.json`, check for the `adapter` block:
 
 ```
 If manifest.adapter exists and is not null:
-  Resolve handler doc: {project_root}/{adapter.plugin_root}/{adapter.phase_handlers}
-  If handler doc missing or unreadable → halt with error
+  Find the plugin's directory by its id (adapter-lifecycle-protocol.md § Finding the plugin):
+    the install of adapter.plugin enabled for this project, or for the user (claude plugin list
+    --json, matched on projectPath), else a copy vendored in the project; neither → stop
+    (headless: failed)
+  Resolve handler doc: {plugin dir}/{adapter.phase_handlers}
+  If handler doc missing or unreadable → halt with error (headless: failed)
   Parse which H2 sections exist → these are the adapter's declared phases
-  Refresh supported_zsdlc_version from live adapter.json (adapter may have been updated; an adapter written
-  before the rename declares supported_ccsdlc_version). Write it under the new key and remove a
-  supported_ccsdlc_version key from the project's adapter entry
+  Read supported_zsdlc_version from the live adapter.json (adapter may have been updated; an adapter
+  written before the rename declares supported_ccsdlc_version)
+  For §4.5 to write (never now, so a run the version gate halts leaves the manifest as it was):
+  supported_zsdlc_version under the new key, with no supported_ccsdlc_version key;
+  adapter.plugin as the full id the lookup matched (<name>@<marketplace>), and no
+  adapter.plugin_root that is absolute or outside the project: an install's path is looked up
+  on every run, never recorded
   Log: adapter_detected event with plugin name and declared phases
 ```
 
+**The knowledge layer is the adapter's** when the adapter declares `knowledge-update` and the project has no `[sdlc-root]/knowledge/agent-context-map.yaml`: the same condition as §3.3, so an adapter that keeps the map, and the files with it, stays on the ordinary path. Then every file under `[sdlc-root]/knowledge/` and `[sdlc-root]/disciplines/` is the adapter's, YAML or Markdown: the adapter updates them in its backend from the z-sdlc source at `[target_tag]`. This skill copies none of them (§2.1), removes none (§2.1a), merges none (§2.1b, §2.3), asks about none it lacks and records none as declined (§2.1c), and checks none (§2.5's tracker and parking-lot checks, §3.4's discipline and knowledge rows). A declined record already in the manifest still stands, and the adapter honours it. Files still on disk there (an older adapter's leftovers, which it never removed) aren't updated: list them in the migration report (§4.6) for CD to delete, since the adapter's backend holds their content.
+
 When an adapter is detected, this skill delegates specific phases (knowledge-update, post-file-write, post-operation) to the adapter's handler doc instructions. Non-delegated phases run identically to the non-adapter path. See `[sdlc-root]/process/adapter-lifecycle-protocol.md` for the full protocol.
 
-**Adapter version gate:** During §1.2 (Changelog Review Gate), if an adapter is detected, compare each `[contract-change]` entry's z-sdlc version against `adapter.supported_zsdlc_version`. If any entry's version exceeds the adapter's declared support → halt with a message identifying the uncovered entries and the adapter's current version. The adapter maintainer must update their `adapter.json` before migration can proceed.
+**Adapter version gate:** During §1.2 (Changelog Review Gate), if an adapter is detected, compare each `[contract-change]` entry's z-sdlc version against `adapter.supported_zsdlc_version`. If any entry's version exceeds the adapter's declared support → halt with a message identifying the uncovered entries and the adapter's current version. The adapter maintainer must update their `adapter.json` before migration can proceed. **Headless run:** end with status `failed`, the uncovered entries and the adapter's version as the reason.
 
 When `manifest.adapter` is `null` or absent, behavior is identical to before this protocol existed.
 
@@ -147,7 +179,7 @@ When `manifest.adapter` is `null` or absent, behavior is identical to before thi
 
 ```
 MIGRATION ASSESSMENT
-SDLC root: [sdlc-root] (ops/sdlc or .claude/sdlc)
+SDLC root: ops/sdlc
 Has .sdlc-manifest.json: [yes/no]
 Has .claude/agents/: [yes/no]
 Has .claude/skills/: [yes/no]
@@ -385,7 +417,7 @@ Before any file copying, compute the **effective install set** for this project 
 
 **Step 0 — Load exclusion list before any writes.** Read `[sdlc-root]/process/path-mappings.md` § "Project-Specific Files (Never Overwrite)". For every file about to be written in this phase, confirm it does NOT appear on that list. If it does, skip it — no exceptions, no "I'll just update the header" rationalizations. Current exclusions: `agent-selection.yaml`, `agent-context-map.yaml`, `provenance_log.md`, `sdlc_changelog.md`, `process/changelog-archive/`, and the project's `.claude/skills/verify/`.
 
-**Which files are written:** only the set the Phase 1 pass checked (§1.2a), never a declined one (`declined_files`): a file upstream changed since `source_version`, one upstream added that the project lacks, one CD chose to restore, every framework file in a full migration, and a plugin guide that differs from `[target_tag]`'s with its marks set aside. A file outside that set isn't touched, even when it differs from upstream: its unmarked changes are asked about when a release next changes it, and the audit (§4.4, 7c) reports them meanwhile. Within the set, copy each one directly from z-sdlc to the project's `[sdlc-root]/` directory, applying its Phase 1 decision and keeping its marks:
+**Which files are written:** only the set the Phase 1 pass checked (§1.2a), never a declined one (`declined_files`): a file upstream changed since `source_version`, one upstream added that the project lacks, one CD chose to restore, every framework file in a full migration, and a plugin guide that differs from `[target_tag]`'s with its marks set aside. A file outside that set isn't touched, even when it differs from upstream: its unmarked changes are asked about when a release next changes it, and the audit (§4.4, 7c) reports them meanwhile. Within the set, copy each one directly from z-sdlc to the project's `[sdlc-root]/` directory, applying its Phase 1 decision and keeping its marks, and none under `[sdlc-root]/knowledge/` or `[sdlc-root]/disciplines/` when the knowledge layer is the adapter's (Pre-Flight Check, Step 2, The knowledge layer is the adapter's):
 
 - `process/*.md`, top level only (excluding `agent-selection.yaml` and `sdlc_changelog.md` — project-specific, protected by Step 0). Never copy `process/changelog-archive/`: it's z-sdlc's history
 - `skills/*/scripts/*` (manifest-listed) → `.claude/skills/*/scripts/`
@@ -485,6 +517,8 @@ git rm -r --cached .claude/agent-memory/ 2>/dev/null
 When no adapter is declared, this step is skipped entirely — no overhead for non-adapter projects.
 
 ### 2.1a Remove Deleted and Moved Files
+
+When the knowledge layer is the adapter's (Pre-Flight Check, Step 2, The knowledge layer is the adapter's), skip files under `[sdlc-root]/knowledge/` and `[sdlc-root]/disciplines/` here.
 
 Check the z-sdlc changelog for files that were **deleted, moved, or renamed** since the project's `source_version`. These require explicit cleanup in the downstream project — direct copy only adds files, it doesn't remove stale ones.
 
@@ -607,7 +641,7 @@ Confirm or edit each.
 
 A removal is shown as one: "the project removed `[target]`, which upstream still has". Marking it keeps it removed.
 
-**A framework file the project lacks** (any file in `skeleton/manifest.json` → `source_files` at `[target_tag]`, at its installed path per `[sdlc-root]/process/path-mappings.md`, that isn't on disk and isn't in `declined_files`, whether or not this release changed it) is asked about once. `.claude/agents/AGENT_SUGGESTIONS.md` is the exception: the installer deletes it once the project's agents exist (`sdlc-initialize` Phase 12), so it is never asked about, recorded or restored.
+**A framework file the project lacks** (any file in `skeleton/manifest.json` → `source_files` at `[target_tag]`, at its installed path per `[sdlc-root]/process/path-mappings.md`, that isn't on disk and isn't in `declined_files`, whether or not this release changed it) is asked about once. When the knowledge layer is the adapter's (Pre-Flight Check, Step 2, The knowledge layer is the adapter's), a file under `[sdlc-root]/knowledge/` or `[sdlc-root]/disciplines/` is never asked about: a "keep it removed" record would stop the adapter from updating it. `.claude/agents/AGENT_SUGGESTIONS.md` is the exception: the installer deletes it once the project's agents exist (`sdlc-initialize` Phase 12), so it is never asked about, recorded or restored.
 
 ```
 MISSING: [installed path] (upstream: [source path])
@@ -693,6 +727,8 @@ Skills have two layers:
 
 ### 2.3 Content-Merge: Disciplines
 
+When the knowledge layer is the adapter's (Pre-Flight Check, Step 2, The knowledge layer is the adapter's), skip this subsection.
+
 Discipline files have:
 1. **Framework structure** — knowledge store reference, summary, mutation verification rules, level definitions (in process-improvement.md only), each `## Parking Lot` heading with its italic instruction line, and the tracker's heading
 2. **Project additions** — parking lot entries (with triage markers), active questions, project context sections
@@ -725,7 +761,7 @@ Discipline files have:
 
 **Before proceeding to agent updates**, verify the content-merge results from §2.2–2.4 didn't corrupt project data. This catches merge errors before they propagate into agent wiring.
 
-**Quick checks (< 2 minutes):**
+**Quick checks (< 2 minutes):** (when the knowledge layer is the adapter's (Pre-Flight Check, Step 2, The knowledge layer is the adapter's), skip checks 1 and 2)
 
 1. **Tracker integrity** — read `[sdlc-root]/disciplines/process-improvement.md` and verify:
    - `<!-- PROJECT-TRACKER-START -->` / `<!-- PROJECT-TRACKER-END -->` markers are present
@@ -819,8 +855,8 @@ New or updated knowledge files and process docs may conflict with or improve the
 | Agent definitions | `.claude/agents/*.md` | New knowledge wiring — do any agents work in domains covered by newly added knowledge files but aren't wired to them? |
 | Agent descriptions | `.claude/agents/*.md` frontmatter | Description-economy convention — flag `<example>` or `<commentary>` blocks, a missing "Do NOT use for" boundary sentence, a missing `## When to invoke` body section, or a description without its `Typical triggers include ...` sentence and pointer; suggest a fix (advisory only, see §3.1) |
 | Agent tools | `.claude/agents/*.md` frontmatter | Tool-grant convention — flag a restricted `tools:` line that leaves out `SendMessage` on an agent whose Communication Protocol section says to send progress updates (its updates have no channel), that leaves out a tool the project's CLAUDE.md requires of agents doing that agent's work (its Agent Conventions grant list, Context7 for code against external libraries), or that grants an MCP server by prefix (`mcp__server`) instead of naming its tools; suggest the grant (advisory only: `tools:` is project-owned) |
-| Discipline parking lots | `[sdlc-root]/disciplines/*.md` | Stale entries — do any `[NEEDS VALIDATION]` entries now have evidence from newly landed knowledge? |
-| Project knowledge | `[sdlc-root]/knowledge/**/*.yaml` | Contradictions — do any project-specific knowledge rules conflict with newly landed upstream rules? |
+| Discipline parking lots | `[sdlc-root]/disciplines/*.md` | Stale entries — do any `[NEEDS VALIDATION]` entries now have evidence from newly landed knowledge? (Not when the knowledge layer is the adapter's.) |
+| Project knowledge | `[sdlc-root]/knowledge/**/*.yaml` | Contradictions — do any project-specific knowledge rules conflict with newly landed upstream rules? (Not when the knowledge layer is the adapter's.) |
 
 **Process:**
 
@@ -1006,11 +1042,12 @@ After migration, update `.sdlc-manifest.json`:
 1. **Update `source_version`** to the target release tag (e.g., `v1.4.0`). Also set `source_version_sha` to the tag's commit hash for precise diff resolution.
 1a. **Point `source_repo` at the framework's current home.** The repository moved from `Inpacchi/cc-sdlc` to `endless-galaxy-studios/z-sdlc` (2026-10-12); GitHub redirects the old URL, but only until something takes the old name. If `source_repo` names `github.com/Inpacchi/cc-sdlc` (HTTPS or SSH, with or without `.git`), rewrite it to the same form at the new home: `https://github.com/endless-galaxy-studios/z-sdlc.git` or `git@github.com:endless-galaxy-studios/z-sdlc.git`. Leave any other value alone (a fork or a local path is deliberate).
 2. **Add missing fields** if the manifest predates this migration:
-   - `sdlc_root`: set to `[sdlc-root]` detected in pre-flight
+   - `sdlc_root`: set to `ops/sdlc`
    - `installed_files`: back-fill if absent (hash every file in `skeleton/manifest.json` source_files **plus every installed bundle's `skills`, `process` and `tree` files** at its installed path (never its seeds), except the never-overwrite files; mark `installed_at: "backfilled-{CURRENT_VERSION}"`)
    - `installed_bundles`: back-fill from the §2.0a detection result (empty array if no bundles detected)
    - `last_applied_contract_id`: if absent, back-fill to `"0000"` before consuming pending_changes; if already set, leave untouched until step 5 below
    - **Any field added by a `manifest_field_added` contract entry in pending_changes** — apply its `default` value
+2b. **Refresh the `adapter` block** (when it isn't null) as Pre-Flight's adapter detection resolved it: `supported_zsdlc_version` from the live `adapter.json` under the new key, `plugin` as the full id the lookup matched (`<name>@<marketplace>`), and no `plugin_root` that is absolute or outside the project (`[sdlc-root]/process/adapter-lifecycle-protocol.md` § Detection during migration). An adapter's `post-operation` check compares against these values.
 3. **Refresh `installed_files` hashes.** For every file the migration just touched — direct copies, content-merges, drift resolutions — recompute SHA-256 of the final on-disk content and update the corresponding entry. For drift cases where CD chose "keep mine", record the current hash so the next migration sees a clean baseline. For files CD chose to overwrite with upstream, the new hash reflects the upstream content. This keeps drift detection accurate for the next migration.
 4. **Update `installed_bundles`** to include any bundles CD accepted in §4.7.
 4a. **Update `bundle_fragments`** to reflect every `BUNDLE-SECTION` fragment injected this run (§2.1 step 7 and §4.7 installs): label `bundle/fragment` → target path. Remove entries for fragments upstream no longer declares (their blocks were stripped by §2.1 step 7's strip pass and not re-added).

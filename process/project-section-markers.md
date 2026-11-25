@@ -21,7 +21,7 @@ Markers are required for any deliberate change to a file `sdlc-migrate` updates 
 | Disciplines (`[sdlc-root]/disciplines/*.md`) | Yes, for framework sections | Their framework sections merge from upstream (§2.3), so a change to one is marked. Their project data needs none: the `## Parking Lot` entries and triage markers, `## Project Context`, `## Active Questions`, and the Process Maturity Tracker block |
 | Agent-context-map (`[sdlc-root]/knowledge/agent-context-map.yaml`) | No | Project-specific, not overwritten |
 
-A value a framework file leaves for the project to set is the project's by design and needs no mark: a filled `[build command]`-style placeholder (a build, test or start command, a health-check URL), the project's agent name where the framework names a canonical one, a resolved `[PLUGIN: ...]` guard, the SDLC root the project chose where the framework offers `ops/sdlc` or `.claude/sdlc` (the path itself: the note in `CLAUDE.md`'s SDLC sections that names both roots, and where the manifest records the choice, is framework text, kept as upstream writes it), a knowledge file's `spec_relevant`. Text an adapter plugin writes is the adapter's, under its phrasing contract. Every other difference from upstream is a change, and is marked.
+A value a framework file leaves for the project to set is the project's by design and needs no mark: a filled `[build command]`-style placeholder (a build, test or start command, a health-check URL), the project's agent name where the framework names a canonical one, a resolved `[PLUGIN: ...]` guard, a knowledge file's `spec_relevant`. Text an adapter plugin writes is the adapter's, under its phrasing contract. Every other difference from upstream is a change, and is marked.
 
 ## Skills That Produce Marked Content
 
@@ -230,7 +230,7 @@ Copy the bundle's files → inject its fragments → record the bundle in `insta
 
 ## MIRROR Markers
 
-Upstream-owned **verbatim copies** of a process-doc section, carried inline in skills so a critical step is never reduced to a skippable pointer. The users are the two review-loop critical-steps blocks defined in `[sdlc-root]/process/review-fix-loop.md` § Mirrored Critical-Steps Blocks, the headless stop rule in `[sdlc-root]/process/headless-mode.md` § Mirrored Stop Rule, which every skill carries, and the Approval Brief procedure and Completion Report in `[sdlc-root]/process/writing-for-cd.md` § Mirrored Blocks, which the planning and execution skills carry.
+Upstream-owned **verbatim copies** of a process-doc section, carried inline in skills so a critical step is never reduced to a skippable pointer. The users are the two review-loop critical-steps blocks defined in `[sdlc-root]/process/review-fix-loop.md` § Mirrored Critical-Steps Blocks, the headless stop rule in `[sdlc-root]/process/headless-mode.md` § Mirrored Stop Rule, which every skill carries, and the Approval Brief procedure and Completion Report in `[sdlc-root]/process/writing-for-cd.md` § Mirrored Blocks, which the planning and execution skills carry, and the SDLC root check in `[sdlc-root]/process/path-mappings.md` § The SDLC Root, which `sdlc-migrate` and `sdlc-initialize` carry.
 
 ```html
 <!-- In the source process doc -->
@@ -248,7 +248,7 @@ The label names its source: `{process-file}#{section-id}`, where `{process-file}
 
 ### Rules
 
-1. **Identical content.** The lines between `MIRROR-START`/`MIRROR-END` must be byte-identical to the lines between the matching `MIRROR-SOURCE-START`/`MIRROR-SOURCE-END`. Any difference is a drift finding — `sdlc-reviewer` (§ Cross-skill DRY) and the framework's cross-skill DRY audit check it.
+1. **Identical content.** The lines between `MIRROR-START`/`MIRROR-END` must be byte-identical to the lines between the matching `MIRROR-SOURCE-START`/`MIRROR-SOURCE-END`. A skill may carry a block more than once (`sdlc-plan` carries the Approval Brief procedure twice), and each copy must match on its own. Any difference is a drift finding — `sdlc-reviewer` (§ Cross-skill DRY) and the framework's cross-skill DRY audit check it.
 2. **Edit the source, then re-copy.** Never edit a copy in place. Context-specific wording goes outside the markers.
 3. **Exempt from DRY extraction.** Mirrored blocks are deliberate duplication; DRY checks do not recommend extracting them — they check that they match.
 4. **Not migration markers.** `sdlc-migrate` matches only the literal `PROJECT-SECTION-*` and `BUNDLE-SECTION-*` names, so `MIRROR` blocks pass through as ordinary upstream content: the upstream skill copy (with its current block) overwrites the old one. A project must not hand-edit a mirrored block; project additions go in a `PROJECT-SECTION` outside it.

@@ -477,3 +477,83 @@ changes:
       empty: a framework file a project deleted before this is asked about
       once, at its next migration (keep it removed, recorded, or restore it). An adapter that
       seeds knowledge itself skips a declined path too.
+
+  - id: "0023"
+    date: "2026-11-23"
+    title: "ops/sdlc is the only SDLC root"
+    type: other
+    changelog_ref: "2026-11-23: ops/sdlc is the only SDLC root, and the old .claude/sdlc root is dropped [contract-change]"
+    notes: >
+      Non-optional; a major release. z-sdlc drops the .claude/sdlc root that
+      neuroloom-sdlc 0.6 and earlier moved ported projects to: the factory
+      treats .claude/ as protected agent configuration, so that root could
+      never take it. sdlc-migrate's Pre-Flight Check stops, before its
+      ops/sdlc check, on tracked or new unignored files under .claude/sdlc/, a
+      manifest sdlc_root other than ops/sdlc, or installed_files /
+      declined_files keys or bundle_fragments targets under the old root (or
+      on a manifest that isn't one JSON object, an empty file included), and
+      gives CD the move steps (git mv into ops/sdlc/, re-key the manifest,
+      update live references, install the adapter version on ops/sdlc and
+      restart, commit). A headless run ends failed. The check is one block, MIRROR
+      source sdlc-root-check in process/path-mappings.md § The SDLC Root.
+      sdlc-initialize carries it in Mode Detection, so it never installs a
+      second tree. An older installed sdlc-migrate still picks .claude/sdlc and
+      runs its own pre-flight before 1c switches to the release's copy, so 1c
+      re-runs the release's earlier checks, and Step 2 runs the root check
+      when this run hasn't.
+      The manifest keeps sdlc_root, always ops/sdlc. Adapter action:
+      support only ops/sdlc (neuroloom-sdlc's next release has the paired change
+      and its own guard), and declare support for this release in adapter.json.
+
+  - id: "0024"
+    date: "2026-11-24"
+    title: "An adapter that takes the knowledge layer owns knowledge/ and disciplines/"
+    type: other
+    changelog_ref: "2026-11-24: An adapter that takes the knowledge layer owns it: initialize hands it the map and the project's own knowledge, and migrate leaves its files alone [contract-change]"
+    notes: >
+      Additive. The knowledge layer is the adapter's when it routes knowledge
+      through its backend and keeps no agent-context map, known by the map's
+      absence (the sdlc-migrate §3.3 condition). In initialize's knowledge-seed
+      such an adapter removes the map (recorded in declined_files) and the
+      knowledge and discipline copies Phase 1 made (their installed_files
+      entries dropped, not declined); Phase 5 (map wiring) runs after
+      knowledge-seed and is skipped when the map is gone; Phases 9a, 10 and 11
+      treat knowledge as reaching agents through the adapter. In migrate, with
+      knowledge-update declared and no map, no file under knowledge/ or
+      disciplines/ is copied, removed, merged, checked or asked about, or
+      recorded as declined (§2.1, §2.1a, §2.1b, §2.1c, §2.3, §2.5, §3.4);
+      existing declined records stand, and copies an older adapter left on
+      disk are listed for CD to delete, never updated. An adapter that keeps its map keeps the
+      files, on the ordinary path. process/adapter-lifecycle-protocol.md adds
+      an optional initialize phase, project-knowledge: initialize hands it the
+      project's own knowledge-layer content (Phase 7's discipline Project
+      Context, Phase 8's testing gotchas, Phase 9a's maturity tracker), each
+      with its kind, target file and section, and content, instead of writing
+      the files; without it the files are written, copied from the source
+      first when absent. Initialize discovers the adapter before Phase 1's
+      copies (post-file-write transforms each). Lite graduation skips adapter discovery (file mode;
+      the adapter's own port carries the project over afterwards). No project
+      action. Adapter action: remove the seeded copies with the map, declare
+      project-knowledge, and drop run instructions that stood in for these
+      seams.
+
+  - id: "0025"
+    date: "2026-11-24"
+    title: "The manifest names the adapter plugin; its directory is looked up on every run"
+    type: other
+    changelog_ref: "2026-11-24: The manifest names the adapter plugin, and every run looks up where it is installed [contract-change]"
+    notes: >
+      The manifest's adapter.plugin is the plugin's id as Claude Code lists it
+      (<name>@<marketplace>). sdlc-initialize and sdlc-migrate find the
+      plugin's directory by that id on every run (adapter-lifecycle-protocol.md
+      § Finding the plugin): the enabled install whose projectPath is this
+      project's root (project, then local scope), else the user's install
+      (claude plugin list --json; enabled alone also reads true for another
+      project's install), else a copy vendored in the project, else stop
+      (headless: failed). adapter.plugin_root is kept only for a vendored copy,
+      relative and inside the project. Back-fill: migrate matches a bare name
+      against the id's name part, and §4.5 writes the full id and removes a
+      plugin_root that is absolute or outside the project; it never uses such
+      a path. A worktree is its own project: without an install for it (or the
+      user's), a run there stops until one exists. Adapter action: write plugin as
+      the id and no absolute plugin_root.

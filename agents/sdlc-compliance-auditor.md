@@ -25,7 +25,7 @@ Before starting substantive work, consult `[sdlc-root]/knowledge/agent-context-m
 
 Read `.claude/skills/sdlc-audit/references/compliance-methodology.md` for the full methodology. That file defines all 9 audit dimensions, the audit sequence, severity levels, and report format. Treat it as the source of truth; everything below extends it.
 
-**Path detection for `[sdlc-root]` references elsewhere in the audit:** Check `.sdlc-manifest.json` for the `sdlc_root` field, or detect via `[ -d ops/sdlc ] || [ -d .claude/sdlc ]`. Use `[sdlc-root]` as a variable throughout this audit when referencing process/knowledge/discipline content. (The methodology reference above is a skill-internal file and lives under `.claude/skills/`, outside `[sdlc-root]`.)
+**`[sdlc-root]` in the rest of the audit** is `ops/sdlc/`, the only SDLC root. Use `[sdlc-root]` as a variable throughout this audit when referencing process/knowledge/discipline content. (The methodology reference above is a skill-internal file and lives under `.claude/skills/`, outside `[sdlc-root]`.)
 
 ## Audit Dimensions (summary)
 
@@ -209,7 +209,7 @@ As part of migration integrity (Dimension 7), verify that skills, agents, and pr
 
 As part of migration integrity (Dimension 7), validate `PROJECT-SECTION` marker pairs across all framework files:
 
-1. **Scan all files** in `[sdlc-root]/` (detected in methodology section above), `.claude/skills/`, `.claude/agents/` and `CLAUDE.md` for `PROJECT-SECTION-START`, `PROJECT-SECTION-END` and `PROJECT-SECTION-REMOVED` markers, counting only whole-line marks outside code fences (a mark quoted in prose or fenced is an example, as in the markers doc itself; its rule 8)
+1. **Scan all files** in `[sdlc-root]/` (`ops/sdlc/`), `.claude/skills/`, `.claude/agents/` and `CLAUDE.md` for `PROJECT-SECTION-START`, `PROJECT-SECTION-END` and `PROJECT-SECTION-REMOVED` markers, counting only whole-line marks outside code fences (a mark quoted in prose or fenced is an example, as in the markers doc itself; its rule 8)
 2. **Validate pairing:** Every `PROJECT-SECTION-START: label` must have a matching `PROJECT-SECTION-END: label` with the same label
 3. **Flag orphaned markers:**
    - `PROJECT-SECTION-START` without a matching `END` → severity: major (content boundary undefined, migration may corrupt)

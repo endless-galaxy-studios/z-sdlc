@@ -8,11 +8,11 @@ This list mirrors the plugin's own "Transformation-Exempt Files" table in `neuro
 
 | File | Install path | Why exempt | Permitted deviations |
 |---|---|---|---|
-| `process/sdlc_changelog.md` | `.claude/sdlc/process/sdlc_changelog.md` | Historical record — entries quote canonical phrases as context. Transforming corrupts history. | None in the project's own entries. Since contract 0017 the file is project-only: z-sdlc's entries are expected to be absent (they live in z-sdlc), so compare only entries the project wrote; a changed or missing one of those = defect. |
-| `process/changelog-archive/*.md` | `.claude/sdlc/process/changelog-archive/*.md` | The project's archived changelog entries, moved unedited by `changelog_archive.py`. Same reason as the changelog. | None. Any hunk = defect. z-sdlc's own archive files are never installed; one in a project = defect. |
-| `agents/sdlc-compliance-auditor.md` | `.claude/agents/sdlc-compliance-auditor.md` | Auditor's validation section lists canonical phrases as scan targets. | **Documented exception:** line ~116 section about PROJECT-SECTION scan may have `(resolve via .sdlc-manifest.json's sdlc_root field, or fall back to .claude/sdlc/)` in place of source's `(detected in methodology section above)` — this is a post-2026-04-22 adapter customization since the `**Path detection:**` block was dropped from the adapter version. Content outside that line must be verbatim. |
+| `process/sdlc_changelog.md` | `ops/sdlc/process/sdlc_changelog.md` | Historical record — entries quote canonical phrases as context. Transforming corrupts history. | None in the project's own entries. Since contract 0017 the file is project-only: z-sdlc's entries are expected to be absent (they live in z-sdlc), so compare only entries the project wrote; a changed or missing one of those = defect. |
+| `process/changelog-archive/*.md` | `ops/sdlc/process/changelog-archive/*.md` | The project's archived changelog entries, moved unedited by `changelog_archive.py`. Same reason as the changelog. | None. Any hunk = defect. z-sdlc's own archive files are never installed; one in a project = defect. |
+| `agents/sdlc-compliance-auditor.md` | `.claude/agents/sdlc-compliance-auditor.md` | Auditor's validation section lists canonical phrases as scan targets. | None: content must be verbatim. An older adapter customized the PROJECT-SECTION scan line to `(resolve via .sdlc-manifest.json's sdlc_root field, or fall back to .claude/sdlc/)`; since 2026-11-23 `ops/sdlc/` is the only SDLC root, so that line is a plugin defect. |
 | `CLAUDE-SDLC.md` | (merged into target's `CLAUDE.md`, not a standalone file) | Framework documentation inserted into project's CLAUDE.md; contains canonical phrases as examples. | The adapter merges this into the project's existing CLAUDE.md rather than overwriting, so the section's content should be verbatim within the merged file. |
-| `knowledge/provenance_log.md` | `.claude/sdlc/knowledge/provenance_log.md` | Project-specific append-only file; treated like changelog. The adapter should NEVER overwrite this. | None — should be completely absent from the diff (never touched by migration). |
+| `knowledge/provenance_log.md` | `ops/sdlc/knowledge/provenance_log.md` | Project-specific append-only file; treated like changelog. The adapter should NEVER overwrite this. | None — should be completely absent from the diff (never touched by migration). |
 
 ## Adapter-owned (not verbatim)
 
@@ -20,7 +20,7 @@ In a Neuroloom-backed project, the adapter's versions of these are authoritative
 
 | File or lines | Install path | What the adapter does |
 |---|---|---|
-| `process/knowledge-routing.md` | `.claude/sdlc/process/knowledge-routing.md` | Installs its own Neuroloom routing doc in place of z-sdlc's phrasing contract. So the project has no copy of z-sdlc's current contract: check a phrasing change against z-sdlc source, not the project's copy. |
+| `process/knowledge-routing.md` | `ops/sdlc/process/knowledge-routing.md` | Installs its own Neuroloom routing doc in place of z-sdlc's phrasing contract. So the project has no copy of z-sdlc's current contract: check a phrasing change against z-sdlc source, not the project's copy. |
 | `agents/sdlc-reviewer.md` | `.claude/agents/sdlc-reviewer.md` | Rewrites the reviewer's phrasing checklist in Neuroloom canonical forms, since the reviewer checks the project's own Neuroloom-form files. The frontmatter and everything else stays verbatim. |
 | Integration-section `**Uses:**` lines (any skill) | `.claude/skills/*/SKILL.md` | Transforms knowledge-layer references there like any other line (plugin 0.5.7+). |
 

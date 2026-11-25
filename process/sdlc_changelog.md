@@ -203,6 +203,175 @@ It sent six low items for the next time the module is touched. CD said to build 
 
 ---
 
+## 2026-11-25: The adapter's stops say how a headless run ends, and the audit's mirror check compares each copy on its own
+
+**Origin:** CD directive ("fix the older stops, sdlc-plan mismatch and empty manifest"), after the review of the single-root batch left three known items open.
+
+**What happened:**
+- **Stops with no headless outcome.** Three stops on the adapter path had no headless line: migrate halting when the handler doc is missing, migrate's adapter version gate, and initialize finding more than one adapter (which the protocol states too). The protocol's `halt` failure mode didn't say either. They predate the single-root batch. The headless index didn't list any of the `failed` stops on the adapter path, nor the root check that batch added.
+- **A false drift report.** The compliance audit's mirrored-block check read a skill's copies with one `sed` range. `sdlc-plan` carries the Approval Brief procedure twice, at spec and at plan approval, so the range joined both copies and the check reported drift on every run. Compared one at a time, each copy matches its source exactly.
+
+**Changes made:**
+
+1. **`skills/sdlc-migrate/SKILL.md`** — The adapter detection's missing-handler-doc halt says `(headless: failed)`, and the version gate ends a headless run `failed`, with the uncovered entries and the adapter's version as the reason.
+2. **`skills/sdlc-initialize/SKILL.md`** — Finding more than one adapter ends a headless run `failed`, naming them.
+3. **`process/adapter-lifecycle-protocol.md`** — More than one adapter found at initialization, the missing-handler-doc halt during migration, and the `halt` failure mode each end a headless run with status `failed` and the error.
+4. **`process/headless-mode.md`** — § Integration lists the `failed` stops, each where its headless line is:
+   - for `sdlc-migrate`: the root check, the plugin not found or its handler doc missing, and the version gate;
+   - for `sdlc-initialize`: the root check and more than one adapter;
+   - for `adapter-lifecycle-protocol.md`, which both installers follow: more than one adapter, the plugin not found, the handler doc missing, and an adapter phase that halts.
+5. **`.claude/skills/zsdlc-audit/references/compliance-methodology.md`** — The mirrored-block check:
+   - compares each copy with the source on its own;
+   - reports a copy with no `MIRROR-END`, and START and END markers that don't pair.
+
+   Tested on a scratch copy of the tree: changing either `sdlc-plan` copy, removing either END marker, or removing a source's end marker each prints DRIFT naming the copy. The real tree prints nothing in bash and zsh. Its list of mirror sources adds `writing-for-cd.md` § Mirrored Blocks and `path-mappings.md` § The SDLC Root.
+6. **`process/project-section-markers.md`** — § MIRROR Markers rule 1: a skill may carry a block more than once, and each copy must match on its own.
+7. **`agents/sdlc-reviewer.md`** — The mirrored-block drift item's list of mirror sources adds `writing-for-cd.md` § Mirrored Blocks.
+
+**Rationale:**
+- **A stop with no headless outcome** leaves a headless caller guessing whether it stopped or broke. Each of these needs the caller to fix something (a broken install, an adapter behind the release), which is what `failed` means.
+- **A check that always reports drift** gets ignored, and then a real drift goes unseen.
+- **Release type: patch.** Stricter steps within existing contracts, and a fix to a framework-development check.
+
+---
+
+## 2026-11-24: The manifest names the adapter plugin, and every run looks up where it is installed [contract-change]
+
+**Origin:** CD directive ("do all 3"), the third of three gaps neuroloom-sdlc's maintainers found while reviewing their change for the single SDLC root. Corrected after a review of the whole batch, at CD's "review first".
+
+**What happened:**
+- **The documented layout didn't exist.** The protocol said `adapter.plugin_root` was a path relative to the project, and initialize looked for adapters only in `.claude/plugins/`. A marketplace install lives under the user's own `~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/`.
+- **So the one adapter project held an absolute path, which fails three ways:**
+  - it names one machine, so a teammate or a CI runner can't migrate;
+  - it names a version folder, so every plugin upgrade needed a hand edit, and a forgotten edit ran the old version's handlers;
+  - its "relative" resolution, `{project_root}/{plugin_root}`, only worked because the session read past it.
+
+**Changes made:**
+
+1. **`process/adapter-lifecycle-protocol.md`**:
+   - **Discovery:** initialize lists the plugins installed and enabled for this project or for the user (`claude plugin list --json`, each at its `installPath`) plus any vendored in `.claude/plugins/*/`. It lists each adapter once, and finds vendored ones with `find`, not a glob, which fails in zsh when the directory is absent.
+   - **The manifest block** names the plugin by id (`<name>@<marketplace>`), never its install path. `plugin_root` stays only for a vendored copy, relative and inside the project.
+   - **New § Finding the plugin** gives one lookup for both skills. It takes the enabled install whose id matches (a bare name from an older manifest matches the id's name part): the one whose `projectPath` is this project's root (project scope, then local), else the user's; otherwise a vendored copy. With neither it stops and says which (no `claude` CLI, or no install for this project), and a headless run ends `failed`.
+   - **`enabled` alone isn't enough.** It follows the current directory's settings, so it reads true for another project's install of the plugin too. The review saw it for other plugins, and a check confirmed it for the adapter: from an unrelated directory whose settings enable the plugin, the listing showed the adapter project's install as enabled.
+   - **No fallback to an old path:** it never falls back to an absolute `plugin_root`, which names an older version's handlers.
+   - **`${CLAUDE_PLUGIN_ROOT}`** in the handler doc means the directory found.
+   - **Migration detection** finds the plugin before the version gate, which reads the live `adapter.json`. The refresh (the full id, no `plugin_root` that is absolute or outside the project) goes into the manifest §4.5 writes, never earlier, so a run the gate halts leaves it as it was.
+   - **Tested** with the real CLI and with a mock listing. Real CLI: in the adapter project, a bare name resolves to its install; in an unrelated directory whose settings enable the plugin, it reports not found. Mock: two projects' installs at different versions plus a user install, where each project gets its own and an unrelated one gets the user's. Also: discovery lists one id, under bash and zsh; an unknown id; a vendored copy; four escaping `plugin_root` values; no `claude` on `PATH`.
+2. **`skills/sdlc-migrate/SKILL.md`** — Adapter detection finds the plugin by id. §4.5's new step 2b writes the refreshed block. The root move's step 4 (mirrored, so also `process/path-mappings.md` and `sdlc-initialize`) says to install or update the plugin and restart Claude Code, with nothing to change in the manifest.
+3. **`skills/sdlc-initialize/SKILL.md`** — Adapter discovery and the manifest's `adapter` block follow the protocol. It adds `plugin_root` only for a vendored adapter, and never an absolute path.
+4. **`skeleton/contract_changes.yaml`** — Contract 0025.
+
+**Rationale:**
+- **Which plugin a project uses is the project's decision**, already recorded in its `.claude/settings.json` (`enabledPlugins`). Where a machine installed it is the machine's. Recording the second in a committed file tied the project to one machine and one version.
+- **An install counts only for its own project.** A worktree is its own project, so an install for the main checkout doesn't count for it: a run there takes the user's install, or stops until one exists for that checkout. Another project's install, possibly another version, is never used.
+- **Adapter action:** a port writes `plugin` as the id and no absolute `plugin_root`, and the move steps of the plugin's root guard no longer edit the manifest.
+
+Release type: minor on its own (an additive lookup with a back-fill), carried in the same release as contract 0023.
+
+---
+
+## 2026-11-24: An adapter that takes the knowledge layer owns it: initialize hands it the map and the project's own knowledge, and migrate leaves its files alone [contract-change]
+
+**Origin:** CD directives, on gaps neuroloom-sdlc's maintainers found while reviewing their change for the single SDLC root: "do all 3" (the map and the project's own knowledge, the first two of three), then "do it" (two more from their review of the paired change: initialize's knowledge copies and migrate's missing-file question). Corrected after a review of the whole batch, at CD's "review first".
+
+**What happened:**
+- **Initialize had no adapter path for the agent-context map, which `sdlc-migrate` §3.3 has.** It copied the map in Phase 1 and wired it in Phase 5, then checked it in Phases 9a, 10 and 11. Meanwhile the adapter removed the map in `knowledge-seed`, which runs at Phase 6. The adapter's only way to reach those later phases was prose telling the run what to do.
+- **The project's own knowledge-layer content went to disk after `knowledge-seed` had run:**
+  - Phase 7's discipline Project Context;
+  - Phase 8's testing gotchas;
+  - Phase 9a's maturity tracker, which the review found beyond the two phases reported.
+
+  An adapter project's agents search the backend, so none of it reached them. The adapter's prose said to write it to memory instead.
+- **Both skills still handled the adapter's knowledge files themselves.**
+  - Initialize's Phase 1 copied every knowledge and discipline file to disk (about 100), and the adapter's final check listed them as leftovers.
+  - Migrate copied, merged and checked them, and its missing-file question (§2.1c) asked about every one the project didn't keep. An adapter project keeps none, knowledge Markdown documents included. A "keep it removed" answer would record the file as declined, so the adapter would never update that knowledge again.
+
+**Changes made:**
+
+1. **`process/adapter-lifecycle-protocol.md`**:
+   - **The map rule.** `knowledge-seed` says how an adapter that keeps no map removes it and records it in `declined_files`. Upstream reads that the way §3.3 does: the adapter declares its knowledge phase and the project has no map. No new `adapter.json` field.
+   - **The knowledge layer is the adapter's** when the adapter keeps no map: upstream knows it by the map's absence, as §3.3 does. In `knowledge-seed` such an adapter removes the map (declined) and the knowledge and discipline copies Phase 1 made, dropping their `installed_files` entries without declining them, since it seeds them from the z-sdlc source. An adapter that keeps the map keeps the files, on the ordinary path.
+   - **A first version keyed this on the phases an adapter declares,** and skipped Phase 1's copies. The review found that this breaks an adapter that keeps its map: the map would point at files never copied, and migrate's §4.1 would report every path broken. That version was replaced before commit.
+   - **A new optional phase, `project-knowledge`** (initialize only). It receives each piece of the project's own knowledge-layer content: its kind (`discipline-context`, `knowledge-entry`, `maturity-tracker`), its target file and section, and its content.
+   - **Default behaviour:** with no adapter, or an adapter that doesn't declare the phase, upstream writes the files, so the content stays visible rather than silently dropped.
+   - **The rest:** the failure table, the handler-doc example and the initialize integration outline list the phase.
+2. **`skills/sdlc-initialize/SKILL.md`**:
+   - **Phase 1** copies everything as before. The adapter's `knowledge-seed` removes what it takes. Adapter discovery now runs before the copies, since `post-file-write` transforms each one as it's written: that ordering gap predates this change.
+   - **A vendored adapter** is found before the manifest exists (`PLUGIN_ROOT` set from discovery), and its `plugin` is its `plugin.json` name.
+   - **Lite Graduation** runs without the adapter: it skips discovery, so the lite install's discipline entries and knowledge customizations stay in files. CD then brings the project to the adapter with the adapter's own port. A `lite-carried` kind of content would have had no producer: Phase 0-L runs before discovery and before `knowledge-seed`.
+   - **Phase 5** runs after Phase 6 when the adapter declares `knowledge-seed`, and is skipped when the map is gone then. Phase 6's delegation hands back to Phase 5.
+   - **Phases 7, 8 and 9a** hand their content to `project-knowledge` when it's declared. Phases 7 and 9a read the z-sdlc source's discipline files when the project keeps none.
+   - **Phase 9a's Level 2** counts knowledge seeded into the backend, and reached through it.
+   - **Phase 10** marks the two map items N/A when the adapter declined the map, and accepts a hand-off for the discipline and gotcha items.
+   - **Phase 11's audit prompt** says the project has no map.
+   - **The fallback.** An adapter that takes the knowledge layer but doesn't declare `project-knowledge` (an older one) still gets files: Phases 7, 8 and 9a copy the file from the source first when it isn't on disk.
+   - **`declined_files`'s note** says an adapter's `knowledge-seed` can write it at install.
+3. **`skills/sdlc-migrate/SKILL.md`** — New Pre-Flight rule, "The knowledge layer is the adapter's". It applies when the adapter declares `knowledge-update` and the project has no map, which is §3.3's condition. Then every file under `[sdlc-root]/knowledge/` and `[sdlc-root]/disciplines/`, YAML or Markdown, is the adapter's. Pointers at each step it changes:
+   - §2.1 doesn't copy them and §2.1a doesn't remove them;
+   - §2.1b doesn't merge them;
+   - §2.1c never asks about one the project lacks;
+   - §2.3 is skipped;
+   - §2.5's tracker and parking-lot checks and §3.4's discipline and knowledge rows don't run.
+
+   A declined record already in the manifest still stands, and copies an older adapter left on disk are listed in the report for CD to delete, never updated. The map follows §3.3.
+4. **`process/adapter-lifecycle-protocol.md`** also states the rule (`knowledge-seed`) and the fallback (`project-knowledge`'s default).
+5. **`skeleton/contract_changes.yaml`** — Contract 0024.
+
+**Rationale:** The adapter knew what stood in for the map and where the project's content belonged, but the phases that needed that knowledge had no seam for it. The seam is keyed on what the project has (no map, recorded as declined), as §3.3 is, so an adapter that keeps a map stays on the ordinary path. Adapter action: in `knowledge-seed`, an adapter that keeps no map removes the copies it seeds along with the map. Declare `## project-knowledge` (for neuroloom-sdlc, the instructions in its `knowledge-seed` step 12), and drop the run instructions in step 11 that upstream now covers. A file hand-off it doesn't declare isn't lost: the files are written as before. Release type: minor on its own (a new optional phase), carried in the same release as contract 0023.
+
+---
+
+## 2026-11-23: ops/sdlc is the only SDLC root, and the old .claude/sdlc root is dropped [contract-change]
+
+**Migrating to this release from an earlier one:** a project still on `.claude/sdlc/` must move to `ops/sdlc/` first: `sdlc-migrate`'s Pre-Flight Check lists the five steps. An installed `sdlc-migrate` from before this release still picks `.claude/sdlc/` whenever it exists, and it runs its own pre-flight before Pre-Flight 1c switches to the release's copy. So tell the migrating session to follow this release's `sdlc-migrate`, read from the z-sdlc source at its tag, from the top. In case it doesn't, Step 2 of this release's copy runs the root check itself when the pre-flight didn't, before anything is written.
+
+**Origin:** CD directive, after a consult on why the factory couldn't be installed in the one adapter project: "I'd rather just do a cold turkey move back over to ops/sdlc", then "do all three z-sdlc changes now. do a sweep for any references of .claude/sdlc or anywhere that is not ops/sdlc".
+
+**What happened:**
+- **Where the old root came from.** neuroloom-sdlc 0.6 and earlier moved a ported project's process docs, templates and playbooks from `ops/sdlc/` to `.claude/sdlc/`, to sit with its agents and skills. z-sdlc followed it: `sdlc-migrate` and `sdlc-initialize` chose `.claude/sdlc/` whenever it existed, and `CLAUDE-SDLC.md`, the reviewer and the auditor named both roots.
+- **Why the factory can't use it.** The factory came later and treats `.claude/` as protected agent configuration. Its writer guard refuses any path with a `.claude` segment, before a stage's allowlist is checked, and its tool policy denies Edit there. A project on that root could never take the factory, which is why `process/factory.md` requires `ops/sdlc`.
+- **The move.** The plugin moves back to `ops/sdlc/` in its next release (0.7.0 proposed, with a pre-flight guard), the one project on the old root moves, and z-sdlc drops the root.
+
+**Changes made:**
+
+1. **`skills/sdlc-migrate/SKILL.md`** — The Pre-Flight Check stops on the old root, and does so before the `ops/sdlc/` check. A project on the old root has no `ops/sdlc/`, so the old order sent it to `sdlc-initialize`, which would install a second tree.
+   - **What it looks for**, the same conditions as neuroloom-sdlc's check 0:
+     - tracked or new unignored files under `.claude/sdlc/` that still exist (ignored leftovers don't count);
+     - a manifest `sdlc_root` other than `ops/sdlc`;
+     - `installed_files` or `declined_files` keys, or `bundle_fragments` targets, under the old root.
+   - **A manifest that isn't one JSON object** counts as a hit, since it can't be checked: one that doesn't parse, an empty or whitespace-only file, `null`, an array, or two documents in one file (`jq -s` reads the whole file, so an empty one is caught too). Restoring or repairing it is the fix, not the move, and migrate's headless line and initialize's lead-in say so. A clean pass exits 0 (all found in review).
+   - **What CD gets:** what it found and the five move steps. A headless run ends `failed`.
+   - **The rest of the skill:**
+     - Step 2's root detection is `SDLC_ROOT="ops/sdlc"`;
+     - the assessment and the manifest back-fill name `ops/sdlc`;
+     - the description sends only a project without `ops/sdlc/` to initialize;
+     - 1c re-runs the release's earlier pre-flight checks when it switches to the release's copy. An older copy that switches at 1c never reads that line, so Step 2 also runs the root check when this run hasn't, before anything is written.
+2. **`skills/sdlc-migrate/references/red-flags.md`** — The "Some projects use `.claude/sdlc/`" row now says: never migrate into another root, and never create one.
+3. **`skills/sdlc-initialize/SKILL.md`** — Mode Detection runs the same root check first and stops on a hit, since a second tree would sit beside the project's real one. Initialize carries its own copy, because it has no z-sdlc source on disk until Phase 1a. The root detection is `SDLC_ROOT="ops/sdlc"`, the manifest template writes `ops/sdlc`, and the `sdlc_root` note says the field is always `ops/sdlc`.
+4. **`CLAUDE-SDLC.md`** — The two lines that offered `.claude/sdlc/` to Neuroloom projects name `ops/sdlc/` only.
+5. **`agents/sdlc-reviewer.md`, `agents/sdlc-compliance-auditor.md`** — `[sdlc-root]` is `ops/sdlc/`, with no manifest lookup and no fallback. The reviewer's mirrored-block check lists the new `path-mappings.md` § The SDLC Root source. The auditor's PROJECT-SECTION scan names `ops/sdlc/` in place of "detected in methodology section above". No row of the plugin's mapping table is anchored on these lines.
+6. **`process/path-mappings.md`, `process/project-section-markers.md`**:
+   - New § The SDLC Root in `path-mappings.md` holds the root check and the move steps, as MIRROR source `sdlc-root-check`. `sdlc-migrate` and `sdlc-initialize` carry it verbatim; the move steps name no plugin version.
+   - In `project-section-markers.md`, § MIRROR Markers lists the new block, and a root choice is no longer among the values a project sets.
+7. **`process/knowledge-routing.md`** — The quick-check snippet's root is `ops/sdlc`, with no "or detect".
+8. **`.claude/skills/zsdlc-audit-adapter-installation/`** (framework maintenance, not installed):
+   - Its MCP count, roster scan, install-path mapping and exempt-file paths read `ops/sdlc/`.
+   - The scans that covered only `<target>/.claude/`, which used to hold the root, now cover `ops/sdlc/` too: Scans 3a and 3b, the Step 4 diff scope, and the two greps in `defect-catalog.md`.
+   - The auditor's documented exception, a line naming the old root, is withdrawn: such a line is now a plugin defect, and the 2026-04-22 calibration example says so.
+9. **`CLAUDE.md`** (this repo) — The path variable rule says `[sdlc-root]` resolves to `ops/sdlc/`, not "typically".
+10. **`skeleton/contract_changes.yaml`** — Contract 0023.
+
+**Kept:**
+- **The manifest's `sdlc_root` field.** Adapters read it, and it is always `ops/sdlc`.
+- **The factory bundle's `requires.sdlc_root`.** It is always met now.
+- **`process/factory.md`'s and `bundles/README.md`'s root requirement.** Both are still true, and editing `factory.md` would fork the incubator's copy.
+- **History:** the changelog, its archive, past contracts and `docs/` handoffs.
+- **The old root's name, kept only where it's needed:** the guard that detects it, its move steps, and the adapter audit's line naming the withdrawn customization.
+
+**Rationale:** One root means nothing has to agree on where the SDLC lives: not z-sdlc, not an adapter, not a bundle. The root that didn't fit the factory's boundary is the one that goes. A project on the old root can't migrate until it moves, so the change is non-optional. Adapter action: the paired change is in neuroloom-sdlc's next release (0.7.0 proposed): its pre-flight guard, a port that no longer relocates, and its scans on `ops/sdlc/`. Its `adapter.json` must declare support for the release carrying contract 0023 before the adapter version gate lets the adapter project migrate. Release type: major.
+
+---
+
 ## 2026-11-24: A jump the page itself saw makes a move unpaced, typing is capped like a move, and smoke checks typing's spacing
 
 **Origin:** the pilot project folded v2.12.5 into its PR #124, and its architect ran the v2.12.5 probe in a local Chromium 149:

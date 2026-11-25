@@ -64,7 +64,7 @@ These context facts frame the report — a v1.1.1 installation audited against c
 
 ### Step 2: Functional health check
 
-**2a. MCP integration health.** Count `memory_search(` + `memory_store(` occurrences across `<target-path>/.claude/sdlc/` and `<target-path>/.claude/agents/` and `<target-path>/.claude/skills/`. This gives a floor number — healthy Neuroloom installations have dozens of MCP calls (recent runs against the target: 60–120). Zero or very-low counts indicate the adapter didn't transform, or transformation was reverted.
+**2a. MCP integration health.** Count `memory_search(` + `memory_store(` occurrences across `<target-path>/ops/sdlc/` and `<target-path>/.claude/agents/` and `<target-path>/.claude/skills/`. This gives a floor number — healthy Neuroloom installations have dozens of MCP calls (recent runs against the target: 60–120). Zero or very-low counts indicate the adapter didn't transform, or transformation was reverted.
 
 **2b. Known-defect output scan.** Grep for each pattern in `references/defect-catalog.md` — these are exact strings that a correct installation should never contain. Each hit is itself a finding, not just a signal. See `references/defect-catalog.md` for the full list; at minimum scan for:
 - Double-paren splices (`((discipline memories`, `((memory graph`, `((the agent knowledge graph`)
@@ -87,7 +87,7 @@ Canonical phrases that should have been transformed sometimes stay untouched —
 **Scan 3a — path-bearing residue (Pass 1 phrasing-contract miss):**
 
 ```bash
-grep -rn '\[sdlc-root\]/\(knowledge\|disciplines\)/' <target-path>/.claude/ 2>/dev/null \
+grep -rn '\[sdlc-root\]/\(knowledge\|disciplines\)/' <target-path>/.claude/ <target-path>/ops/sdlc/ 2>/dev/null \
   | grep -vE 'sdlc_changelog|changelog-archive/|knowledge-routing|sdlc-reviewer\.md|sdlc-compliance-auditor\.md|CLAUDE-SDLC\.md|provenance_log\.md'
 ```
 
@@ -96,7 +96,7 @@ grep -rn '\[sdlc-root\]/\(knowledge\|disciplines\)/' <target-path>/.claude/ 2>/d
 Pass 2 in plugin 0.4.0+ translates file-mode vocabulary to memory-graph vocabulary even when no `[sdlc-root]/` path is present. Phrases like `knowledge files`, `discipline files`, `parking lot entries`, `knowledge stores` (plural), `YAML files` (in knowledge context) all describe the knowledge layer using its file-based shape — they must be transformed in Neuroloom installations even though Scan 3a misses them entirely.
 
 ```bash
-grep -rinE '\bknowledge files?\b|\bdiscipline files?\b|\bparking[- ]lot entr|\bknowledge stores?\b|\bknowledge-store entr|\bdiscipline parking lots?\b|\bknowledge YAMLs?\b|\bYAML knowledge files?\b|\bagent-context-map\b|\bknowledge area\b|\bsuggested knowledge area\b' <target-path>/.claude/ 2>/dev/null \
+grep -rinE '\bknowledge files?\b|\bdiscipline files?\b|\bparking[- ]lot entr|\bknowledge stores?\b|\bknowledge-store entr|\bdiscipline parking lots?\b|\bknowledge YAMLs?\b|\bYAML knowledge files?\b|\bagent-context-map\b|\bknowledge area\b|\bsuggested knowledge area\b' <target-path>/.claude/ <target-path>/ops/sdlc/ 2>/dev/null \
   | grep -vE 'sdlc_changelog|changelog-archive/|knowledge-routing|sdlc-reviewer\.md|sdlc-compliance-auditor\.md|CLAUDE-SDLC\.md|provenance_log\.md|path-mappings\.md|agent-memory/'
 ```
 
@@ -118,7 +118,7 @@ ROSTER=$(ls <target-path>/.claude/agents/ | sed 's/\.md$//' | sort -u)
 
 # Extract candidate agent references from framework content
 grep -rohE '`[a-z][a-z0-9-]+(engineer|developer|architect|designer|auditor|specialist|advisor|strategist|researcher|reviewer|officer)`|"reviewer-[a-z-]+"|"fixer-[a-z-]+"|"architect-[a-z-]+"' \
-  <target-path>/.claude/sdlc/ <target-path>/.claude/skills/ 2>/dev/null \
+  <target-path>/ops/sdlc/ <target-path>/.claude/skills/ 2>/dev/null \
   | sed 's/[`"]//g' | sed 's/^reviewer-//' | sed 's/^fixer-//' | sed 's/^architect-//' \
   | sort -u \
   | while read agent; do
@@ -140,7 +140,7 @@ Scans 3a and 3b both miss this class: agent names carry no `[sdlc-root]/` path a
 
 ### Step 4: File-by-file diff audit
 
-For every file in `<target-path>/.claude/` that corresponds to a z-sdlc source file (per `skeleton/manifest.json`), diff it against its upstream source. Adapter-owned files and lines (`references/exempt-file-list.md` § Adapter-owned) are expected to differ. Classify their hunks only for corrupted output or residue, never for the transformation itself. From the z-sdlc root:
+For every file in `<target-path>/.claude/` and `<target-path>/ops/sdlc/` that corresponds to a z-sdlc source file (per `skeleton/manifest.json`), diff it against its upstream source. Adapter-owned files and lines (`references/exempt-file-list.md` § Adapter-owned) are expected to differ. Classify their hunks only for corrupted output or residue, never for the transformation itself. From the z-sdlc root:
 
 ```bash
 diff -u <source-path> <target-path>/<install-path>
@@ -149,9 +149,9 @@ diff -u <source-path> <target-path>/<install-path>
 Install-path mapping:
 - `z-sdlc/skills/X/SKILL.md` → `target/.claude/skills/X/SKILL.md`
 - `z-sdlc/agents/X.md` → `target/.claude/agents/X.md`
-- `z-sdlc/process/X.md` → `target/.claude/sdlc/process/X.md`
-- `z-sdlc/templates/X.md` → `target/.claude/sdlc/templates/X.md`
-- `z-sdlc/disciplines/X.md` → `target/.claude/sdlc/disciplines/X.md` (Neuroloom: not applicable — disciplines live in memory graph)
+- `z-sdlc/process/X.md` → `target/ops/sdlc/process/X.md`
+- `z-sdlc/templates/X.md` → `target/ops/sdlc/templates/X.md`
+- `z-sdlc/disciplines/X.md` → `target/ops/sdlc/disciplines/X.md` (Neuroloom: not applicable — disciplines live in memory graph)
 
 For each differing hunk, classify using `references/classification-framework.md`. Record one row per file in the output table. A file can have multiple findings of different verdicts — list each separately.
 

@@ -69,6 +69,41 @@ Has agents in .claude/agents/ (beyond template): [yes/no]
 | Has code and/or docs, no `ops/sdlc/` | **Retrofit** | Phase R1 (discovery) |
 | `.sdlc-manifest.json` exists but `ops/sdlc/` is incomplete | **Repair** | Phase 1 (reinstall from source) |
 
+**An install on another SDLC root stops here.** `ops/sdlc/` is the only SDLC root (neuroloom-sdlc 0.6 and earlier moved projects to `.claude/sdlc/`, which z-sdlc dropped). Run this check before the assessment. On a hit, don't pick a mode or install anything, because a second tree at `ops/sdlc/` would sit beside the project's real one; once the project has moved (or its manifest is repaired), the next step is `sdlc-migrate`, not this skill. **Headless run:** end with status `failed` and what it found.
+
+<!-- MIRROR-START: path-mappings.md#sdlc-root-check -->
+```bash
+# Files left on the old root: tracked or new unignored ones that still exist (a plain mv leaves
+# the old paths in the index until it is staged). Ignored leftovers don't count.
+if git rev-parse --git-dir >/dev/null 2>&1; then
+  OLD_ROOT=$(git ls-files --cached --others --exclude-standard -- .claude/sdlc | while read -r p; do [ -e "$p" ] && echo "$p"; done | head -3)
+else
+  OLD_ROOT=$( [ -e .claude/sdlc ] && echo .claude/sdlc )
+fi
+# The manifest naming another root, or files under the old one
+# (a manifest that isn't one JSON object, an empty file or one that doesn't parse included,
+# can't be checked, so it counts as a hit)
+OLD_MANIFEST=
+if [ -f .sdlc-manifest.json ]; then
+  OLD_MANIFEST=$(jq -rs '
+    if length != 1 or (.[0] | type) != "object" then error("not one JSON object") else .[0] end
+    | [ ((.sdlc_root // "ops/sdlc") | rtrimstr("/") | select(. != "ops/sdlc") | "sdlc_root \"\(.)\""),
+        ((.installed_files // {}), (.declined_files // {}) | keys[] | select(startswith(".claude/sdlc/"))),
+        ((.bundle_fragments // {}) | .[] | strings | select(startswith(".claude/sdlc/"))) ] | .[]' .sdlc-manifest.json) \
+    || OLD_MANIFEST=".sdlc-manifest.json isn't one JSON object"
+  OLD_MANIFEST=$(printf '%s\n' "$OLD_MANIFEST" | head -3)
+fi
+if [ -n "$OLD_ROOT$OLD_MANIFEST" ]; then printf 'OLD ROOT:\n%s\n%s\n' "$OLD_ROOT" "$OLD_MANIFEST"; fi
+```
+
+If it prints `OLD ROOT`, stop before any change and tell CD what it found. A manifest that isn't one JSON object has nothing to move: restore it from git or repair it, then run the check again. For anything else it found, tell CD how to move:
+1. Move the contents of `.claude/sdlc/` into `ops/sdlc/` with `git mv` (or stage the move), so the old paths leave the index.
+2. In `.sdlc-manifest.json`, set `"sdlc_root": "ops/sdlc"`, re-key every `installed_files` and `declined_files` entry from `.claude/sdlc/...` to `ops/sdlc/...` with its value unchanged, and update the `bundle_fragments` target paths.
+3. Update the live references that name the old root (`CLAUDE.md`, `.claude/agents/`, `.claude/skills/`, `.claude/agent-memory/`, scripts and CI). Leave changelog and deliverable history as written.
+4. With an adapter, install or update to a version that supports only `ops/sdlc/` (`claude plugin update <plugin>`), then restart Claude Code so the session loads it. The manifest names the plugin, not its install path, so nothing in it changes.
+5. Commit the move, then run `sdlc-migrate` again.
+<!-- MIRROR-END: path-mappings.md#sdlc-root-check -->
+
 Present the assessment and mode selection to CD via `AskUserQuestion`:
 
 > Based on what I see, this is a **[mode]** initialization. Does that match your intent, or should I adjust?
@@ -81,7 +116,7 @@ Present the assessment and mode selection to CD via `AskUserQuestion`:
 
 For projects that installed `BOOTSTRAP-LITE.md` (minimal 3-agent / 2-skill starter) and now want the full framework. Runs Phase 0-L to merge the lite install into the full `ops/sdlc/` layout, preserving all lite agents, skills, discipline entries, knowledge customizations, and changelog history. After graduation, falls through to Phase 1 so the standard install proceeds with lite assets already in place.
 
-See `references/lite-graduation.md` for the full Phase 0-L procedure (inventory, content migration, path rewriting, changelog entry, and per-phase behavior notes for graduated installs).
+**With an adapter installed,** graduate without it: skip Adapter discovery (the manifest's `adapter` is `null`), so the lite install's discipline entries and knowledge customizations stay in files, then tell CD to bring the project to the adapter with the port of an adapter version that supports only `ops/sdlc/` (neuroloom-sdlc's `sdlc-port`; an older one moves the project to the dropped `.claude/sdlc/` root), which carries a file-mode project's content into its backend. See `references/lite-graduation.md` for the full Phase 0-L procedure (inventory, content migration, path rewriting, changelog entry, and per-phase behavior notes for graduated installs).
 
 ---
 
@@ -275,6 +310,8 @@ For each directory in manifest.directories:
   mkdir -p <target>/<directory>
 ```
 
+**With an adapter, discover it first:** run Adapter discovery (below) before copying, since its `post-file-write` transforms each file as it's written. Phase 1 still copies every file; an adapter that keeps no map removes what it takes in Phase 6.
+
 **Copy files by category** using the source → target path mappings in `[sdlc-root]/process/path-mappings.md`. The key transforms: `knowledge/` → `[sdlc-root]/knowledge/`, `agents/` → `.claude/agents/`, `skills/` → `.claude/skills/`, and process/templates/disciplines/playbooks → `[sdlc-root]/` subdirectories.
 
 **Safe file extraction:** See `[sdlc-root]/process/source-repo-safety.md` for verified-content extraction patterns. The core rule: never redirect into a project file (`git show > file`) — it truncates the target before git show runs, leaving empty files on failure. A new file in a scratch directory outside the project is allowed once the command's exit status is checked.
@@ -328,29 +365,20 @@ Next ID: **D1**
 **Detect project structure before writing manifest:**
 
 ```bash
-# Determine SDLC root — default to ops/sdlc unless .claude/sdlc already exists
-# (only relevant for repair mode or custom installations)
-if [ -d .claude/sdlc ]; then
-  SDLC_ROOT=".claude/sdlc"
-else
-  SDLC_ROOT="ops/sdlc"
-fi
+# The one SDLC root (Mode Detection already stopped on any other)
+SDLC_ROOT="ops/sdlc"
 ```
 
-**Adapter discovery:** Before writing the manifest, scan for adapter plugins:
+**Adapter discovery:** Before writing the manifest, look for an adapter among the plugins installed and enabled for this project or for the user (`claude plugin list --json`: `"enabled": true`, and a `projectPath` that is this project's root or user scope; each at its `installPath`) and among plugins vendored in `.claude/plugins/*/`: one whose `adapter.json` has `"zsdlc_adapter": true` (or the pre-rename `"ccsdlc_adapter": true`) is an adapter. The commands are in `[sdlc-root]/process/adapter-lifecycle-protocol.md` § Discovery during initialization.
 
-```
-For each directory in .claude/plugins/:
-  If {plugin_dir}/adapter.json exists and contains "zsdlc_adapter": true (or the pre-rename "ccsdlc_adapter": true):
-    Record as active adapter
-```
-
-If an adapter is found, read its `adapter.json` and populate the manifest's `adapter` block (see schema below). If multiple adapters are found, halt with an error. If none found, set `"adapter": null`.
+In Lite Graduation mode, skip discovery (§ Lite Graduation Mode). If an adapter is found, find its directory (`[sdlc-root]/process/adapter-lifecycle-protocol.md` § Finding the plugin, with `PLUGIN` set to the id found, or for a vendored one `PLUGIN_ROOT` set to its path and `PLUGIN` to its `.claude-plugin/plugin.json` → `name`), read its `adapter.json` and populate the manifest's `adapter` block (see schema below). If multiple adapters are found, halt with an error (headless: end with status `failed`, naming them). If none found, set `"adapter": null`.
 
 When an adapter is present, this skill delegates specific phases per `[sdlc-root]/process/adapter-lifecycle-protocol.md`:
 - Phase 1 (skeleton install) proceeds normally — operational files are written by upstream
 - After each file write, if the adapter declares `post-file-write`, upstream executes the adapter's transformation instructions on that file
-- Phase 6 (knowledge seeding) is delegated to the adapter's `knowledge-seed` handler instead of writing flat YAML files
+- Phase 6 (knowledge seeding) is delegated to the adapter's `knowledge-seed` handler instead of writing flat YAML files, and Phase 5 (map wiring) runs after it, skipped when the adapter declined the map
+- Phase 6: an adapter that keeps no map removes it and the knowledge and discipline copies Phase 1 made (it seeds them from the z-sdlc source); the knowledge layer is then the adapter's
+- The project's own knowledge-layer content (Phases 7, 8 and 9a) goes to the adapter's `project-knowledge` handler if it declares one, instead of into files
 - Phase 10 (verification) includes the adapter's `post-operation` handler if declared
 
 When no adapter is found, behavior is identical to before this protocol existed.
@@ -366,7 +394,7 @@ When no adapter is found, behavior is identical to before this protocol existed.
   "source_version_sha": "<commit SHA of the release tag, for precise diff resolution>",
   "install_date": "<ISO 8601 timestamp>",
   "file_count": <number of entries in installed_files>,
-  "sdlc_root": "<SDLC_ROOT value from detection above>",
+  "sdlc_root": "ops/sdlc",
   "installed_bundles": ["design"],
   "bundle_fragments": {},
   "last_applied_contract_id": "<newest id in skeleton/contract_changes.yaml at install time>",
@@ -389,20 +417,21 @@ When no adapter is found, behavior is identical to before this protocol existed.
 
 **`last_applied_contract_id`:** The id of the newest entry in `skeleton/contract_changes.yaml` at the time of this install. New projects start already caught up — `sdlc-migrate` will not re-apply historical renames and other one-shot migrations meant for older projects. Read this value from the z-sdlc source when writing the manifest: parse `contract_changes.yaml`, take the last entry's `id`.
 
-**`adapter`:** `null` when no adapter plugin is found. When an adapter is discovered (via `adapter.json` in `.claude/plugins/`), this block is populated automatically during Phase 1:
+**`adapter`:** `null` when no adapter plugin is found. When an adapter is discovered, this block is populated automatically during Phase 1. It names the plugin, never where this machine installed it: every run looks the directory up by id (`[sdlc-root]/process/adapter-lifecycle-protocol.md` § Finding the plugin).
 
 ```json
 "adapter": {
-  "plugin": "<plugin name from plugin.json>",
-  "plugin_root": "<path to adapter plugin root, relative to project root>",
+  "plugin": "<the plugin's id from claude plugin list --json: <name>@<marketplace>>",
   "supported_zsdlc_version": "<from adapter.json: supported_zsdlc_version, or the pre-rename supported_ccsdlc_version>",
   "phase_handlers": "<from adapter.json>"
 }
 ```
 
+Add `"plugin_root": "<path relative to the project root>"` only for an adapter vendored in the project (`.claude/plugins/<name>/`). Never write an absolute path.
+
 See `[sdlc-root]/process/adapter-lifecycle-protocol.md` for field semantics, discovery logic, and the `adapter.json` schema.
 
-**`declined_files`:** Framework files the project doesn't want: installed path → `{"why": ..., "decided": "CD, <date>"}`. Empty at install, until 6a removes a knowledge file. `sdlc-migrate` never copies one back or asks about it (`ops/sdlc/process/project-section-markers.md` § Deleted Files).
+**`declined_files`:** Framework files the project doesn't want: installed path → `{"why": ..., "decided": "CD, <date>"}`. Empty at install, until 6a removes a knowledge file, or an adapter's `knowledge-seed` declines the agent-context map. `sdlc-migrate` never copies one back or asks about it (`ops/sdlc/process/project-section-markers.md` § Deleted Files).
 
 **Hash generation:** SHA-256 of the file's content as written to disk.
 
@@ -417,7 +446,7 @@ sha256sum "{path}" | awk '{print $1}'
 
 Project-specific files (e.g., `knowledge/agent-context-map.yaml` after wiring) are expected to drift — those are handled by migrate via merge logic, not by hash comparison. `installed_files` tracks unexpected drift in files CD never intended to modify.
 
-The `sdlc_root` field enables `sdlc-migrate` to resolve the project's SDLC root path (`ops/sdlc/` vs `.claude/sdlc/`) during migration. The `installed_files` map enables drift detection during migration (see sdlc-migrate §1.2a).
+The `sdlc_root` field records the project's SDLC root, always `ops/sdlc`; `sdlc-migrate` and adapters read it, and `sdlc-migrate` stops on any other value. The `installed_files` map enables drift detection during migration (see sdlc-migrate §1.2a).
 
 Report progress to CD:
 ```
@@ -620,6 +649,8 @@ If any agent is missing from a table it belongs in, add the entry now. These dis
 
 ### Phase 5: Wire the Agent-Context Map
 
+**Adapter delegation:** If the adapter declares a `knowledge-seed` phase, run this phase after Phase 6 instead. If the map is gone by then (the adapter declined it, and `.sdlc-manifest.json` → `declined_files` records it), skip this phase and never create the map: the adapter routes knowledge through its backend. This is the same condition as `sdlc-migrate` §3.3.
+
 1. Read `ops/sdlc/knowledge/agent-context-map.yaml`
 2. List the agents just created: `ls .claude/agents/*.md`
 3. For each mapping entry:
@@ -634,7 +665,7 @@ This is mechanical — the orchestrator does this directly. The agent filenames 
 
 ### Phase 6: Seed Knowledge Stores
 
-**Adapter delegation:** If the adapter declares a `knowledge-seed` phase (detected during Phase 1's manifest write), delegate knowledge seeding entirely to the adapter's handler instructions. The adapter ingests knowledge into its backend rather than writing flat YAML files. Skip §6a–6d and resume at Phase 7.
+**Adapter delegation:** If the adapter declares a `knowledge-seed` phase (detected during Phase 1's manifest write), delegate knowledge seeding entirely to the adapter's handler instructions. The adapter ingests knowledge into its backend rather than writing flat YAML files. Skip §6a–6d, then run Phase 5 (deferred above) and resume at Phase 7.
 
 When no adapter is declared, proceed with flat-file knowledge seeding below.
 
@@ -730,6 +761,8 @@ Present the list of knowledge files to CD. This is informational, not a gate —
 
 Read each discipline file in `ops/sdlc/disciplines/` (every `*.md` except `README.md`). For each, add a "## Project Context" section with 3–5 bullets specific to this project's stack and domain.
 
+**Adapter delegation:** If the knowledge layer is the adapter's (it declined the map in Phase 6, and removed the copies), the disciplines are the z-sdlc source's `disciplines/*.md`. If it declares a `project-knowledge` phase, hand each discipline's bullets to its handler (kind `discipline-context`, target `ops/sdlc/disciplines/<name>.md` § Project Context) instead of appending them to a file. If it doesn't, write the file: copy it from the source first when it isn't on disk.
+
 Dispatch the `software-architect` agent to produce the seed content for all of them in one pass, given the spec as input. The agent returns the seed content; the orchestrator appends it to each file.
 
 | Discipline | Seed Focus |
@@ -759,23 +792,27 @@ Dispatch the `sdet` agent (or nearest equivalent) to produce `ops/sdlc/knowledge
 
 If `gotchas.yaml` already has upstream content, append project-specific entries — do not overwrite.
 
+**Adapter delegation:** If the adapter declares a `project-knowledge` phase, hand each entry to its handler (kind `knowledge-entry`, target `ops/sdlc/knowledge/testing/gotchas.yaml`) instead of appending it to the file. If it doesn't, write the file: copy it from the source first when it isn't on disk.
+
 ### Phase 9: Verify Plugin Readiness
 
 Run the readiness check in `[sdlc-root]/plugins/README.md` § Readiness check, for the languages and UI the spec's stack names, and tell CD about each plugin it finds missing, with its install command: context7 is required, LSP highly recommended, and Playwright MCP recommended for a project with UI.
 
 ### Phase 9a: Assess Initial Maturity Levels
 
-Read the maturity level definitions in `ops/sdlc/disciplines/process-improvement.md` (§ Process Maturity Levels). For each discipline, assess the initial level based on what was just set up:
+Read the maturity level definitions in `ops/sdlc/disciplines/process-improvement.md` (§ Process Maturity Levels), or in the z-sdlc source's `disciplines/process-improvement.md` when the project keeps no discipline files. For each discipline, assess the initial level based on what was just set up:
 
 **Level 1 (Initial)** — discipline parking lot entries exist but no knowledge store for this discipline.
 
-**Level 2 (Managed)** — knowledge store exists with at least one validated YAML file AND the agent-context-map wires those files to relevant agents AND parking lot has been seeded.
+**Level 2 (Managed)** — knowledge store exists with at least one validated entry (a YAML file under `ops/sdlc/knowledge/`, or seeded into the adapter's backend) AND it reaches the relevant agents (the agent-context-map wires those files to them, or the project has no map because its adapter declined it) AND parking lot has been seeded.
 
 For most fresh installations, the assessment is straightforward:
-- Disciplines that received knowledge seeding in Phases 6-8 AND have entries in `agent-context-map.yaml` → Level 2
+- Disciplines that received knowledge seeding in Phases 6-8 AND have entries in `agent-context-map.yaml` (or no map, declined by the adapter) → Level 2
 - Disciplines with only parking lot seeding from Phase 7 → Level 1
 
 Update the Process Maturity Tracker table in `ops/sdlc/disciplines/process-improvement.md` with the assessed levels and evidence. The tracker was copied from the z-sdlc source with source-repo levels — it must be adjusted to reflect this project's actual state.
+
+**Adapter delegation:** If the adapter declares a `project-knowledge` phase, hand the tracker to its handler (kind `maturity-tracker`, target `ops/sdlc/disciplines/process-improvement.md` § Process Maturity Tracker) instead of editing the file. If it doesn't, write the file: copy it from the source first when it isn't on disk.
 
 This is a quick assessment (2-3 minutes total), not a gate. Present the tracker to CD as informational.
 
@@ -817,14 +854,14 @@ Agents:
 [ ] agent-template.md present in [sdlc-root]/templates/
 [ ] Framework subagents present in .claude/agents/: sdlc-reviewer.md, sdlc-compliance-auditor.md
 [ ] Dispatcher wiring: all agents in agent-selection.yaml, sdlc-plan agent table, infra triggers
-[ ] Context map: agent-context-map.yaml wired to actual agent filenames
-[ ] All knowledge files mapped in agent-context-map.yaml (no unmapped YAMLs)
+[ ] Context map: agent-context-map.yaml wired to actual agent filenames (N/A when the adapter declined the map)
+[ ] All knowledge files mapped in agent-context-map.yaml, no unmapped YAMLs (N/A when the adapter declined the map)
 
 Knowledge & Disciplines:
 [ ] Knowledge: upstream carried + stack-specific seeded
     Stack-specific files: [list]
-[ ] Disciplines: every discipline file initialized with project context
-[ ] Testing: gotchas.yaml seeded with stack-specific entries
+[ ] Disciplines: every discipline file initialized with project context (or handed to the adapter's project-knowledge phase)
+[ ] Testing: gotchas.yaml seeded with stack-specific entries (or handed to the adapter's project-knowledge phase)
 [ ] Maturity tracker: updated with project-assessed levels (not source-repo levels)
 
 Plugins:
@@ -841,7 +878,7 @@ Run the compliance audit before declaring initialization complete — this catch
 
 **Dispatch prompt for the subagent:**
 
-> Run a compliance audit on this freshly initialized project. Check all 9 dimensions: catalog integrity, artifact traceability, knowledge layer health, agent-context-map wiring, and file completeness. Note: this is a new project — Dimensions 3 (untracked work), 8 (agent memory mining), and 9 (recommendation follow-through) will have no data, which is expected.
+> Run a compliance audit on this freshly initialized project. Check all 9 dimensions: catalog integrity, artifact traceability, knowledge layer health, agent-context-map wiring, and file completeness. Note: this is a new project — Dimensions 3 (untracked work), 8 (agent memory mining), and 9 (recommendation follow-through) will have no data, which is expected. [With an adapter that declined the map:] This project has no agent-context-map: its adapter declined it (`.sdlc-manifest.json` → `declined_files`) and routes knowledge through its backend, so skip the map-wiring checks.
 
 Present the subagent's findings to CD before the final summary.
 
@@ -912,4 +949,4 @@ Common anti-patterns: see `references/red-flags.md`.
 - **Uses:** `/sdlc-develop-agent` (agent creation), Context7 (knowledge verification), `AskUserQuestion` (CD gates), `.claude/skills/sdlc-archive/scripts/changelog_archive.py init` (the project's first changelog, Phase 1b)
 - **Produces:** Fully initialized SDLC framework with project-specific agents, knowledge, and disciplines; `.sdlc-manifest.json` with `sdlc_root`, `source_version`, and `installed_files` fields
 - **Borrows from:** `sdlc-idea` (ideation principles for Phase 0), spec template (Phase 0c structure)
-- **Adapter-aware:** when `manifest.adapter` is declared, delegates knowledge-seed, post-file-write, and post-operation phases per `[sdlc-root]/process/adapter-lifecycle-protocol.md`
+- **Adapter-aware:** when `manifest.adapter` is declared, delegates knowledge-seed, project-knowledge, post-file-write, and post-operation phases per `[sdlc-root]/process/adapter-lifecycle-protocol.md`

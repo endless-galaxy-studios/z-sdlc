@@ -19,7 +19,7 @@
 | "I'll rename all skill references to match upstream" | Guarded renames (§4.3a) — only rename if the target skill exists in the project. Renaming to a nonexistent skill causes silent process failures. |
 | "I'll rename agent names in skills to match upstream" | Guarded renames (§4.3a) — only rename if the target agent exists in the project. Projects use different agent names (`frontend-engineer` vs `frontend-developer`). Renaming to a nonexistent agent causes silent dispatch failures. |
 | "I'll auto-fix all the downstream impact findings" | Present findings to the user. They choose what to apply — some findings may not suit the project's context. |
-| "The SDLC is in `ops/sdlc/`" | Not always. Some projects use `.claude/sdlc/`. Detect the actual structure in pre-flight and use `[sdlc-root]` throughout. |
+| "This project keeps its SDLC somewhere else, so I'll migrate it there" | `ops/sdlc/` is the only SDLC root. Pre-flight stops on any other and gives CD the move steps; never migrate into another root, and never create one. |
 | "PROJECT-SECTION markers mean this content is protected, just re-inject it" | Markers preserve content from being overwritten, but they don't prevent staleness. Review marked content against upstream changes (§2.1d) — a 6-month-old custom skill phase may reference outdated patterns. |
 | "I'll skip the marker review for old blocks" | Old blocks are the most likely to be stale. The skip threshold is for recent additions (< 7 days) that can't have drifted yet. A replacement or removal is compared with its target whatever its age. |
 | "The user chose 'keep' last time, so keep all markers this time" | Each migration is a fresh review. Upstream may have changed differently this time. Don't cache decisions across migrations. |

@@ -98,7 +98,7 @@ Determine the file type from location and content before running any checklist.
 
 For every `[sdlc-root]/...` or `.claude/...` path referenced in the file:
 
-1. Resolve `[sdlc-root]` from `.sdlc-manifest.json` or fall back to `ops/sdlc/` then `.claude/sdlc/`.
+1. Resolve `[sdlc-root]` to `ops/sdlc/`.
 2. Verify the referenced file exists.
 3. For section-level references (e.g., "see the Tool Rule section of collaboration_model.md"), grep for the named section.
 4. For `references/` or `scripts/` subdirs cited in a skill, verify those paths exist.
@@ -129,7 +129,7 @@ For each substantive prose block in the skill (≥2 sentences or ≥100 chars, e
 - [ ] **Near-verbatim duplication** — same concept worded slightly differently across 2+ skills. Unify wording or document why they differ.
 - [ ] **Trigger overlap** — trigger phrases conflict with another skill's triggers. Tighten anti-triggers.
 - [ ] **Reinforcement-paragraph drift** — same framing sentence appears in only one of two sibling skills where both apply.
-- [ ] **Mirrored-block drift** — for each `<!-- MIRROR-START: {doc}.md#{id} -->` … `<!-- MIRROR-END: {doc}.md#{id} -->` block in the skill, Read `[sdlc-root]/process/{doc}.md` and the lines between `<!-- MIRROR-SOURCE-START: {id} -->` and `<!-- MIRROR-SOURCE-END: {id} -->`. The copy must match the source **exactly**, line for line — any difference (a reworded, added, or dropped sentence) is a **major** finding. Also major: a skill listed in the source doc's mirror table (`[sdlc-root]/process/review-fix-loop.md` § Mirrored Critical-Steps Blocks; `[sdlc-root]/process/headless-mode.md` § Mirrored Stop Rule, which lists every skill) that has no copy of its block, and a copy whose source file or `MIRROR-SOURCE` markers cannot be resolved. Minor: a skill carrying a copy the mirror table does not list — update the table. Convention: `[sdlc-root]/process/project-section-markers.md` § MIRROR Markers.
+- [ ] **Mirrored-block drift** — for each `<!-- MIRROR-START: {doc}.md#{id} -->` … `<!-- MIRROR-END: {doc}.md#{id} -->` block in the skill, Read `[sdlc-root]/process/{doc}.md` and the lines between `<!-- MIRROR-SOURCE-START: {id} -->` and `<!-- MIRROR-SOURCE-END: {id} -->`. The copy must match the source **exactly**, line for line — any difference (a reworded, added, or dropped sentence) is a **major** finding. Also major: a skill listed in the source doc's mirror table (`[sdlc-root]/process/review-fix-loop.md` § Mirrored Critical-Steps Blocks; `[sdlc-root]/process/headless-mode.md` § Mirrored Stop Rule, which lists every skill; `[sdlc-root]/process/writing-for-cd.md` § Mirrored Blocks; `[sdlc-root]/process/path-mappings.md` § The SDLC Root, for `sdlc-migrate` and `sdlc-initialize`) that has no copy of its block, and a copy whose source file or `MIRROR-SOURCE` markers cannot be resolved. Minor: a skill carrying a copy the mirror table does not list — update the table. Convention: `[sdlc-root]/process/project-section-markers.md` § MIRROR Markers.
 
 **Scoping rules:** Ignore matches inside fenced code blocks, frontmatter description blocks, canonical phrasing-contract lines, and one-line pointers (`Read [sdlc-root]/...`). **`MIRROR` blocks are exempt from the duplication checks above** — they are deliberate, verified copies; never recommend extracting one to a pointer (a pointer-only loop step is the failure these blocks exist to prevent). Check them with the mirrored-block drift item instead. A single shared sentence is not a finding unless load-bearing.
 
@@ -179,7 +179,7 @@ Malformed markers are Minor — they break `sdlc-migrate`'s preservation logic.
 
 ## Workflow
 
-1. **Resolve paths.** Read `.sdlc-manifest.json` for `sdlc_root`; fall back to `ops/sdlc/` then `.claude/sdlc/`.
+1. **Resolve paths.** `[sdlc-root]` is `ops/sdlc/`.
 2. **Detect file type.** Skill vs Agent vs Ambiguous per detection rules.
 3. **Frontmatter pass.** YAML parses, required fields, `\\n` vs `\n` for agents, `>` scalar for skills, model/color/tools valid. For agents, cross-check the description's typical triggers against the body's When to invoke scenarios, and `tools:` against every tool the body and the project's CLAUDE.md tell the agent to use.
 4. **Required-section pass.** Type-appropriate checklist. For agents, also check knowledge wiring against `agent-context-map.yaml`.

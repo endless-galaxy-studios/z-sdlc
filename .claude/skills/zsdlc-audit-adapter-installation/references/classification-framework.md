@@ -107,7 +107,7 @@ To calibrate your intuition, these are real findings from the 2026-04-22 audit:
 | `sdlc-compliance-auditor.md:13` shows `.claude/skills/sdlc-audit/references/compliance-methodology.md` where source has `[sdlc-root]/knowledge/compliance-methodology.md` | Step 7 — source path is broken, the target corrected it | **upstream** |
 | `sdlc-plan.md:240-254` shows 3-step stub where source has 5-step "Library verification (MANDATORY)" procedure | Step 6 — structural content loss | **plugin** |
 | `sdlc-execute.md:257` shows `Discipline parking lot entries ((discipline memories, tagged sdlc:discipline:*) *.md\`)` | Step 4 — double-paren corruption | **plugin** |
-| `sdlc-compliance-auditor.md:116` shows `(resolve via .sdlc-manifest.json's sdlc_root field, or fall back to .claude/sdlc/)` instead of source's `(detected in methodology section above)` | Step 3 exception — documented customization in sdlc-compliance-auditor | **neither** |
+| `sdlc-compliance-auditor.md:116` shows `(resolve via .sdlc-manifest.json's sdlc_root field, or fall back to .claude/sdlc/)` instead of source's `(detected in methodology section above)` | Step 3 exception — documented customization in sdlc-compliance-auditor at the time. Since 2026-11-23 `ops/sdlc/` is the only SDLC root and the exception is gone, so a line naming the old root is a stale adapter customization | **plugin** |
 
 ## Bias check
 
