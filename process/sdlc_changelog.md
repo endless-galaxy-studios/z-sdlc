@@ -37,6 +37,27 @@ Each entry contains:
 
 ---
 
+## 2026-11-25: An adapter may report upstream's changes to a knowledge YAML it keeps on disk instead of merging them
+
+**Origin:** neuroloom-sdlc's maintainers, after redoing their 0.7.0 against v3.0.0, found a gap between the protocol and the plugin. CD chose to match the docs to the plugin ("1"), on master, with v3.0.0's tag left where it is.
+
+**What happened:**
+- **The protocol said the adapter updates every knowledge YAML it keeps on disk.** When an adapter declares `knowledge-update`, migrate skips its own merge (§2.1b) for every knowledge YAML, including the ones the adapter keeps on disk because the project edited them.
+- **The plugin doesn't merge files.** It leaves a kept YAML as the project has it, and reports the file when upstream changes it. The project hears about upstream's fixes to such a file but doesn't get them merged.
+- **It rarely matters.** It only touches knowledge YAMLs the project edited by hand. In a project without the map, agents read knowledge from the backend, not from those files. The one adapter project has none.
+
+**Changes made:**
+
+1. **`process/adapter-lifecycle-protocol.md`** — The knowledge-update phase's "Files it takes during a migration" paragraph: for a knowledge YAML the adapter keeps on disk, it either updates the file or leaves it as the project has it and lists each one upstream changed in `post-operation` for CD.
+2. **`skills/sdlc-migrate/SKILL.md`** — Step 2, The knowledge layer is the adapter's: the line on files kept on disk says the same.
+
+**Rationale:**
+- **The adapter owns the knowledge layer.** It decides how a file it keeps gets upstream's changes. Telling CD meets the protocol's aim: no upstream change is lost without anyone knowing.
+- **No contract entry.** This loosens what an adapter must do, so an adapter that met the old wording meets the new one, and neuroloom-sdlc 0.7.0 needs no change. Contract 0026's note ("one on disk is updated, merged and checked") is a published entry and stays as it is. For a knowledge YAML, this entry and the protocol are what hold.
+- **Release type: patch.** A doc iteration within the existing contract.
+
+---
+
 ## 2026-11-25: D6 answers its open questions: Playwright versions, a check that fails only on the browser host, and no offsite archive
 
 **Origin:** consolidating the browser reproduction's and filmed pass's handoffs left three open questions, which D6's own Leaves open list also held. CD asked for answers (2026-11-25) and decided the third: "no offsite copy". The same request cross-checked eight older notes in `docs/current_work/ideas/` for work done since they were written.
