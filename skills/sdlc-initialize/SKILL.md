@@ -310,7 +310,7 @@ For each directory in manifest.directories:
   mkdir -p <target>/<directory>
 ```
 
-**With an adapter, discover it first:** run Adapter discovery (below) before copying, since its `post-file-write` transforms each file as it's written. Phase 1 still copies every file; an adapter that keeps no map removes what it takes in Phase 6.
+**With an adapter, discover it first:** run Adapter discovery (below) before copying, since its `post-file-write` transforms each file as it's written. Phase 1 still copies every file; in Phase 6, an adapter that keeps no map removes the copies of what its backend holds.
 
 **Copy files by category** using the source → target path mappings in `[sdlc-root]/process/path-mappings.md`. The key transforms: `knowledge/` → `[sdlc-root]/knowledge/`, `agents/` → `.claude/agents/`, `skills/` → `.claude/skills/`, and process/templates/disciplines/playbooks → `[sdlc-root]/` subdirectories.
 
@@ -377,7 +377,7 @@ When an adapter is present, this skill delegates specific phases per `[sdlc-root
 - Phase 1 (skeleton install) proceeds normally — operational files are written by upstream
 - After each file write, if the adapter declares `post-file-write`, upstream executes the adapter's transformation instructions on that file
 - Phase 6 (knowledge seeding) is delegated to the adapter's `knowledge-seed` handler instead of writing flat YAML files, and Phase 5 (map wiring) runs after it, skipped when the adapter declined the map
-- Phase 6: an adapter that keeps no map removes it and the knowledge and discipline copies Phase 1 made (it seeds them from the z-sdlc source); the knowledge layer is then the adapter's
+- Phase 6: an adapter that keeps no map removes it, and the knowledge and discipline copies Phase 1 made of what its backend holds (it seeds them from the z-sdlc source), keeping the rest on disk; the knowledge layer is then the adapter's
 - The project's own knowledge-layer content (Phases 7, 8 and 9a) goes to the adapter's `project-knowledge` handler if it declares one, instead of into files
 - Phase 10 (verification) includes the adapter's `post-operation` handler if declared
 
@@ -544,6 +544,8 @@ CC writes CLAUDE.md directly (agents don't exist yet). Use the spec as the sourc
    If detected, read `templates/optional/data-pipeline-integrity.md` from z-sdlc source and append to CLAUDE.md. If uncertain, ask CD.
 
 **Gate:** Present the drafted CLAUDE.md to CD. Use `AskUserQuestion`: "CLAUDE.md is ready for review. Any changes before I save it?"
+
+**Adapter post-file-write:** Once CLAUDE.md is saved, if the adapter declares `post-file-write` and its filter matches `CLAUDE.md`, run it on the file, as `sdlc-migrate` §2.1-post does after its `CLAUDE-SDLC.md` merge (§2.1e). Phase 1's per-file callout doesn't reach this write.
 
 ### Phase 3: Register D1 in the Catalog
 
@@ -761,7 +763,7 @@ Present the list of knowledge files to CD. This is informational, not a gate —
 
 Read each discipline file in `ops/sdlc/disciplines/` (every `*.md` except `README.md`). For each, add a "## Project Context" section with 3–5 bullets specific to this project's stack and domain.
 
-**Adapter delegation:** If the knowledge layer is the adapter's (it declined the map in Phase 6, and removed the copies), the disciplines are the z-sdlc source's `disciplines/*.md`. If it declares a `project-knowledge` phase, hand each discipline's bullets to its handler (kind `discipline-context`, target `ops/sdlc/disciplines/<name>.md` § Project Context) instead of appending them to a file. If it doesn't, write the file: copy it from the source first when it isn't on disk.
+**Adapter delegation:** If the knowledge layer is the adapter's (it declined the map in Phase 6, and removed the copies its backend holds), read a discipline it took from the z-sdlc source's `disciplines/<name>.md`, and one still on disk there. If it declares a `project-knowledge` phase, hand each discipline's bullets to its handler (kind `discipline-context`, target `ops/sdlc/disciplines/<name>.md` § Project Context) instead of appending them to a file. If it doesn't, write the file: copy it from the source first when it isn't on disk.
 
 Dispatch the `software-architect` agent to produce the seed content for all of them in one pass, given the spec as input. The agent returns the seed content; the orchestrator appends it to each file.
 
@@ -839,7 +841,7 @@ INITIALIZATION COMPLETE — VERIFICATION
 Skeleton & Infrastructure:
 [ ] Spec: D1 spec exists in docs/current_work/specs/
 [ ] Skeleton: Phase 1 completed, .sdlc-manifest.json present
-[ ] All upstream READMEs copied (knowledge/README.md, knowledge/*/README.md)
+[ ] All upstream READMEs copied (knowledge/README.md, knowledge/*/README.md), except any the adapter took (no copy on disk, no installed_files entry)
 [ ] All scaffold directories exist: playbooks/, plugins/, examples/, docs/current_work/audits/
 [ ] .gitignore: `.claude/agent-memory/` entry present
 [ ] CLAUDE.md: exists with all required sections
@@ -878,7 +880,7 @@ Run the compliance audit before declaring initialization complete — this catch
 
 **Dispatch prompt for the subagent:**
 
-> Run a compliance audit on this freshly initialized project. Check all 9 dimensions: catalog integrity, artifact traceability, knowledge layer health, agent-context-map wiring, and file completeness. Note: this is a new project — Dimensions 3 (untracked work), 8 (agent memory mining), and 9 (recommendation follow-through) will have no data, which is expected. [With an adapter that declined the map:] This project has no agent-context-map: its adapter declined it (`.sdlc-manifest.json` → `declined_files`) and routes knowledge through its backend, so skip the map-wiring checks.
+> Run a compliance audit on this freshly initialized project. Check all 9 dimensions: catalog integrity, artifact traceability, knowledge layer health, agent-context-map wiring, and file completeness. Note: this is a new project — Dimensions 3 (untracked work), 8 (agent memory mining), and 9 (recommendation follow-through) will have no data, which is expected. [With an adapter that declined the map:] This project has no agent-context-map: its adapter declined it (`.sdlc-manifest.json` → `declined_files`) and routes knowledge through its backend, so skip the map-wiring checks. The files it took under `ops/sdlc/knowledge/` and `ops/sdlc/disciplines/` have no copy on disk and no `installed_files` entry: they aren't missing.
 
 Present the subagent's findings to CD before the final summary.
 

@@ -152,7 +152,7 @@ The adapter is responsible for:
 - Assigning stable identifiers to each knowledge entry (for idempotent upsert during future migrations)
 - Distinguishing upstream-originated entries from project-originated entries so project additions are never overwritten during future updates
 
-**The knowledge layer is the adapter's** when the adapter routes knowledge through its backend and keeps no agent-context map: upstream knows it by the map's absence, as `sdlc-migrate` §3.3 does. Such an adapter, in this phase, removes the map and records it in `declined_files` (below). It also removes the copies `sdlc-initialize`'s Phase 1 made under `[sdlc-root]/knowledge/` and `[sdlc-root]/disciplines/`, dropping their `installed_files` entries without recording them as declined: the adapter seeds them from the z-sdlc source and keeps them up to date. From then on, `sdlc-migrate` copies, removes, merges, asks about and checks none of those files, and records none as declined. A file the adapter handles has no copy on disk to go missing, so a "keep it removed" record would only stop the adapter updating it. An adapter that keeps the map keeps the files too, and stays on the ordinary path.
+**The knowledge layer is the adapter's** when the adapter routes knowledge through its backend and keeps no agent-context map: upstream knows it by the map's absence, as `sdlc-migrate` §3.3 does. Such an adapter, in this phase, removes the map and records it in `declined_files` (below). It also removes the copies `sdlc-initialize`'s Phase 1 made under `[sdlc-root]/knowledge/` and `[sdlc-root]/disciplines/` of what its backend holds, dropping their `installed_files` entries without recording them as declined: the adapter seeds them from the z-sdlc source and keeps them up to date. Text its backend doesn't hold (READMEs, diagrams, a file the project edited) stays on disk with its entry, and `provenance_log.md`, the project's own record, always stays. Upstream can't see the backend, so from then on `sdlc-migrate` decides file by file (its Pre-Flight Check, Step 2, The knowledge layer is the adapter's). A file under those folders that isn't on disk, has no `installed_files` entry, isn't declined, and was upstream's at the project's `source_version` is one the adapter took: migrate copies, asks about, checks and records none of these. Every other file follows the ordinary path: one on disk is updated, and one upstream added is copied for `knowledge-update` to take. A file the adapter took has no copy on disk to go missing, so a "keep it removed" record would only stop the adapter updating it. An adapter that keeps the map keeps the files too, and stays on the ordinary path.
 
 **The agent-context map.** An adapter that routes knowledge through its backend and keeps no map removes `[sdlc-root]/knowledge/agent-context-map.yaml` in this phase and records it in `.sdlc-manifest.json` → `declined_files` (`[sdlc-root]/process/project-section-markers.md` § Deleted Files). Upstream reads that the same way `sdlc-migrate` §3.3 does: the adapter declares its knowledge phase, and the project has no map. In adapter mode, `sdlc-initialize` wires the map (Phase 5) after this phase, and skips the wiring when the map is gone. Its later checks (Phase 9a's maturity levels, Phase 10's checklist, Phase 11's audit) then treat the project's knowledge as reaching agents through the adapter.
 
@@ -160,7 +160,7 @@ The adapter is responsible for:
 
 | | |
 |---|---|
-| **Fires when** | Where upstream would run §2.1b key-level merge on knowledge YAML files |
+| **Fires when** | Where upstream would run §2.1b key-level merge on knowledge YAML files, after §2.1's copies |
 | **Default (no adapter)** | Marked merge, key by key and item by item: upstream's version of an unmarked upstream entry, the project's marked replacements and removals kept, project-only entries kept (`sdlc-migrate` §2.1b) |
 | **Purpose** | Let the adapter update its backend directly using its native diff/upsert semantics |
 
@@ -174,7 +174,9 @@ When an adapter declares this phase, upstream skips §2.1b entirely for knowledg
 4. **Deprecate removed entries** — entries present in the backend but absent from upstream get marked deprecated (never hard-deleted — projects may still reference them).
 5. **Update manifest** — the project's `source_version` in `.sdlc-manifest.json` reflects the new z-sdlc version after the full migration completes (handled by upstream, not the adapter).
 
-This eliminates the materialization round-trip. No flat files are created, diffed, or cleaned up. The backend's own storage semantics handle what upstream's key-level merge does for flat-file projects.
+This eliminates the materialization round-trip for the knowledge the backend holds: no flat files of it are created, diffed, or cleaned up, apart from the release's new files below, which upstream copies and the adapter takes. The backend's own storage semantics handle what upstream's key-level merge does for flat-file projects.
+
+**Files it takes during a migration.** When the knowledge layer is the adapter's, upstream copies a file under `[sdlc-root]/knowledge/` or `[sdlc-root]/disciplines/` that upstream added since `source_version` (in a full migration, every one) before this phase, as it would any new file. The adapter takes the ones its backend holds the way `knowledge-seed` does: it ingests each, removes the copy, and drops its `installed_files` entry if it has one (upstream records none for a file no longer on disk, `sdlc-migrate` §4.5). It keeps the rest on disk. A knowledge YAML it keeps on disk is still its to update, since upstream skips §2.1b. Two cases only the adapter can tell. A copy whose content its backend already holds (an older adapter's, never removed) looks to upstream like a file the adapter keeps: the adapter takes it here or lists it in `post-operation`. A file off disk that its backend doesn't hold (an older adapter removed it without ingesting it, such as a README) looks to upstream like one the adapter took, so upstream never restores it: the adapter restores it from the z-sdlc source at `[target_tag]` or lists it in `post-operation` for CD.
 
 **What upstream still handles:** `agent-context-map.yaml` structural updates (new agent entries, wiring changes) remain upstream's responsibility unless the adapter also transforms these during `post-file-write`. A project whose adapter declares this phase and that has no map (the adapter routes knowledge through its backend) has nothing to update: `sdlc-migrate` §3.3 skips, and never creates the map.
 
@@ -321,16 +323,19 @@ The instructions are prose that upstream's skill reads and follows — same patt
   ... changelog review, drift detection, categorization ...
 
 § Phase 2: Apply Updates
-  § 2.1b Knowledge Files:
-    → If adapter declares knowledge-update:
-        Execute adapter's knowledge-update instructions
-    → Else:
-        Run upstream's key-level merge (unchanged)
-
   § 2.1 Operational Files (for each file in change set):
-    → Write/merge file (unchanged upstream logic)
+    → Write/merge file (unchanged upstream logic), except a file the adapter took
+      (knowledge layer the adapter's: under knowledge/ or disciplines/, off disk,
+      no installed_files entry, not declined, upstream's at source_version)
     → If adapter declares post-file-write AND file matches filter:
         Execute adapter's post-file-write instructions on this file
+
+  § 2.1b Knowledge Files:
+    → If adapter declares knowledge-update:
+        Execute adapter's knowledge-update instructions (it takes the files
+        § 2.1 copied whose content its backend holds)
+    → Else:
+        Run upstream's key-level merge (unchanged)
 
 § Phase 4: Verification
   ... existing verification (4.1–4.4) ...
@@ -347,6 +352,10 @@ The instructions are prose that upstream's skill reads and follows — same patt
   → Install operational files (unchanged)
   → If adapter declares post-file-write AND file matches filter:
       Execute adapter's post-file-write instructions on each installed file
+
+§ Phase 2: Write CLAUDE.md
+  → If adapter declares post-file-write AND CLAUDE.md matches filter:
+      Execute adapter's post-file-write instructions on it once saved
 
 § Phase 5–6: Knowledge Seeding
   → If adapter declares knowledge-seed:

@@ -167,7 +167,14 @@ If manifest.adapter exists and is not null:
   Log: adapter_detected event with plugin name and declared phases
 ```
 
-**The knowledge layer is the adapter's** when the adapter declares `knowledge-update` and the project has no `[sdlc-root]/knowledge/agent-context-map.yaml`: the same condition as §3.3, so an adapter that keeps the map, and the files with it, stays on the ordinary path. Then every file under `[sdlc-root]/knowledge/` and `[sdlc-root]/disciplines/` is the adapter's, YAML or Markdown: the adapter updates them in its backend from the z-sdlc source at `[target_tag]`. This skill copies none of them (§2.1), removes none (§2.1a), merges none (§2.1b, §2.3), asks about none it lacks and records none as declined (§2.1c), and checks none (§2.5's tracker and parking-lot checks, §3.4's discipline and knowledge rows). A declined record already in the manifest still stands, and the adapter honours it. Files still on disk there (an older adapter's leftovers, which it never removed) aren't updated: list them in the migration report (§4.6) for CD to delete, since the adapter's backend holds their content.
+**The knowledge layer is the adapter's** when the adapter declares `knowledge-update` and the project has no `[sdlc-root]/knowledge/agent-context-map.yaml`: the same condition as §3.3, so an adapter that keeps the map, and the files with it, stays on the ordinary path. The adapter then holds some of the files under `[sdlc-root]/knowledge/` and `[sdlc-root]/disciplines/` in its backend, and keeps the rest on disk: text its backend doesn't hold (the READMEs, `provenance_log.md`) and files the project edited. This skill can't see the backend, so it decides file by file:
+- **A file the adapter took** is one under those two folders that isn't on disk, has no `installed_files` entry, isn't in `declined_files`, and was in upstream's `source_files` at `source_version` (so not one upstream added since). The adapter removed its copy and dropped its entry (in `knowledge-seed` at install, or `knowledge-update` at a migration), and updates it in its backend from the z-sdlc source at `[target_tag]`. This skill copies none of these (§2.1), has none to remove (§2.1a) or merge (§2.1b, §2.3), asks about none and records none as declined (§2.1c), checks none (§2.5's tracker and parking-lot checks, §3.4's discipline and knowledge rows) and records no hash for any (§4.5).
+- **Every other file there** is handled like any framework file. One on disk is updated, merged and checked as usual; a knowledge YAML's merge is the adapter's `knowledge-update` (§2.1b). One with an `installed_files` entry that isn't on disk was deleted by hand, and is asked about (§2.1c). One upstream added since `source_version` is copied (§2.1), and the adapter's `knowledge-update` takes it when its backend holds that content.
+- **In a full migration** (no `source_version`), a file off disk with no entry can't be told from a new one: copy it, as a full migration copies every framework file, and the adapter's `knowledge-update` takes it again. §2.1 never copies the map or `provenance_log.md`, so neither is created.
+
+A declined record still stands, and the adapter honours it. Two cases only the adapter can tell, since they look like others to this skill:
+- **A copy on disk whose content the backend also holds** (an older adapter's, which it never removed) looks like a file the adapter keeps. This skill handles it as a file on disk, and the adapter takes it or lists it in its `post-operation` (§4.4a).
+- **A file off disk that the backend doesn't hold** (an older adapter removed it without ingesting it, such as a README) looks like one the adapter took. This skill can't restore it, so the adapter restores it from the z-sdlc source or lists it in its `post-operation` for CD.
 
 When an adapter is detected, this skill delegates specific phases (knowledge-update, post-file-write, post-operation) to the adapter's handler doc instructions. Non-delegated phases run identically to the non-adapter path. See `[sdlc-root]/process/adapter-lifecycle-protocol.md` for the full protocol.
 
@@ -417,7 +424,7 @@ Before any file copying, compute the **effective install set** for this project 
 
 **Step 0 — Load exclusion list before any writes.** Read `[sdlc-root]/process/path-mappings.md` § "Project-Specific Files (Never Overwrite)". For every file about to be written in this phase, confirm it does NOT appear on that list. If it does, skip it — no exceptions, no "I'll just update the header" rationalizations. Current exclusions: `agent-selection.yaml`, `agent-context-map.yaml`, `provenance_log.md`, `sdlc_changelog.md`, `process/changelog-archive/`, and the project's `.claude/skills/verify/`.
 
-**Which files are written:** only the set the Phase 1 pass checked (§1.2a), never a declined one (`declined_files`): a file upstream changed since `source_version`, one upstream added that the project lacks, one CD chose to restore, every framework file in a full migration, and a plugin guide that differs from `[target_tag]`'s with its marks set aside. A file outside that set isn't touched, even when it differs from upstream: its unmarked changes are asked about when a release next changes it, and the audit (§4.4, 7c) reports them meanwhile. Within the set, copy each one directly from z-sdlc to the project's `[sdlc-root]/` directory, applying its Phase 1 decision and keeping its marks, and none under `[sdlc-root]/knowledge/` or `[sdlc-root]/disciplines/` when the knowledge layer is the adapter's (Pre-Flight Check, Step 2, The knowledge layer is the adapter's):
+**Which files are written:** only the set the Phase 1 pass checked (§1.2a), never a declined one (`declined_files`): a file upstream changed since `source_version`, one upstream added that the project lacks, one CD chose to restore, every framework file in a full migration, and a plugin guide that differs from `[target_tag]`'s with its marks set aside. A file outside that set isn't touched, even when it differs from upstream: its unmarked changes are asked about when a release next changes it, and the audit (§4.4, 7c) reports them meanwhile. Within the set, copy each one directly from z-sdlc to the project's `[sdlc-root]/` directory, applying its Phase 1 decision and keeping its marks, and none the adapter took (Pre-Flight Check, Step 2, The knowledge layer is the adapter's):
 
 - `process/*.md`, top level only (excluding `agent-selection.yaml` and `sdlc_changelog.md` — project-specific, protected by Step 0). Never copy `process/changelog-archive/`: it's z-sdlc's history
 - `skills/*/scripts/*` (manifest-listed) → `.claude/skills/*/scripts/`
@@ -518,7 +525,7 @@ When no adapter is declared, this step is skipped entirely — no overhead for n
 
 ### 2.1a Remove Deleted and Moved Files
 
-When the knowledge layer is the adapter's (Pre-Flight Check, Step 2, The knowledge layer is the adapter's), skip files under `[sdlc-root]/knowledge/` and `[sdlc-root]/disciplines/` here.
+When the knowledge layer is the adapter's (Pre-Flight Check, Step 2, The knowledge layer is the adapter's), a file the adapter took has no copy here to remove or move: its `knowledge-update` retires or moves it in the backend. A file under those folders that is on disk is removed or moved as usual.
 
 Check the z-sdlc changelog for files that were **deleted, moved, or renamed** since the project's `source_version`. These require explicit cleanup in the downstream project — direct copy only adds files, it doesn't remove stale ones.
 
@@ -557,7 +564,7 @@ Check the z-sdlc changelog for files that were **deleted, moved, or renamed** si
 
 ### 2.1b Knowledge YAML Key-Level Merge
 
-**Adapter delegation:** If the adapter declares a `knowledge-update` phase (H2 section exists in handler doc), skip this entire subsection. Execute the adapter's `knowledge-update` instructions instead — the adapter handles knowledge updates via its backend's native diff/upsert semantics. Continue with §2.1e after the adapter's phase completes (or halts on failure); §2.1c already ran in Phase 1 and left the adapter's knowledge files to it.
+**Adapter delegation:** If the adapter declares a `knowledge-update` phase (H2 section exists in handler doc), skip this entire subsection. Execute the adapter's `knowledge-update` instructions instead — the adapter handles knowledge updates via its backend's native diff/upsert semantics. Continue with §2.1e after the adapter's phase completes (or halts on failure); §2.1c already ran in Phase 1 and left the files the adapter took to it.
 
 ---
 
@@ -641,7 +648,7 @@ Confirm or edit each.
 
 A removal is shown as one: "the project removed `[target]`, which upstream still has". Marking it keeps it removed.
 
-**A framework file the project lacks** (any file in `skeleton/manifest.json` → `source_files` at `[target_tag]`, at its installed path per `[sdlc-root]/process/path-mappings.md`, that isn't on disk and isn't in `declined_files`, whether or not this release changed it) is asked about once. When the knowledge layer is the adapter's (Pre-Flight Check, Step 2, The knowledge layer is the adapter's), a file under `[sdlc-root]/knowledge/` or `[sdlc-root]/disciplines/` is never asked about: a "keep it removed" record would stop the adapter from updating it. `.claude/agents/AGENT_SUGGESTIONS.md` is the exception: the installer deletes it once the project's agents exist (`sdlc-initialize` Phase 12), so it is never asked about, recorded or restored.
+**A framework file the project lacks** (any file in `skeleton/manifest.json` → `source_files` at `[target_tag]`, at its installed path per `[sdlc-root]/process/path-mappings.md`, that isn't on disk and isn't in `declined_files`, whether or not this release changed it) is asked about once. A file the adapter took (Pre-Flight Check, Step 2, The knowledge layer is the adapter's), and in a full migration any file under those folders that is off disk with no `installed_files` entry (§2.1 copies it for the adapter to take), isn't one the project lacks, and is never asked about: a "keep it removed" record would stop the adapter from updating it. `.claude/agents/AGENT_SUGGESTIONS.md` is the exception: the installer deletes it once the project's agents exist (`sdlc-initialize` Phase 12), so it is never asked about, recorded or restored.
 
 ```
 MISSING: [installed path] (upstream: [source path])
@@ -727,7 +734,7 @@ Skills have two layers:
 
 ### 2.3 Content-Merge: Disciplines
 
-When the knowledge layer is the adapter's (Pre-Flight Check, Step 2, The knowledge layer is the adapter's), skip this subsection.
+When the knowledge layer is the adapter's (Pre-Flight Check, Step 2, The knowledge layer is the adapter's), skip the discipline files the adapter took. One on disk merges as below.
 
 Discipline files have:
 1. **Framework structure** — knowledge store reference, summary, mutation verification rules, level definitions (in process-improvement.md only), each `## Parking Lot` heading with its italic instruction line, and the tracker's heading
@@ -761,7 +768,7 @@ Discipline files have:
 
 **Before proceeding to agent updates**, verify the content-merge results from §2.2–2.4 didn't corrupt project data. This catches merge errors before they propagate into agent wiring.
 
-**Quick checks (< 2 minutes):** (when the knowledge layer is the adapter's (Pre-Flight Check, Step 2, The knowledge layer is the adapter's), skip checks 1 and 2)
+**Quick checks (< 2 minutes):** (when the knowledge layer is the adapter's (Pre-Flight Check, Step 2, The knowledge layer is the adapter's), skip checks 1 and 2 for the files the adapter took)
 
 1. **Tracker integrity** — read `[sdlc-root]/disciplines/process-improvement.md` and verify:
    - `<!-- PROJECT-TRACKER-START -->` / `<!-- PROJECT-TRACKER-END -->` markers are present
@@ -855,8 +862,8 @@ New or updated knowledge files and process docs may conflict with or improve the
 | Agent definitions | `.claude/agents/*.md` | New knowledge wiring — do any agents work in domains covered by newly added knowledge files but aren't wired to them? |
 | Agent descriptions | `.claude/agents/*.md` frontmatter | Description-economy convention — flag `<example>` or `<commentary>` blocks, a missing "Do NOT use for" boundary sentence, a missing `## When to invoke` body section, or a description without its `Typical triggers include ...` sentence and pointer; suggest a fix (advisory only, see §3.1) |
 | Agent tools | `.claude/agents/*.md` frontmatter | Tool-grant convention — flag a restricted `tools:` line that leaves out `SendMessage` on an agent whose Communication Protocol section says to send progress updates (its updates have no channel), that leaves out a tool the project's CLAUDE.md requires of agents doing that agent's work (its Agent Conventions grant list, Context7 for code against external libraries), or that grants an MCP server by prefix (`mcp__server`) instead of naming its tools; suggest the grant (advisory only: `tools:` is project-owned) |
-| Discipline parking lots | `[sdlc-root]/disciplines/*.md` | Stale entries — do any `[NEEDS VALIDATION]` entries now have evidence from newly landed knowledge? (Not when the knowledge layer is the adapter's.) |
-| Project knowledge | `[sdlc-root]/knowledge/**/*.yaml` | Contradictions — do any project-specific knowledge rules conflict with newly landed upstream rules? (Not when the knowledge layer is the adapter's.) |
+| Discipline parking lots | `[sdlc-root]/disciplines/*.md` | Stale entries — do any `[NEEDS VALIDATION]` entries now have evidence from newly landed knowledge? (Not for a file the adapter took.) |
+| Project knowledge | `[sdlc-root]/knowledge/**/*.yaml` | Contradictions — do any project-specific knowledge rules conflict with newly landed upstream rules? (Not for a file the adapter took.) |
 
 **Process:**
 
@@ -1007,7 +1014,7 @@ The project's `CLAUDE.md` contains CLAUDE-SDLC.md content — skill names, proce
 **Dispatch prompt for the subagent:**
 
 > Run a compliance audit focused on migration integrity. Check all 9 dimensions, with special attention to:
-> - Dimension 7 (Migration Integrity): All framework files match the z-sdlc source at [target_tag], except where this run's decisions say otherwise: files CD skipped, drift CD kept, marked replacements and removals, values the project sets, and adapter-transformed text. Those differences are expected; pass the list: [decisions from the transaction log]
+> - Dimension 7 (Migration Integrity): All framework files match the z-sdlc source at [target_tag], except where this run's decisions say otherwise: files CD skipped, drift CD kept, marked replacements and removals, values the project sets, and adapter-transformed text. Those differences are expected; pass the list: [decisions from the transaction log]. When the knowledge layer is the adapter's, the files it took under `[sdlc-root]/knowledge/` and `[sdlc-root]/disciplines/` have no copy on disk and no `installed_files` entry, and aren't missing: pass their paths: [files the adapter took]
 > - No orphaned files from previous versions remain
 > - Agent-context-map paths all resolve
 > - Content-merge preserved project data (tracker levels, parking lot entries, skill customizations)
@@ -1048,7 +1055,7 @@ After migration, update `.sdlc-manifest.json`:
    - `last_applied_contract_id`: if absent, back-fill to `"0000"` before consuming pending_changes; if already set, leave untouched until step 5 below
    - **Any field added by a `manifest_field_added` contract entry in pending_changes** — apply its `default` value
 2b. **Refresh the `adapter` block** (when it isn't null) as Pre-Flight's adapter detection resolved it: `supported_zsdlc_version` from the live `adapter.json` under the new key, `plugin` as the full id the lookup matched (`<name>@<marketplace>`), and no `plugin_root` that is absolute or outside the project (`[sdlc-root]/process/adapter-lifecycle-protocol.md` § Detection during migration). An adapter's `post-operation` check compares against these values.
-3. **Refresh `installed_files` hashes.** For every file the migration just touched — direct copies, content-merges, drift resolutions — recompute SHA-256 of the final on-disk content and update the corresponding entry. For drift cases where CD chose "keep mine", record the current hash so the next migration sees a clean baseline. For files CD chose to overwrite with upstream, the new hash reflects the upstream content. This keeps drift detection accurate for the next migration.
+3. **Refresh `installed_files` hashes.** For every file the migration just touched — direct copies, content-merges, drift resolutions — recompute SHA-256 of the final on-disk content and update the corresponding entry. For drift cases where CD chose "keep mine", record the current hash so the next migration sees a clean baseline. For files CD chose to overwrite with upstream, the new hash reflects the upstream content. This keeps drift detection accurate for the next migration. A file the adapter took during this run (its `knowledge-update` removed the copy) gets no entry, and an entry it had is dropped.
 4. **Update `installed_bundles`** to include any bundles CD accepted in §4.7.
 4a. **Update `bundle_fragments`** to reflect every `BUNDLE-SECTION` fragment injected this run (§2.1 step 7 and §4.7 installs): label `bundle/fragment` → target path. Remove entries for fragments upstream no longer declares (their blocks were stripped by §2.1 step 7's strip pass and not re-added).
 4b. **Update `declined_files`** from the run's decisions: add each file CD kept removed (`{"why": ..., "decided": "CD, <date>"}`), drop each one CD took back or upstream deleted, and move each one upstream moved. A declined file has no `installed_files` entry: drop it there.

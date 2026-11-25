@@ -203,6 +203,56 @@ It sent six low items for the next time the module is touched. CD said to build 
 
 ---
 
+## 2026-11-25: An adapter keeps on disk what its backend doesn't hold, so migrate tells the files it took from the rest one by one [contract-change]
+
+**Origin:** neuroloom-sdlc's maintainers, matching the plugin to v3.0.0, found two gaps. CD: "make changes but don't push", then "redo the v3 tag": the fix ships in v3.0.0 itself, re-cut from its first commit before any project migrated to it, and the plugin redoes its 0.7.0 to match.
+
+**What happened:**
+- **v3.0.0's first cut assumed the adapter holds a whole folder.** With the knowledge layer the adapter's, migrate treated every file under `knowledge/` and `disciplines/` as the adapter's. It never updated one left on disk, and listed each for CD to delete because "the adapter's backend holds their content".
+- **The plugin keeps what Neuroloom doesn't hold.** Its knowledge-seed keeps the READMEs, the `.d2` diagram, `provenance_log.md` and files edited since install. After a fresh install with it, each migration would have told CD to delete files with no other copy, `provenance_log.md` among them, a file on the never-overwrite list, and never updated them.
+- **The same assumption elsewhere:**
+  - the protocol's knowledge-seed text;
+  - initialize's Phase 10 README check and its Phase 11 audit prompt;
+  - the compliance audit's file completeness (`sdlc-audit` 7b, the auditor's Dimension 7), which would report every file the adapter took as missing;
+  - migrate's §4.4 audit.
+- **Initialize skipped CLAUDE.md.** Migrate runs post-file-write after its `CLAUDE-SDLC.md` merge (§2.1-post), but initialize's Phase 2 writes the same section with no callout, so the plugin transformed it inside its knowledge-seed.
+- **The one adapter project has no delete list to get:** its 0.6 port moved its knowledge into Neuroloom and removed everything under those folders, manifest entries included. That port also removed the READMEs and the diagram, which Neuroloom doesn't hold; migrate can't tell those from files the adapter took, so the adapter restores or lists them (below).
+
+**Changes made:**
+
+1. **`skills/sdlc-migrate/SKILL.md`** — Step 2, The knowledge layer is the adapter's, decides file by file.
+   - **A file the adapter took** is one under the two folders that isn't on disk, has no `installed_files` entry, isn't declined, and was in upstream's `source_files` at `source_version`. None is copied, asked about, checked or hashed.
+   - **Every other file follows the ordinary path:**
+     - one on disk is updated, merged and checked;
+     - one with an entry but no file was deleted by hand, and is asked about;
+     - one upstream added since `source_version` is copied, and the adapter's knowledge-update takes it when its backend holds the content.
+   - **A full migration** can't tell a file the adapter took from a new one, so it copies them all and the adapter takes them again (§2.1c doesn't ask about them). §2.1 never copies the map or `provenance_log.md`, so neither is created.
+   - **No delete list.** Migrate no longer lists files on disk for CD to delete. Two cases only the adapter can tell: an older adapter's copy of content the backend holds, and a file off disk the backend doesn't hold. The adapter takes or restores them, or lists them in post-operation.
+   - **The pointers follow:** §2.1, §2.1a, §2.1b, §2.1c, §2.3, §2.5 and §3.4. §4.4's audit prompt passes the files the adapter took, and §4.5 records no hash for them.
+2. **`skills/sdlc-initialize/SKILL.md`:**
+   - Phase 1 and the Phase 6 note say the adapter removes only the copies of what its backend holds.
+   - Phase 7 reads a discipline the adapter took from the source, and one on disk there.
+   - Phase 2 runs post-file-write on CLAUDE.md once it is saved.
+   - Phase 10's README check and Phase 11's audit prompt allow for files the adapter took.
+3. **`process/adapter-lifecycle-protocol.md`:**
+   - knowledge-seed removes the copies of what the backend holds and keeps the rest; `provenance_log.md` always stays.
+   - knowledge-update fires after §2.1's copies. A new "Files it takes during a migration" paragraph names two cases only the adapter can tell: a copy of content it holds (take it or list it), and a file off disk it doesn't hold (restore it or list it).
+   - Both integration outlines are updated. The migrate outline puts §2.1 before §2.1b, and the initialize outline gains Phase 2's CLAUDE.md callout.
+4. **`process/project-section-markers.md`** — § Deleted Files: a file an adapter took is never asked about or recorded.
+5. **`.claude/skills/zsdlc-audit-adapter-installation/SKILL.md`** — The disciplines mapping line allows for a discipline kept on disk.
+6. **`skills/sdlc-audit/references/compliance-methodology.md`** (7b) and **`agents/sdlc-compliance-auditor.md`** (Dimension 7) — With an adapter set and no map, a file under the two folders with no copy and no entry is the adapter's, not missing.
+7. **`skeleton/contract_changes.yaml`** — Contract 0026, which supersedes 0024's folder-wide rule. Adapter action:
+   - in knowledge-update, take the files upstream copied whose content the backend holds;
+   - keep on disk what it doesn't hold, and restore or list a file off disk it doesn't hold;
+   - match CLAUDE.md in the post-file-write filter, and drop the CLAUDE.md transform done in knowledge-seed.
+
+**Rationale:**
+- **The disk and the manifest are the record.** z-sdlc can't see an adapter's backend, so a rule keyed on a folder guesses what the backend holds. What the adapter removed, and the manifest entry it dropped, says which files it took. Anything still on disk is a file someone has to keep current, so it stays on the ordinary path.
+- **Install and migration now work the same way:** upstream copies, and the adapter takes what it holds.
+- **Release: part of v3.0.0.** It corrects the adapter contract v3.0.0 introduced, with an adapter action and no project action. v3.0.0's tag was moved to include it before any project had migrated to the first cut. The version gate can't tell the two cuts apart, since an adapter declaring 3.0.0 passes either: an adapter built against the first cut must be redone too, as neuroloom-sdlc's 0.7.0 is.
+
+---
+
 ## 2026-11-25: The adapter's stops say how a headless run ends, and the audit's mirror check compares each copy on its own
 
 **Origin:** CD directive ("fix the older stops, sdlc-plan mismatch and empty manifest"), after the review of the single-root batch left three known items open.

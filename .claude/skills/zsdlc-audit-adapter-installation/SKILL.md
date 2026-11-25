@@ -151,7 +151,7 @@ Install-path mapping:
 - `z-sdlc/agents/X.md` → `target/.claude/agents/X.md`
 - `z-sdlc/process/X.md` → `target/ops/sdlc/process/X.md`
 - `z-sdlc/templates/X.md` → `target/ops/sdlc/templates/X.md`
-- `z-sdlc/disciplines/X.md` → `target/ops/sdlc/disciplines/X.md` (Neuroloom: not applicable — disciplines live in memory graph)
+- `z-sdlc/disciplines/X.md` → `target/ops/sdlc/disciplines/X.md` (Neuroloom: only a discipline it kept on disk; one it took into the memory graph has no copy, and no `installed_files` entry)
 
 For each differing hunk, classify using `references/classification-framework.md`. Record one row per file in the output table. A file can have multiple findings of different verdicts — list each separately.
 

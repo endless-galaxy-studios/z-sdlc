@@ -557,3 +557,37 @@ changes:
       a path. A worktree is its own project: without an install for it (or the
       user's), a run there stops until one exists. Adapter action: write plugin as
       the id and no absolute plugin_root.
+
+  - id: "0026"
+    date: "2026-11-25"
+    title: "When the knowledge layer is the adapter's, migrate decides file by file which files the adapter took"
+    type: other
+    changelog_ref: "2026-11-25: An adapter keeps on disk what its backend doesn't hold, so migrate tells the files it took from the rest one by one [contract-change]"
+    notes: >
+      Supersedes 0024's folder-wide rule. Ships in v3.0.0 with 0024 (the tag
+      was re-cut to include it before any project migrated), so a migration to
+      v3.0.0 applies both and ends on this rule. When the knowledge layer is the
+      adapter's (knowledge-update declared, no agent-context map), a file under
+      knowledge/ or disciplines/ is one the adapter took when it isn't on disk,
+      has no installed_files entry, isn't declined, and was in upstream's
+      source_files at source_version. migrate copies, asks about, checks and
+      hashes none of these. Every other file follows the ordinary path: one on
+      disk (a README, provenance_log.md, a file the project edited) is updated,
+      merged and checked; one with an entry but no file was deleted by hand and
+      is asked about; one upstream added since source_version is copied before
+      knowledge-update, which takes it when the backend holds its content (in a
+      full migration, every such file is copied). migrate no longer lists files
+      on disk for CD to delete: it can't tell an older adapter's copy from a
+      file the adapter keeps, nor a file off disk the backend doesn't hold from
+      one it took, so the adapter takes, restores or lists those in
+      post-operation. A full migration never creates the map or
+      provenance_log.md. In initialize, knowledge-seed removes only the copies of
+      what the backend holds, and Phase 2 runs post-file-write on CLAUDE.md
+      once it is saved, as migrate does after its CLAUDE-SDLC.md merge. The
+      compliance audit's file completeness doesn't report the files the
+      adapter took as missing. No project action. Adapter action: in
+      knowledge-update, take the files upstream copied that the backend holds
+      (remove the copy, drop any installed_files entry); keep on disk what the
+      backend doesn't hold, and restore from the source, or list in
+      post-operation, a file off disk it doesn't hold; match CLAUDE.md in the post-file-write filter and
+      drop any CLAUDE.md transform done elsewhere at initialize.
