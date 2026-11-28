@@ -31,9 +31,10 @@ Throughout this migration, apply these transformations when copying or merging c
 <!-- MIRROR-SOURCE-START: sdlc-root-check -->
 ```bash
 # Files left on the old root: tracked or new unignored ones that still exist (a plain mv leaves
-# the old paths in the index until it is staged). Ignored leftovers don't count.
+# the old paths in the index until it is staged). Ignored leftovers don't count. -z lists each
+# path unquoted, so one with a space or a non-ASCII letter is tested as it is.
 if git rev-parse --git-dir >/dev/null 2>&1; then
-  OLD_ROOT=$(git ls-files --cached --others --exclude-standard -- .claude/sdlc | while read -r p; do [ -e "$p" ] && echo "$p"; done | head -3)
+  OLD_ROOT=$(git ls-files -z --cached --others --exclude-standard -- .claude/sdlc | while IFS= read -r -d '' p; do [ -e "$p" ] && printf '%s\n' "$p"; done | head -3)
 else
   OLD_ROOT=$( [ -e .claude/sdlc ] && echo .claude/sdlc )
 fi

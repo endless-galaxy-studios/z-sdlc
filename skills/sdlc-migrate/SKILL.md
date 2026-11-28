@@ -10,7 +10,8 @@ description: >
   "upgrade SDLC", "sync SDLC with upstream", "install the factory bundle", "add the design bundle",
   "install a bundle".
   Do NOT use for first-time installation — use sdlc-initialize.
-  Do NOT use when ops/sdlc/ doesn't exist — use sdlc-initialize.
+  Do NOT use when neither ops/sdlc/ nor .claude/sdlc/ exists — use sdlc-initialize. A project still on the
+  old .claude/sdlc/ root runs this skill: its pre-flight stops and says how to move to ops/sdlc/.
 ---
 
 # SDLC Migrate
@@ -62,9 +63,10 @@ Before starting, verify this is a migration (not initialization):
 <!-- MIRROR-START: path-mappings.md#sdlc-root-check -->
 ```bash
 # Files left on the old root: tracked or new unignored ones that still exist (a plain mv leaves
-# the old paths in the index until it is staged). Ignored leftovers don't count.
+# the old paths in the index until it is staged). Ignored leftovers don't count. -z lists each
+# path unquoted, so one with a space or a non-ASCII letter is tested as it is.
 if git rev-parse --git-dir >/dev/null 2>&1; then
-  OLD_ROOT=$(git ls-files --cached --others --exclude-standard -- .claude/sdlc | while read -r p; do [ -e "$p" ] && echo "$p"; done | head -3)
+  OLD_ROOT=$(git ls-files -z --cached --others --exclude-standard -- .claude/sdlc | while IFS= read -r -d '' p; do [ -e "$p" ] && printf '%s\n' "$p"; done | head -3)
 else
   OLD_ROOT=$( [ -e .claude/sdlc ] && echo .claude/sdlc )
 fi
@@ -217,7 +219,7 @@ When CD asks for a bundle by name ("install the factory bundle", or a headless c
 - **It isn't a pilot.** A bundle marked `"pilot": true` is installed by its own process doc's steps, not by this skill: say so, and stop (headless: `failed`).
 - **Nothing stands in for it.** Run §4.7's predecessor detection for it now. Its adopt-or-skip question goes to the Phase 1 decision point (§1.2a) with the others. Skip leaves the project as it is: nothing installed, nothing recorded as declined.
 
-A bundle that passes joins §2.0a's effective install set as installed, so Phase 2 installs it at `[target_tag]` like any installed bundle's files, together with the migration's own writes: every skill and process file, its `tree`, and each `seed` file the project has nothing at. Each of its fragments goes into its target file, by §2.1 step 7 when this run writes that file and otherwise as §4.7's install does, and the adapter's `post-file-write` follows each. Then its `render` runs (§2.0a, §2.1). Every file it brings is new to the project, so none is asked about as a deviation or as a file the project lacks. §4.5 records it in `installed_bundles` and `bundle_fragments` after its files are written, so a run that stops partway installs it again on the next run. When its process docs hold an `enable` runbook, §4.7 offers to start it.
+A bundle that passes joins §2.0a's effective install set as installed, so Phase 2 installs it at `[target_tag]` like any installed bundle's files, together with the migration's own writes: every skill and process file, its `tree`, and each `seed` file the project has nothing at. Each of its fragments goes into its target file per `[sdlc-root]/process/project-section-markers.md` § BUNDLE-SECTION Markers (by §2.1 step 7 when this run writes that file), and the adapter's `post-file-write` follows each. Then its `render` runs (§2.0a, §2.1). Every file it brings is new to the project, so none is asked about as a deviation or as a file the project lacks. §4.5 records it in `installed_bundles` and `bundle_fragments` after its files are written, so a run that stops partway installs it again on the next run. When its process docs hold an `enable` runbook, §4.7 offers to start it.
 
 ### 1.1 Identify Source Version
 
@@ -315,7 +317,7 @@ Surface drifted files in the §1.3 change manifest with a `⚠ DRIFT` marker so 
 
 **Why this matters:** Without drift detection, migration silently overwrites manual edits to framework files. With it, every unexpected edit gets surfaced and consented before being touched.
 
-**Deviations and marks are decided here too, before anything is written.** After the drift gate, run deviation detection (§2.1c) and the mark review (§2.1d), reading only, over the files Phase 2 will write, which §2.1 defines from the §1.1 change list: those upstream changed since `source_version`, those upstream added, every framework file in a full migration, a plugin guide that differs from the release's, and every file of a bundle this run installs (§1.0). Add every framework file the project lacks that isn't declined (§2.1c § A framework file the project lacks). Phase 2 writes nothing else, so a file it won't write isn't asked about; its unmarked changes come up when a release next changes it. Ask once per file: a drifted file's `drift_decision` is its deviation decision, a re-applied hunk is written as a mark (an addition or a replacement), never left bare, and a file kept unmarked by an earlier migration's rules (its hash is clean, its content differs from upstream at `source_version`) is asked about as a deviation. **The Phase 1 decision point:** put the §1.2 summary, its "Proceed with migration?", and every question this pass found to CD together, as one message: the summary first; then, per file, each question with its options and a proposed answer (a proposed mark's label, target and why written out, so CD can edit it in place); then Proceed / Stop. Interactive runs ask the file questions with `AskUserQuestion` (one question per file, an option per answer, CD's edits in its free-text field). **Run by a subagent,** which has no ask tool: stop with the decision point as a headless run does, and the orchestrator asks CD, one question per file as above, and passes the answers to the run that does Phase 2 (`[sdlc-root]/process/headless-mode.md` § Subagents). Log each answer with what Phase 2 needs to act on it (`gate` for proceed; `deviation_decision` with each mark's label, target and why; `marker_review_decision`). Phase 2 writes the marks and applies the decisions, and asks nothing. **Headless:** ask nothing: the decision point is the approval gate of migrate's change plan (`[sdlc-root]/process/headless-mode.md`, the Approval gate row). Put the plan in the result in full: the §1.2 summary, and every drift, deviation, mark and missing-file question with its proposed answer (each mark's label, target and why). Stop with `awaiting-approval`, nothing written to the project's files. The next run executes exactly what CD approved, and stops again if the project changed since.
+**Deviations and marks are decided here too, before anything is written.** After the drift gate, run deviation detection (§2.1c) and the mark review (§2.1d), reading only, over the files Phase 2 will write, which §2.1 defines from the §1.1 change list: those upstream changed since `source_version`, those upstream added, every framework file in a full migration, a plugin guide that differs from the release's, every file of a bundle this run installs (§1.0), and each skill or process doc an installed bundle lists that the project lacks (§2.0a). Add every framework file the project lacks that isn't declined (§2.1c § A framework file the project lacks). Phase 2 writes nothing else, so a file it won't write isn't asked about; its unmarked changes come up when a release next changes it. Ask once per file: a drifted file's `drift_decision` is its deviation decision, a re-applied hunk is written as a mark (an addition or a replacement), never left bare, and a file kept unmarked by an earlier migration's rules (its hash is clean, its content differs from upstream at `source_version`) is asked about as a deviation. **The Phase 1 decision point:** put the §1.2 summary, its "Proceed with migration?", and every question this pass found to CD together, as one message: the summary first; then, per file, each question with its options and a proposed answer (a proposed mark's label, target and why written out, so CD can edit it in place); then Proceed / Stop. Interactive runs ask the file questions with `AskUserQuestion` (one question per file, an option per answer, CD's edits in its free-text field). **Run by a subagent,** which has no ask tool: stop with the decision point as a headless run does, and the orchestrator asks CD, one question per file as above, and passes the answers to the run that does Phase 2 (`[sdlc-root]/process/headless-mode.md` § Subagents). Log each answer with what Phase 2 needs to act on it (`gate` for proceed; `deviation_decision` with each mark's label, target and why; `marker_review_decision`). Phase 2 writes the marks and applies the decisions, and asks nothing. **Headless:** ask nothing: the decision point is the approval gate of migrate's change plan (`[sdlc-root]/process/headless-mode.md`, the Approval gate row). Put the plan in the result in full: the §1.2 summary, and every drift, deviation, mark and missing-file question with its proposed answer (each mark's label, target and why). Stop with `awaiting-approval`, nothing written to the project's files. The next run executes exactly what CD approved, and stops again if the project changed since.
 
 **Back-fill path (projects initialized before `installed_files` was introduced):**
 
@@ -348,7 +350,7 @@ Group the changed z-sdlc files by migration strategy:
 | **Plugin guides** | `plugins/*.md` | Direct copy to `[sdlc-root]/plugins/` (framework-level; §4.4b's readiness check lives there) |
 | **Framework agents** | `agents/sdlc-reviewer.md`, `agents/sdlc-compliance-auditor.md` | Direct copy to `.claude/agents/`, keeping the project's marks (§2.1). Phase 3 updates the project's own agents |
 | **Playbooks, examples, READMEs** | `playbooks/*.md`, `examples/*.md`, `README.md`, `knowledge/README.md`, `knowledge/**/README.md` | Direct copy, keeping the project's marks; a playbook upstream never had is the project's (§2.1) |
-| **Bundle files** | An installed bundle's `skills`, `process`, `tree`, `seed` and `fragments` (`skeleton/manifest.json` → `bundles`) | Skills and process docs as their type above; `tree` files direct copy, refreshed; `seed` files never overwritten; fragments re-injected fresh (`BUNDLE-SECTION`, §2.1 step 7). A bundle not installed is left alone, unless CD asked to install it (§1.0) |
+| **Bundle files** | An installed bundle's `skills`, `process`, `tree`, `seed` and `fragments` (`skeleton/manifest.json` → `bundles`) | Skills and process docs as their type above, and one the project lacks copied back, since a bundle is declined whole (§2.0a); `tree` files direct copy, refreshed; `seed` files never overwritten; fragments re-injected fresh (`BUNDLE-SECTION`, §2.1 step 7). A bundle not installed is left alone, unless CD asked to install it (§1.0) |
 | **Declined files** | Any path in `.sdlc-manifest.json` → `declined_files` | Never copied or asked about; upstream's changes to one are reported (`[sdlc-root]/process/project-section-markers.md` § Deleted Files) |
 
 ---
@@ -426,8 +428,8 @@ Before any file copying, compute the **effective install set** for this project 
 
 **Rules:**
 
-- **Never remove** installed bundle skills, even when a bundle is detected as only partially installed. The project chose its subset; migration preserves that choice.
-- **A skill or process doc an installed bundle gained since `source_version` is new, not declined:** install it like any new file and list it in the report. Tell the two apart by the bundle's manifest entry at `source_version`: a file it listed then that the project lacks now is the project's choice and stays absent; a file it didn't list then is new. A bundle this run installs (§1.0) has no such choice yet: every file it lists is copied.
+- **Never remove** installed bundle skills, even when a bundle is detected as only partially installed.
+- **A skill or process doc an installed bundle lists that the project lacks is copied**, whether the bundle gained it since `source_version` or listed it then and the project deleted it: a bundle is declined whole, by staying out of `installed_bundles`, never file by file (§2.1c; `[sdlc-root]/process/project-section-markers.md` § Deleted Files). So a bundle the fallback above marked installed from some of its skills gets the rest. None is asked about; list each in the §1.2 summary and the report (§4.6). A bundle this run installs (§1.0) is copied whole the same way.
 - Bundle skill paths are **exempt from §2.1a "Remove Deleted and Moved Files"** — they are not considered upstream-deleted even though they live outside `source_files.skills`. Bundle `process` paths get the same exemption.
 - Bundle skills are **eligible for §2.1 direct-copy updates**: if the bundle is installed, its skill files propagate upstream changes the same way `source_files` skills do. Bundle `process` files likewise.
 - Bundle `fragments` are **refreshed, not preserved**: §2.1's marker step discards any existing `BUNDLE-SECTION` blocks in a target file and injects the current fragment content from the z-sdlc source (step 7 of the marker-preservation flow below). Hand-edits inside `BUNDLE-SECTION` markers are lost by design — see `[sdlc-root]/process/project-section-markers.md` § BUNDLE-SECTION Markers.
@@ -442,7 +444,7 @@ Before any file copying, compute the **effective install set** for this project 
 
 **Step 0 — Load exclusion list before any writes.** Read `[sdlc-root]/process/path-mappings.md` § "Project-Specific Files (Never Overwrite)". For every file about to be written in this phase, confirm it does NOT appear on that list. If it does, skip it — no exceptions, no "I'll just update the header" rationalizations. Current exclusions: `agent-selection.yaml`, `agent-context-map.yaml`, `provenance_log.md`, `sdlc_changelog.md`, `process/changelog-archive/`, and the project's `.claude/skills/verify/`.
 
-**Which files are written:** only the set the Phase 1 pass checked (§1.2a), never a declined one (`declined_files`): a file upstream changed since `source_version`, one upstream added that the project lacks, one CD chose to restore, every framework file in a full migration, a plugin guide that differs from `[target_tag]`'s with its marks set aside, and every file of a bundle this run installs (§1.0). A file outside that set isn't touched, even when it differs from upstream: its unmarked changes are asked about when a release next changes it, and the audit (§4.4, 7c) reports them meanwhile. Within the set, copy each one directly from z-sdlc to the project's `[sdlc-root]/` directory, applying its Phase 1 decision and keeping its marks, and none the adapter took (Pre-Flight Check, Step 2, The knowledge layer is the adapter's):
+**Which files are written:** only the set the Phase 1 pass checked (§1.2a), never a declined one (`declined_files`): a file upstream changed since `source_version`, one upstream added that the project lacks, one CD chose to restore, every framework file in a full migration, a plugin guide that differs from `[target_tag]`'s with its marks set aside, every file of a bundle this run installs (§1.0), and each skill or process doc an installed bundle lists that the project lacks (§2.0a). A file outside that set isn't touched, even when it differs from upstream: its unmarked changes are asked about when a release next changes it, and the audit (§4.4, 7c) reports them meanwhile. Within the set, copy each one directly from z-sdlc to the project's `[sdlc-root]/` directory, applying its Phase 1 decision and keeping its marks, and none the adapter took (Pre-Flight Check, Step 2, The knowledge layer is the adapter's):
 
 - `process/*.md`, top level only (excluding `agent-selection.yaml` and `sdlc_changelog.md` — project-specific, protected by Step 0). Never copy `process/changelog-archive/`: it's z-sdlc's history
 - `skills/*/scripts/*` (manifest-listed) → `.claude/skills/*/scripts/`
@@ -976,6 +978,8 @@ Log all applied changes in the migration report (§4.6). Log all skipped finding
 
 ### 4.1 File Path Integrity
 
+**Adapter delegation:** When the knowledge layer is the adapter's (Pre-Flight Check, Step 2, The knowledge layer is the adapter's), there's no map to check: skip the loop below, and write the report's map line as `n/a (no map: the adapter holds the knowledge layer)`. With a map on disk, run it as usual.
+
 ```bash
 # Verify all agent-context-map paths resolve
 for path in $(grep -E '^\s+- ' [sdlc-root]/knowledge/agent-context-map.yaml | sed 's/.*- //'); do
@@ -1034,7 +1038,7 @@ The project's `CLAUDE.md` contains CLAUDE-SDLC.md content — skill names, proce
 > Run a compliance audit focused on migration integrity. Check all 9 dimensions, with special attention to:
 > - Dimension 7 (Migration Integrity): All framework files match the z-sdlc source at [target_tag], except where this run's decisions say otherwise: files CD skipped, drift CD kept, marked replacements and removals, values the project sets, and adapter-transformed text. Those differences are expected; pass the list: [decisions from the transaction log]. When the knowledge layer is the adapter's, the files it took under `[sdlc-root]/knowledge/` and `[sdlc-root]/disciplines/` have no copy on disk and no `installed_files` entry, and aren't missing: pass their paths: [files the adapter took]
 > - No orphaned files from previous versions remain
-> - Agent-context-map paths all resolve
+> - Agent-context-map paths all resolve (n/a when the knowledge layer is the adapter's: there's no map)
 > - Content-merge preserved project data (tracker levels, parking lot entries, skill customizations)
 > - CLAUDE-SDLC.md references in CLAUDE.md are valid
 > - `.claude/agents/sdlc-compliance-auditor.md` is present and current
@@ -1074,8 +1078,8 @@ After migration, update `.sdlc-manifest.json`:
    - **Any field added by a `manifest_field_added` contract entry in pending_changes** — apply its `default` value
 2b. **Refresh the `adapter` block** (when it isn't null) as Pre-Flight's adapter detection resolved it: `supported_zsdlc_version` from the live `adapter.json` under the new key, `plugin` as the full id the lookup matched (`<name>@<marketplace>`), and no `plugin_root` that is absolute or outside the project (`[sdlc-root]/process/adapter-lifecycle-protocol.md` § Detection during migration). An adapter's `post-operation` check compares against these values.
 3. **Refresh `installed_files` hashes.** For every file the migration just touched — direct copies, content-merges, drift resolutions — recompute SHA-256 of the final on-disk content and update the corresponding entry. For drift cases where CD chose "keep mine", record the current hash so the next migration sees a clean baseline. For files CD chose to overwrite with upstream, the new hash reflects the upstream content. This keeps drift detection accurate for the next migration. A file the adapter took during this run (its `knowledge-update` removed the copy) gets no entry, and an entry it had is dropped.
-4. **Update `installed_bundles`** to include each bundle this run installed: those CD asked for (§1.0) and those CD accepted in §4.7.
-4a. **Update `bundle_fragments`** to reflect every `BUNDLE-SECTION` fragment injected this run (§2.1 step 7, and §1.0 and §4.7 installs): label `bundle/fragment` → target path. Remove entries for fragments upstream no longer declares (their blocks were stripped by §2.1 step 7's strip pass and not re-added).
+4. **Update `installed_bundles`** to include each bundle this run installed (§1.0). A debut CD accepts in §4.7 is recorded by its own bundle-only run.
+4a. **Update `bundle_fragments`** to reflect every `BUNDLE-SECTION` fragment injected this run (§2.1 step 7, and §1.0's installs): label `bundle/fragment` → target path. Remove entries for fragments upstream no longer declares (their blocks were stripped by §2.1 step 7's strip pass and not re-added).
 4b. **Update `declined_files`** from the run's decisions: add each file CD kept removed (`{"why": ..., "decided": "CD, <date>"}`), drop each one CD took back or upstream deleted, and move each one upstream moved. A declined file has no `installed_files` entry: drop it there.
 4c. **Set `file_count`** to the number of `installed_files` entries after steps 2 to 4b, as `sdlc-initialize` counts it (add the field if the manifest lacks it).
 5. **Update `last_applied_contract_id`** to the newest `id` in `contract_changes.yaml`. Do this only after §4.3a, §4.7, and every other pending-change consumer has run successfully — if any of them failed, leave the old id so the next migration retries.
@@ -1161,12 +1165,12 @@ This is automatic (contract 0017): don't ask CD. Exit 2 means the files didn't p
 - Knowledge spec_relevant upstream upgrades: N [list files where upstream is now `true` — review recommended]
 - Knowledge files removed (moved/deleted in source): N [list old paths]
 - Declined files (`declined_files`): N kept · upstream changed: [list — remove an entry to take one back] · recorded this run: [list] · taken back: [list]
-- New agent roles added to context-map: N [list roles]
+- New agent roles added to context-map: N [list roles] (n/a when the adapter holds the knowledge layer, §3.3)
 - Process docs updated: N (direct copy, excluding agent-selection.yaml)
 - Templates updated: N (direct copy, excluding templates/optional/)
 - Agent template updated: yes/no
 - Agents updated: N (Knowledge Context / Communication Protocol sections)
-- Agent-context-map paths updated: N (moved/removed file paths corrected)
+- Agent-context-map paths updated: N (moved/removed file paths corrected; n/a when the adapter holds the knowledge layer, §3.3)
 - Auditor updated: yes/no
 - Plugin setup guides added: N [list new plugin setup files — recommend installation to user]
 - CLAUDE-SDLC.md merged into CLAUDE.md: yes/no/not needed
@@ -1219,6 +1223,7 @@ This is automatic (contract 0017): don't ask CD. Exit 2 means the files didn't p
 
 ### Bundles
 - Installed on request (§1.0): [each bundle: its files written, its render's result, its `enable` runbook if it has one] / none
+- Copied back (§2.0a): [each skill or process doc an installed bundle lists that the project lacked] / none
 - After migrating (§2.0a): [each item a bundle's `## After migrating` section makes due, with CD's step] / nothing due
 - Open runbooks: [each installed bundle's `enable` runbook whose record isn't done, and each `setup` runbook whose record isn't done or declined: id, Status ("no record yet" when there's none), Next; continue with `sdlc-run-runbook <id>`] / none
 
@@ -1228,7 +1233,7 @@ This is automatic (contract 0017): don't ask CD. Exit 2 means the files didn't p
 - Playwright MCP: [installed / not applicable (no UI) / NOT INSTALLED — see [sdlc-root]/plugins/playwright-mcp-setup.md]
 
 ### Verification
-- All agent-context-map paths resolve: yes/no
+- All agent-context-map paths resolve: yes/no (n/a when the adapter holds the knowledge layer, §4.1)
 - All agents have Knowledge Context: yes/no
 - Spot-check passed: yes/no
 - Post-migration audit: passed/findings fixed (auditor dispatched automatically in §4.4)
@@ -1261,7 +1266,7 @@ For each such bundle:
 
 **Predecessor detection for bundles carrying a `tree`:** if the project already has files under `tree.to` (it incubated the bundle, or copied it), offer **adopt**: list every tree file whose content differs from the project's copy, with the diff, and on CD's yes replace them; leave the files at seed paths and any files the bundle doesn't list as they are; then render. **Skip** leaves everything alone and declines the bundle. A bundle whose `requires` the project doesn't meet (an `sdlc_root` other than the one required) is not offered; log why.
 
-If CD accepts: copy the bundle's skills and `process` files into the project (same direct-copy flow as §2.1), its `tree` files and any absent `seed` files (§2.0a), run its `render` command, inject its `fragments` into their target files per `[sdlc-root]/process/project-section-markers.md` § BUNDLE-SECTION Markers, **then** append the bundle name to `installed_bundles` and its fragments to `bundle_fragments` (§4.5 steps 4/4a), and log the install in the migration report. If the bundle's process docs hold an `enable` runbook (a `**Runbook:**` marker line, `[sdlc-root]/process/runbooks.md`), tell CD and offer to start it now with `sdlc-run-runbook <id>`, or in any later session — installing without enabling is valid and leaves the bundle inert. **Headless run:** offer nothing; list each runbook's id in the result.
+If CD accepts: install it after this run's own steps, as a bundle-only run of that one bundle (§1.0, and §1.1's bundle-only run). §4.5 has put the project on `[target_tag]`, and CD's yes here, with any predecessor answer, is that run's Phase 1 decision point: §1.0's other checks still run, and one that fails stops that install, not this run. It writes the bundle's files with the adapter's `post-file-write` after each, runs its `render`, dispatches §4.4's auditor and the adapter's `post-operation` (§4.4a) over what it wrote, records the bundle in `installed_bundles` and `bundle_fragments` once its files are written (§4.5 steps 4 and 4a), adds its own changelog entry (§4.5b) and reports (§4.6). It is a run of its own, with its own run ID (§ Transaction Log), so an adapter's snapshot, counts and undo cover only that bundle's files. It makes no §4.7 offers of its own. Several accepted bundles are installed one run each, in the order offered. Run by a subagent, the run the orchestrator starts with CD's answers does the installs. If the bundle's process docs hold an `enable` runbook (a `**Runbook:**` marker line, `[sdlc-root]/process/runbooks.md`), tell CD and offer to start it now with `sdlc-run-runbook <id>`, or in any later session — installing without enabling is valid and leaves the bundle inert. **Headless run:** offer nothing; list each runbook's id in the result.
 
 A bundle this run installed on request (§1.0) gets the same `enable` runbook offer here, before the debut offers.
 

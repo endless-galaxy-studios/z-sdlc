@@ -338,8 +338,10 @@ The instructions are prose that upstream's skill reads and follows — same patt
         Run upstream's key-level merge (unchanged)
 
   A bundle-only run (§ 1.0: a bundle CD asked for, the project already on
-  the latest release) writes only the bundle's files: post-file-write
-  follows each as above, and knowledge-update doesn't run
+  the latest release, or a debut CD accepted at § 4.7, after the
+  migration) writes only the bundle's files: post-file-write follows each
+  as above, and knowledge-update doesn't run. It has its own run ID, and
+  its Phase 4 runs post-operation again, over what it wrote
 
 § Phase 4: Verification
   ... existing verification (4.1–4.4) ...

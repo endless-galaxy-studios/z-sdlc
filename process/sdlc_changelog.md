@@ -37,6 +37,53 @@ Each entry contains:
 
 ---
 
+## 2026-11-28: Migrate copies back a bundle file the project lacks, and installs an accepted debut as its own run
+
+**Origin:** CD directive ("Yes the fixes go into the next version", 2026-11-28). Both gaps were found while writing the 2026-11-27 entry below.
+
+**What happened:**
+- **Two rules disagreed about a bundle file the project lacks.**
+  - §2.0a (2026-11-16) said one the bundle listed at `source_version` was the project's choice and stayed absent.
+  - §2.1c and `project-section-markers.md` (2026-11-20) said it is copied back, since a bundle is declined whole.
+  - The later rule is the one the declined-files design rests on.
+- **A debut CD accepted was installed after the manifest was written.** §4.7 runs after §4.5, so its install wrote files the audit (§4.4) and the adapter's `post-operation` (§4.4a) never saw. It also pointed at §4.5's steps 4 and 4a, which had already run.
+
+**Changes made:**
+
+1. **`skills/sdlc-migrate/SKILL.md`:**
+   - **§2.0a:** a skill or process doc an installed bundle lists that the project lacks is copied, whether it is new since `source_version` or the project deleted it, because a bundle is declined whole, never file by file. None is asked about. Each is listed in the §1.2 summary and in the report's new "Copied back" line (§4.6). §1.2a's and §2.1's write sets and §1.3's Bundle files row include them.
+   - **§4.7:** an accepted debut is installed after the migration's own steps, as a bundle-only run of that one bundle (§1.0, §1.1). CD's yes, with any predecessor answer, is that run's decision point. The run writes the files with `post-file-write`, runs the render, the audit and `post-operation`, records the bundle in §4.5, adds its own changelog entry and reports. It has its own run ID, so an adapter's snapshot, counts and undo cover only that bundle's files. It makes no offers of its own.
+   - **§1.0:** a fragment goes in per `project-section-markers.md` § BUNDLE-SECTION Markers, no longer "as §4.7's install does".
+   - **§4.5:** steps 4 and 4a name only §1.0's installs.
+2. **`process/adapter-lifecycle-protocol.md`:** a bundle-only run also follows an accepted debut. It has its own run ID, and its Phase 4 runs `post-operation` again.
+
+**Rationale:** Patch: both fixes resolve a contradiction inside existing contracts, and neither needs a `[contract-change]` entry. One behaviour changes. A project the pre-bundles fallback marked installed from some of a bundle's skills gets the rest on its next migration, listed in the change plan before anything is written.
+
+---
+
+## 2026-11-28: The adapter-held knowledge layer, the old root and quoted paths, from the adapter's 3.0.0 review
+
+**Origin:** Four handoffs from the adapter session, raised after a Neuroloom-backed project's migration to z-sdlc 3.0.0. CD directive ("Yes the fixes go into the next version", 2026-11-28).
+
+**What happened:**
+- **The audit's adapter-took test had three of migrate's four conditions.** Without "was in upstream's `source_files` at `source_version`", 7b read a file upstream added that never got copied as one the adapter took. A migration's audit is also judged against the release it migrated to, where that condition can't tell the two apart.
+- **§4.1 checked a map that isn't there.** With the knowledge layer the adapter's, §3.3 skipped the map, but §4.1's loop still read it. With no map the loop checked nothing, and the report said "yes".
+- **The description sent an old-root project to initialize.** A project on `.claude/sdlc/` has no `ops/sdlc/`, and the description said to use `sdlc-initialize` then. The pre-flight check exists to stop that project and say how to move it. No skill does the move: CD does.
+- **The root check missed quoted paths.** With git's default `core.quotePath`, `ls-files` C-quotes a path with a non-ASCII letter, a tab or a quote, so `[ -e "$p" ]` tested the quoted string and missed the file.
+
+**Changes made:**
+
+1. **`skills/sdlc-audit/references/compliance-methodology.md` 7b and `agents/sdlc-compliance-auditor.md` (Migration integrity):** the fourth condition, worded as in `sdlc-migrate` Step 2. A migration's audit (§4.4) uses the list of files the adapter took that the migration passes, and any other file off disk is missing.
+2. **`skills/sdlc-migrate/SKILL.md`:**
+   - **§4.1:** an adapter line like §3.3's skips the loop when the knowledge layer is the adapter's. The report line reads `n/a` then. The line cites Step 2's condition by its name and doesn't name the map file, so an adapter's transforms and scans for that file leave it alone.
+   - **Report and audit:** §3.3's two report lines and §4.4's "Agent-context-map paths all resolve" bullet say `n/a` in the same case. Each keeps its opening words.
+   - **The description:** it sends a project to `sdlc-initialize` only when neither `ops/sdlc/` nor `.claude/sdlc/` exists. A project on the old root runs migrate, whose pre-flight says how to move.
+3. **`process/path-mappings.md` § The SDLC Root (MIRROR source `sdlc-root-check`), and its copies in `sdlc-migrate` and `sdlc-initialize`:** `git ls-files -z` with `while IFS= read -r -d ''`. `-z` lists every path unquoted whatever `core.quotePath` says. Tested in bash and zsh with git's default quoting forced on: the old line found only an ASCII path with a space, and the new one found the non-ASCII and tab paths too. It printed nothing once the files had moved.
+
+**Rationale:** Patch: fixes within existing contracts, with no `[contract-change]` entry. The phrasing contract is unchanged. Each changed line the adapter pins keeps its opening words, and the adapter re-pins the changed text in its release that supports 3.1.0.
+
+---
+
 ## 2026-11-27: Migrate installs a bundle CD names, including on a project already on the latest release
 
 **Origin:** CD directive ("Yes", 2026-11-27). A project on v3.0.0 that wanted the factory bundle found no way to install it.
