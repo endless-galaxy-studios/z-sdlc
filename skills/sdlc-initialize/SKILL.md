@@ -289,7 +289,7 @@ Read `skeleton/manifest.json` from the z-sdlc source. This manifest defines the 
 > Install it?
 >
 > - Yes — include in this installation
-> - No — skip (you can add it later via `/sdlc-migrate`)
+> - No — skip (you can add it later: ask `sdlc-migrate` to install it by name)
 
 Record the accepted bundles. The effective install set adds every accepted bundle's `skills` and `process` files to the corresponding `source_files` lists. After all Phase 1 file copies complete, inject each accepted bundle's `fragments` into their target files per `[sdlc-root]/process/project-section-markers.md` § BUNDLE-SECTION Markers: strip any block with the same label, append the fragment content at end of file wrapped in `BUNDLE-SECTION-START/END: [bundle]/[fragment]` markers. Fragment injection counts as a file write — if an adapter declares `post-file-write`, run it on the target after injection.
 

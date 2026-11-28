@@ -37,6 +37,46 @@ Each entry contains:
 
 ---
 
+## 2026-11-27: Migrate installs a bundle CD names, including on a project already on the latest release
+
+**Origin:** CD directive ("Yes", 2026-11-27). A project on v3.0.0 that wanted the factory bundle found no way to install it.
+
+**What happened:**
+- **Migrate stopped before bundles.** On a project already on the latest release, Phase 1 reported "nothing to migrate" and stopped. A migration offers only bundles that debuted since the project's last one (§4.7), and the factory debuted long ago.
+- **The documented fallback wasn't a defined install.** §4.7 said CD could opt in later by adding the bundle to `installed_bundles` by hand, for the next migration to honor. Its `tree` files would be copied, as they are for any bundle listed there. For its skills and process docs, two sections disagree:
+  - §2.0a treats one the bundle listed at `source_version` as left out on purpose, so it stays absent;
+  - §2.1c says a bundle file the project lacks is copied back, since a bundle is declined whole.
+
+  `sdlc-initialize`'s "add it later via `/sdlc-migrate`" pointed at the same fallback.
+
+**Changes made:**
+
+1. **`skills/sdlc-migrate/SKILL.md`:**
+   - **§1.0, new: a bundle CD names is installed.** This holds even if CD declined its debut offer before. Migrate first checks:
+     - that the manifest lists it;
+     - that it isn't installed already (one that stopped partway is installed again);
+     - that its `requires` hold, asking whether to add a required bundle;
+     - that it isn't a pilot.
+     It then runs the predecessor check. Its question goes to the Phase 1 decision point. Phase 2 installs the bundle at `[target_tag]` through the ordinary install set: every skill and process file, the tree, the absent seeds, the fragments and the render. The adapter's `post-file-write` runs on each file, and none is asked about as a deviation. §4.5 records the bundle last.
+   - **§1.1: a bundle-only run.** On the latest release with a bundle named, the run writes only the bundle's files. There's no drift or deviation pass over the rest, no merges and no `knowledge-update`. Phase 4 runs as usual, and `source_version` stays.
+   - **§2.0a and §2.1:** a bundle installed this run gets every file and seed it lists. Phase 2's set of files to write, and the Phase 1 pass over it, include them. The Bundle files row of §1.3's table says so.
+   - **§4.5:** steps 4 and 4a record §1.0's installs.
+   - **§4.6:** the report lists them, and the commit line gains a form for a bundle-only run.
+   - **§4.7:** a requested bundle gets its `enable` runbook offer. The hand-edit fallback is replaced by asking for the bundle by name.
+   - **The description:** gains the install triggers.
+2. **`skills/sdlc-initialize/SKILL.md`** — Phase 1b's decline option says to ask `sdlc-migrate` to install the bundle by name.
+3. **`process/headless-mode.md`** — § Integration lists §1.0's stops:
+   - an unknown bundle, an `sdlc_root` its `requires` doesn't allow, or a pilot bundle → `failed`;
+   - a required bundle not installed → `needs-input`.
+4. **`process/adapter-lifecycle-protocol.md`** — The migrate outline: a bundle-only run writes only the bundle's files, with `post-file-write` on each and no `knowledge-update`.
+
+**Rationale:**
+- **A bundle is opt-in at any time, not only at its debut.** Before this, a project that declined or skipped the offer had no way back short of copying files by hand.
+- **A project on an earlier copy asks for the bundle when it runs `sdlc-migrate`.** Pre-Flight Step 1c then follows this release's `sdlc-migrate`, so the install runs within that migration.
+- **Release type: minor.** It's a new mode of an existing skill. There's no contract entry: nothing changes on an existing install until CD names a bundle. Its adapter phases are the ones a migration already runs, so an adapter declaring 3.0.0 passes the version gate.
+
+---
+
 ## 2026-11-25: An adapter may report upstream's changes to a knowledge YAML it keeps on disk instead of merging them
 
 **Origin:** neuroloom-sdlc's maintainers, after redoing their 0.7.0 against v3.0.0, found a gap between the protocol and the plugin. CD chose to match the docs to the plugin ("1"), on master, with v3.0.0's tag left where it is.

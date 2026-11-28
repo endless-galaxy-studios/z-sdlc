@@ -337,6 +337,10 @@ The instructions are prose that upstream's skill reads and follows — same patt
     → Else:
         Run upstream's key-level merge (unchanged)
 
+  A bundle-only run (§ 1.0: a bundle CD asked for, the project already on
+  the latest release) writes only the bundle's files: post-file-write
+  follows each as above, and knowledge-update doesn't run
+
 § Phase 4: Verification
   ... existing verification (4.1–4.4) ...
   → If adapter declares post-operation:
